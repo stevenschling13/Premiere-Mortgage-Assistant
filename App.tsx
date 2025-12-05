@@ -1,3 +1,5 @@
+
+
 import React, { useState, createContext, useContext, useCallback } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Calculator } from './components/Calculator';
@@ -31,11 +33,11 @@ const App: React.FC = () => {
 
   const showToast = useCallback((message: string, type: ToastType) => {
     const id = Date.now().toString();
-    setToasts((prev) => [...prev, { id, message, type }]);
+    setToasts(prev => [...prev, { id, message, type }]);
   }, []);
 
   const removeToast = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
+    setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
   const renderContent = () => {
@@ -67,25 +69,26 @@ const App: React.FC = () => {
 
         {/* Mobile Sidebar Overlay */}
         {isSidebarOpen && (
-          <div
+          <div 
             className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm"
             onClick={() => setIsSidebarOpen(false)}
           />
         )}
 
         {/* Sidebar Navigation */}
-        <Sidebar
-          currentView={currentView}
+        <Sidebar 
+          currentView={currentView} 
           onChangeView={(view) => {
             setCurrentView(view);
             setIsSidebarOpen(false);
-          }}
+          }} 
           isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
         />
 
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col md:ml-64 h-screen transition-all duration-300 w-full relative bg-gray-50/50">
+          
           {/* Mobile Header */}
           <div className="md:hidden bg-brand-dark text-white p-4 flex items-center justify-between shadow-md shrink-0 z-30">
             <div className="flex items-center space-x-2">
@@ -95,7 +98,7 @@ const App: React.FC = () => {
                 <span className="text-[10px] text-gray-400 block leading-none mt-0.5">Mortgage Division</span>
               </div>
             </div>
-            <button
+            <button 
               onClick={() => setIsSidebarOpen(true)}
               className="p-2 text-gray-300 hover:text-white focus:outline-none"
             >

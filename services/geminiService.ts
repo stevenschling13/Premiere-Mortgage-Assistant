@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { Client, CommandIntent, EmailLog } from "../types";
 
-const SYSTEM_INSTRUCTION = `You are the "Premiere Private Banking Assistant", an elite AI designed for high-net-worth mortgage banking.
+const SYSTEM_INSTRUCTION = `You are the "Premiere Private Banking Assistant", an elite AI designed for high-net-worth mortgage banking. 
 Your demeanor is sophisticated, precise, and anticipatory.
 
 **Your User's Context (The "Unicorn" Role)**:
@@ -22,21 +22,11 @@ Your demeanor is sophisticated, precise, and anticipatory.
 -   **Compliance**: Never provide binding tax or legal advice. Always add a disclaimer when discussing specific rates or approvals.
 `;
 
-export const createGeminiClient = () => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("Missing Gemini API key. Set VITE_GEMINI_API_KEY in your environment.");
-  }
-
-  return new GoogleGenAI({ apiKey });
-};
-
 // --- Text Generation & Chat ---
 
 export const generateEmailDraft = async (client: Client, topic: string, specificDetails: string) => {
   try {
-    const ai = createGeminiClient();
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const prompt = `Draft a high-touch email for private banking client: ${client.name}.
     
     **Client Context**:
@@ -65,7 +55,7 @@ export const generateEmailDraft = async (client: Client, topic: string, specific
 
 export const generateMarketingContent = async (channel: string, topic: string, tone: string, context?: string) => {
   try {
-    const ai = createGeminiClient();
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const prompt = `Act as a Senior Marketing Director for a Luxury Mortgage Division.
     Create content for: ${channel}.
     Topic: ${topic}.
@@ -92,7 +82,7 @@ export const generateMarketingContent = async (channel: string, topic: string, t
 
 export const analyzeCommunicationHistory = async (clientName: string, history: EmailLog[]) => {
   try {
-    const ai = createGeminiClient();
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     // Sort chronologically for analysis context to understand the arc
     const sortedHistory = [...history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const historyText = sortedHistory.map(h => `[${new Date(h.date).toLocaleDateString()}] ${h.subject}: ${h.body.substring(0, 200)}...`).join('\n');
@@ -122,7 +112,7 @@ export const analyzeCommunicationHistory = async (clientName: string, history: E
 
 export const chatWithAssistant = async (history: Array<{role: string, parts: Array<{text: string}>}>, message: string) => {
   try {
-    const ai = createGeminiClient();
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const chat = ai.chats.create({
       model: 'gemini-2.5-flash', // Flash is best for Search Grounding per guidelines
       history: history,
@@ -154,7 +144,7 @@ export const chatWithAssistant = async (history: Array<{role: string, parts: Arr
 
 export const analyzeLoanScenario = async (scenarioData: string) => {
   try {
-    const ai = createGeminiClient();
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     // Using Gemini 3 Pro with Thinking Budget for complex risk assessment
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
@@ -183,7 +173,7 @@ export const analyzeLoanScenario = async (scenarioData: string) => {
 
 export const analyzeRateTrends = async (rates: any) => {
   try {
-    const ai = createGeminiClient();
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const prompt = `Analyze these daily par rates for a Morning Rate Sheet header:
     - 30-Yr Conforming: ${rates.conforming30}%
     - 30-Yr Jumbo: ${rates.jumbo30}%
@@ -205,7 +195,7 @@ export const analyzeRateTrends = async (rates: any) => {
 
 export const synthesizeMarketNews = async (newsItems: any[]) => {
   try {
-    const ai = createGeminiClient();
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const headlines = newsItems.map(n => `- ${n.title}: ${n.summary}`).join('\n');
     const prompt = `Synthesize these headlines into a concise "Market Flash" (bullet points) for high-net-worth clients.
     ${headlines}`;
@@ -226,7 +216,7 @@ export const synthesizeMarketNews = async (newsItems: any[]) => {
 
 export const analyzeIncomeProjection = async (clients: Client[], currentCommission: number) => {
     try {
-        const ai = createGeminiClient();
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const pipelineData = clients.map(c => 
             `- ${c.name}: $${c.loanAmount} (${c.status})`
         ).join('\n');
@@ -265,7 +255,7 @@ export const analyzeIncomeProjection = async (clients: Client[], currentCommissi
 
 export const transcribeAudio = async (base64Audio: string, mimeType: string = 'audio/webm'): Promise<string> => {
     try {
-        const ai = createGeminiClient();
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: {
@@ -284,7 +274,7 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string = 'a
 
 export const generateSpeech = async (text: string): Promise<string> => {
     try {
-        const ai = createGeminiClient();
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
             contents: { parts: [{ text: text }] },
@@ -310,7 +300,7 @@ export const generateSpeech = async (text: string): Promise<string> => {
 // --- Voice Command Parser ---
 export const parseNaturalLanguageCommand = async (transcript: string): Promise<CommandIntent> => {
   try {
-    const ai = createGeminiClient();
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const prompt = `
       You are a command parser for a Mortgage CRM. Convert the user's natural language request into a specific JSON Action.
       
