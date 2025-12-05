@@ -1,0 +1,7 @@
+{
+  "name": "Premiere Mortgage Assistant",
+  "description": "A professional AI-powered workspace for Private Mortgage Bankers to manage clients, calculate complex loan scenarios, and draft client communications.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
