@@ -1,4 +1,5 @@
 
+
 import React, { useState, createContext, useContext, useCallback } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Calculator } from './components/Calculator';
@@ -7,6 +8,7 @@ import { Assistant } from './components/Assistant';
 import { DtiAnalysis } from './components/DtiAnalysis';
 import { RatesNotes } from './components/RatesNotes';
 import { MarketingStudio } from './components/MarketInsights';
+import { CompensationTracker } from './components/CompensationTracker';
 import { ToastContainer } from './components/Toast';
 import { AppView, ToastMessage, ToastType } from './types';
 import { Menu, Building2 } from 'lucide-react';
@@ -50,6 +52,8 @@ const App: React.FC = () => {
         return <RatesNotes />;
       case AppView.MARKETING:
         return <MarketingStudio />;
+      case AppView.COMPENSATION:
+        return <CompensationTracker />;
       case AppView.ASSISTANT:
         return <Assistant />;
       default:

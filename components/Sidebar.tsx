@@ -1,6 +1,7 @@
 
+
 import React from 'react';
-import { Users, Calculator, Sparkles, Building2, LogOut, Megaphone, FileText, PieChart, X } from 'lucide-react';
+import { Users, Calculator, Sparkles, Building2, LogOut, Megaphone, FileText, PieChart, X, TrendingUp } from 'lucide-react';
 import { AppView } from '../types';
 
 interface SidebarProps {
@@ -18,6 +19,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isO
     { id: AppView.CALCULATOR, label: 'Jumbo Calculator', icon: Calculator },
     { id: AppView.DTI_ANALYSIS, label: 'Affordability & DTI', icon: PieChart },
     { id: AppView.RATES_NOTES, label: 'Rates & Notes', icon: FileText },
+    { id: AppView.COMPENSATION, label: 'Wealth & Performance', icon: TrendingUp },
     { id: AppView.ASSISTANT, label: 'AI Assistant', icon: Sparkles },
   ];
 

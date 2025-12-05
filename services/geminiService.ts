@@ -171,6 +171,44 @@ export const synthesizeMarketNews = async (newsItems: any[]) => {
   }
 }
 
+// --- Compensation Analysis ---
+
+export const analyzeIncomeProjection = async (clients: Client[], currentCommission: number) => {
+    try {
+        const pipelineData = clients.map(c => 
+            `- ${c.name}: $${c.loanAmount} (${c.status})`
+        ).join('\n');
+
+        const prompt = `
+            You are a Financial Performance Analyst for a Mortgage Professional.
+            Analyze the user's pipeline to see if they are on track to hit their "Unicorn Role" target of $108,750/year.
+            
+            **Compensation Rules**:
+            - Base Salary: $51,001/year (Fixed)
+            - Target Annual Commission: $57,750
+            - Current Realized Commission YTD: $${currentCommission}
+            
+            **Current Pipeline**:
+            ${pipelineData}
+            
+            **Task**:
+            1. Estimate the "Risk-Adjusted" commission value of the pipeline (Status probabilities: Lead=10%, Pre-Approval=30%, Underwriting=70%, Clear to Close=95%).
+            2. Identify which 2 deals are most critical to close this month to boost the "Wealth Check".
+            3. Provide a brief strategy to accelerate the "Volume Arbitrage" game.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: { systemInstruction: SYSTEM_INSTRUCTION }
+        });
+        return response.text;
+    } catch (error) {
+        console.error("Error analyzing compensation:", error);
+        throw error;
+    }
+};
+
 // --- Audio Services (Transcription & TTS) ---
 
 export const transcribeAudio = async (base64Audio: string): Promise<string> => {
