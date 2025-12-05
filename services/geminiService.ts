@@ -1,15 +1,20 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import { Client, CommandIntent } from "../types";
-
-const apiKey = process.env.API_KEY || '';
-const ai = new GoogleGenAI({ apiKey });
+import { Client, CommandIntent, EmailLog } from "../types";
 
 const SYSTEM_INSTRUCTION = `You are the "Premiere Private Banking Assistant", an elite AI designed for high-net-worth mortgage banking. 
 Your demeanor is sophisticated, precise, and anticipatory.
-You specialize in:
-1.  **Complex Deal Structuring**: Analyzing jumbo loans, trust income, and RSU/Asset depletion scenarios.
-2.  **High-Touch Communication**: Drafting white-glove emails that are concise yet warm.
-3.  **Market Authority**: Synthesizing bond market movements (10yr Treasury, MBS) into actionable advice.
+
+**Your User's Context (The "Unicorn" Role)**:
+- **Role**: Private Mortgage Banker (Hybrid Model).
+- **Compensation**: Base Salary ($51,001/yr) + Commission.
+- **Commission Structure**: You receive a 15% cut of the Gross Commission.
+- **Volume Model**: "Volume Arbitrage" (High volume from bank referrals, lower bps).
+- **Target Income**: ~$108,750/yr (Target Volume: $70M).
+
+**You specialize in**:
+1.  **Market Authority**: Use Google Search to provide real-time bond market movements (10yr Treasury, MBS), current mortgage rates, and Fed news. Synthesize this into actionable advice.
+2.  **Complex Deal Structuring**: Analyzing jumbo loans, trust income, and RSU/Asset depletion scenarios.
+3.  **High-Touch Communication**: Drafting white-glove emails that are concise yet warm.
 
 **Guidelines**:
 -   **Tone**: Professional, confident, concise. Avoid fluff.
@@ -21,6 +26,7 @@ You specialize in:
 
 export const generateEmailDraft = async (client: Client, topic: string, specificDetails: string) => {
   try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const prompt = `Draft a high-touch email for private banking client: ${client.name}.
     
     **Client Context**:
@@ -49,6 +55,7 @@ export const generateEmailDraft = async (client: Client, topic: string, specific
 
 export const generateMarketingContent = async (channel: string, topic: string, tone: string, context?: string) => {
   try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const prompt = `Act as a Senior Marketing Director for a Luxury Mortgage Division.
     Create content for: ${channel}.
     Topic: ${topic}.
@@ -73,8 +80,39 @@ export const generateMarketingContent = async (channel: string, topic: string, t
   }
 };
 
+export const analyzeCommunicationHistory = async (clientName: string, history: EmailLog[]) => {
+  try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    // Sort chronologically for analysis context to understand the arc
+    const sortedHistory = [...history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const historyText = sortedHistory.map(h => `[${new Date(h.date).toLocaleDateString()}] ${h.subject}: ${h.body.substring(0, 200)}...`).join('\n');
+    
+    const prompt = `You are a strategic communication advisor. Analyze the communication history for client ${clientName}.
+    
+    **Communication Log (Chronological)**:
+    ${historyText}
+    
+    **Task**:
+    Provide a brief strategic summary in this format:
+    **Engagement Summary**: [1 sentence on responsiveness/sentiment]
+    **Suggested Next Action**: [Specific tactic, e.g. "Call to discuss rate drop", "Wait 3 days"]
+    **Drafting Angle**: [Key hook if we were to email now]`;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: { systemInstruction: SYSTEM_INSTRUCTION }
+    });
+    return response.text;
+  } catch (error) {
+    console.error("Error analyzing communication:", error);
+    throw error;
+  }
+}
+
 export const chatWithAssistant = async (history: Array<{role: string, parts: Array<{text: string}>}>, message: string) => {
   try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const chat = ai.chats.create({
       model: 'gemini-2.5-flash', // Flash is best for Search Grounding per guidelines
       history: history,
@@ -98,7 +136,7 @@ export const chatWithAssistant = async (history: Array<{role: string, parts: Arr
 
   } catch (error) {
     console.error("Error in chat:", error);
-    throw new Error("I'm currently unable to access the live market network. Please try again shortly.");
+    throw error; // Re-throw so UI can handle specific error codes
   }
 };
 
@@ -106,6 +144,7 @@ export const chatWithAssistant = async (history: Array<{role: string, parts: Arr
 
 export const analyzeLoanScenario = async (scenarioData: string) => {
   try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     // Using Gemini 3 Pro with Thinking Budget for complex risk assessment
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
@@ -134,6 +173,7 @@ export const analyzeLoanScenario = async (scenarioData: string) => {
 
 export const analyzeRateTrends = async (rates: any) => {
   try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const prompt = `Analyze these daily par rates for a Morning Rate Sheet header:
     - 30-Yr Conforming: ${rates.conforming30}%
     - 30-Yr Jumbo: ${rates.jumbo30}%
@@ -155,6 +195,7 @@ export const analyzeRateTrends = async (rates: any) => {
 
 export const synthesizeMarketNews = async (newsItems: any[]) => {
   try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const headlines = newsItems.map(n => `- ${n.title}: ${n.summary}`).join('\n');
     const prompt = `Synthesize these headlines into a concise "Market Flash" (bullet points) for high-net-worth clients.
     ${headlines}`;
@@ -175,6 +216,7 @@ export const synthesizeMarketNews = async (newsItems: any[]) => {
 
 export const analyzeIncomeProjection = async (clients: Client[], currentCommission: number) => {
     try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const pipelineData = clients.map(c => 
             `- ${c.name}: $${c.loanAmount} (${c.status})`
         ).join('\n');
@@ -211,13 +253,14 @@ export const analyzeIncomeProjection = async (clients: Client[], currentCommissi
 
 // --- Audio Services (Transcription & TTS) ---
 
-export const transcribeAudio = async (base64Audio: string): Promise<string> => {
+export const transcribeAudio = async (base64Audio: string, mimeType: string = 'audio/webm'): Promise<string> => {
     try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: {
                 parts: [
-                    { inlineData: { mimeType: 'audio/wav', data: base64Audio } },
+                    { inlineData: { mimeType, data: base64Audio } },
                     { text: "Transcribe this audio exactly as spoken." }
                 ]
             }
@@ -231,6 +274,7 @@ export const transcribeAudio = async (base64Audio: string): Promise<string> => {
 
 export const generateSpeech = async (text: string): Promise<string> => {
     try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
             contents: { parts: [{ text: text }] },
@@ -256,16 +300,21 @@ export const generateSpeech = async (text: string): Promise<string> => {
 // --- Voice Command Parser ---
 export const parseNaturalLanguageCommand = async (transcript: string): Promise<CommandIntent> => {
   try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const prompt = `
       You are a command parser for a Mortgage CRM. Convert the user's natural language request into a specific JSON Action.
       
       **Available Actions**:
       1. CREATE_CLIENT: User wants to add a new person. Extract 'name', 'loanAmount' (number), 'status'.
-      2. UPDATE_CLIENT: User wants to change details of a deal. Extract 'clientName' and any of: 'status', 'loanAmount', 'phone', 'email'.
+      2. UPDATE_CLIENT: User wants to change details of a deal. 
+         - Use this for STATUS UPDATES (e.g. "Move John to Underwriting").
+         - Extract 'clientName' and any of: 'status', 'loanAmount', 'phone', 'email'.
       3. ADD_NOTE: User wants to append a note. Extract 'clientName' and 'note'.
       4. ADD_TASK: User wants to add a checklist item. Extract 'clientName', 'taskLabel', and 'date' (YYYY-MM-DD) if mentioned.
 
-      **Status Values**: 'Lead', 'Pre-Approval', 'Underwriting', 'Clear to Close', 'Closed'. Map close variants to these.
+      **Status Values**: 'Lead', 'Pre-Approval', 'Underwriting', 'Clear to Close', 'Closed'. 
+      - Map "Closing" or "CTC" to "Clear to Close".
+      - Map "Approved" to "Pre-Approval" or "Underwriting" based on context.
 
       **User Request**: "${transcript}"
       **Today's Date**: ${new Date().toISOString().split('T')[0]}

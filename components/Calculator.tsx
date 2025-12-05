@@ -96,6 +96,7 @@ export const Calculator: React.FC = () => {
                   <DollarSign className="absolute left-3 top-2.5 h-5 w-5 text-gray-400 group-focus-within:text-brand-red transition-colors" />
                   <input
                     type="number"
+                    inputMode="decimal"
                     value={scenario.purchasePrice}
                     onChange={(e) => handleInputChange(e, 'purchasePrice')}
                     className="pl-10 w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red focus:bg-white outline-none transition-all font-medium text-brand-dark"
@@ -110,6 +111,7 @@ export const Calculator: React.FC = () => {
                     <Percent className="absolute left-3 top-2.5 h-4 w-4 text-gray-400 group-focus-within:text-brand-red transition-colors" />
                     <input
                       type="number"
+                      inputMode="decimal"
                       value={scenario.downPaymentPercent}
                       onChange={(e) => handleInputChange(e, 'downPaymentPercent')}
                       className="pl-9 w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red focus:bg-white outline-none transition-all font-medium"
@@ -148,6 +150,7 @@ export const Calculator: React.FC = () => {
                   <input
                     type="number"
                     step="0.125"
+                    inputMode="decimal"
                     value={scenario.interestRate}
                     onChange={(e) => handleInputChange(e, 'interestRate')}
                     className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red focus:bg-white outline-none font-medium"
@@ -157,6 +160,7 @@ export const Calculator: React.FC = () => {
                   <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Term (Years)</label>
                   <input
                     type="number"
+                    inputMode="numeric"
                     value={scenario.loanTerm}
                     onChange={(e) => handleInputChange(e, 'loanTerm')}
                     className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red focus:bg-white outline-none font-medium"
@@ -171,6 +175,7 @@ export const Calculator: React.FC = () => {
                       <input
                         type="number"
                         step="0.01"
+                        inputMode="decimal"
                         value={scenario.propertyTaxRate}
                         onChange={(e) => handleInputChange(e, 'propertyTaxRate')}
                         className="w-full p-2 border border-gray-200 rounded-lg text-sm"
@@ -180,6 +185,7 @@ export const Calculator: React.FC = () => {
                       <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">HOA / Mo</label>
                       <input
                         type="number"
+                        inputMode="decimal"
                         value={scenario.hoaMonthly}
                         onChange={(e) => handleInputChange(e, 'hoaMonthly')}
                         className="w-full p-2 border border-gray-200 rounded-lg text-sm"

@@ -1,5 +1,3 @@
-
-
 import React from 'react';
 import { Users, Calculator, Sparkles, Building2, LogOut, Megaphone, FileText, PieChart, X, TrendingUp } from 'lucide-react';
 import { AppView } from '../types';
@@ -32,7 +30,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isO
         md:translate-x-0
       `}
     >
-      <div className="p-6 border-b border-gray-700 flex items-center justify-between">
+      <div className="p-6 border-b border-gray-700 flex items-center justify-between safe-top">
         <div className="flex items-center space-x-3">
           <Building2 className="w-8 h-8 text-brand-red" />
           <div>
@@ -63,7 +61,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isO
         ))}
       </nav>
 
-      <div className="p-4 border-t border-gray-700 bg-brand-dark shrink-0">
+      <div className="p-4 border-t border-gray-700 bg-brand-dark shrink-0 safe-bottom">
         <div className="mb-4 px-4">
              <div className="text-xs text-brand-gold uppercase tracking-wider font-semibold mb-2">Market Snapshot</div>
              <div className="text-xs text-gray-400 flex justify-between">

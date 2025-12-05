@@ -9,6 +9,7 @@ export const StorageKeys = {
   RATES: `${STORAGE_PREFIX}rates`,
   NOTES: `${STORAGE_PREFIX}notes`,
   RECENT_IDS: `${STORAGE_PREFIX}recent_ids`,
+  CHAT_HISTORY: `${STORAGE_PREFIX}chat_history`,
 };
 
 export const saveToStorage = (key: string, data: any) => {

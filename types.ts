@@ -7,6 +7,13 @@ export interface ChecklistItem {
   reminderDate?: string; // ISO Date string YYYY-MM-DD
 }
 
+export interface EmailLog {
+  id: string;
+  date: string;
+  subject: string;
+  body: string;
+}
+
 export interface Client {
   id: string;
   name: string;
@@ -18,6 +25,7 @@ export interface Client {
   nextActionDate: string;
   notes: string;
   checklist: ChecklistItem[];
+  emailHistory: EmailLog[];
 }
 
 export interface ChatMessage {

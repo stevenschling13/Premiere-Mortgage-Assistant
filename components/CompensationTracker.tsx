@@ -1,6 +1,7 @@
 
+
 import React, { useState, useMemo } from 'react';
-import { DollarSign, TrendingUp, Calendar, AlertCircle, Sparkles, Loader2, ArrowUpRight, ShieldCheck, Briefcase } from 'lucide-react';
+import { DollarSign, TrendingUp, Calendar, AlertCircle, Sparkles, Loader2, ArrowUpRight, ShieldCheck, Briefcase, CheckCircle2 } from 'lucide-react';
 import { loadFromStorage, StorageKeys } from '../services/storageService';
 import { Client } from '../types';
 import { analyzeIncomeProjection } from '../services/geminiService';
@@ -26,10 +27,20 @@ export const CompensationTracker: React.FC = () => {
 
     // Calculate Commissions from Closed Deals
     const closedClients = clients.filter(c => c.status === 'Closed');
-    const ytdCommission = closedClients.reduce((acc, client) => {
-        const bankerGross = client.loanAmount * BANKER_BPS;
-        return acc + (bankerGross * ASSISTANT_SPLIT);
-    }, 0);
+    
+    const closedData = useMemo(() => {
+        return closedClients.map(client => {
+            const bankerGross = client.loanAmount * BANKER_BPS;
+            const myCut = bankerGross * ASSISTANT_SPLIT;
+            return {
+                ...client,
+                bankerGross,
+                myCut
+            };
+        }).sort((a, b) => b.myCut - a.myCut);
+    }, [closedClients]);
+
+    const ytdCommission = closedData.reduce((acc, deal) => acc + deal.myCut, 0);
 
     const totalYtdIncome = ytdBase + ytdCommission;
     const percentToGoal = (totalYtdIncome / TARGET_ANNUAL_INCOME) * 100;
@@ -277,6 +288,60 @@ export const CompensationTracker: React.FC = () => {
                             )}
                         </div>
                     </div>
+                </div>
+            </div>
+
+            {/* Realized Income Breakdown */}
+            <div className="mt-8 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                <div className="p-5 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                    <div>
+                        <h3 className="font-bold text-gray-800 flex items-center">
+                            <CheckCircle2 size={18} className="mr-2 text-green-600"/>
+                            Commission Breakdown (Closed Deals)
+                        </h3>
+                        <p className="text-xs text-gray-500 mt-1 pl-6">
+                            Detailed calculation of your 15% cut from realized bank revenue.
+                        </p>
+                    </div>
+                    <div className="text-right">
+                         <span className="block text-xs text-gray-400 uppercase font-bold">Total Earned</span>
+                         <span className="text-xl font-bold text-green-600">${ytdCommission.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                    </div>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead className="bg-gray-50/50 border-b border-gray-100">
+                            <tr>
+                                <th className="px-6 py-3 text-[10px] font-bold text-gray-500 uppercase">Client</th>
+                                <th className="px-6 py-3 text-[10px] font-bold text-gray-500 uppercase">Loan Amount</th>
+                                <th className="px-6 py-3 text-[10px] font-bold text-gray-500 uppercase text-right">Banker Gross (55bps)</th>
+                                <th className="px-6 py-3 text-[10px] font-bold text-gray-500 uppercase text-right text-brand-red">Your Cut (15%)</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 text-sm">
+                            {closedData.map((deal) => (
+                                <tr key={deal.id} className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-6 py-4 font-medium text-gray-900">{deal.name}</td>
+                                    <td className="px-6 py-4 text-gray-600 font-mono">
+                                        ${(deal.loanAmount).toLocaleString()}
+                                    </td>
+                                    <td className="px-6 py-4 text-right text-gray-500 font-mono">
+                                        ${deal.bankerGross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                    </td>
+                                    <td className="px-6 py-4 text-right font-bold text-brand-dark font-mono bg-green-50/30">
+                                        ${deal.myCut.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                    </td>
+                                </tr>
+                            ))}
+                            {closedData.length === 0 && (
+                                <tr>
+                                    <td colSpan={4} className="p-8 text-center text-gray-400 text-sm">
+                                        No closed deals yet. Move clients to "Closed" status to populate this ledger.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>

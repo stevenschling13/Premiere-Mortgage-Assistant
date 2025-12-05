@@ -1,9 +1,9 @@
-
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User as UserIcon, Loader2, Link as LinkIcon, ExternalLink, Mic, MicOff, X, Activity } from 'lucide-react';
+import { Send, Bot, User as UserIcon, Loader2, Link as LinkIcon, ExternalLink, Mic, MicOff, Trash2 } from 'lucide-react';
 import { ChatMessage } from '../types';
 import { chatWithAssistant } from '../services/geminiService';
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
+import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
 
 const floatTo16BitPCM = (float32Array: Float32Array) => {
   const buffer = new ArrayBuffer(float32Array.length * 2);
@@ -25,15 +25,31 @@ const base64ToUint8Array = (base64: string) => {
   return bytes;
 };
 
+const SUGGESTED_PROMPTS = [
+  "What are today's 30-year Jumbo rates?",
+  "Latest 10-Year Treasury yield?",
+  "Scenario: $2.5M Purchase, 20% down, 760 FICO",
+  "Summarize Fed Chair Powell's recent comments",
+  "How is my commission tracking vs target?"
+];
+
 export const Assistant: React.FC = () => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const saved = loadFromStorage<any[]>(StorageKeys.CHAT_HISTORY, []);
+    if (saved && saved.length > 0) {
+        return saved.map(m => ({
+            ...m,
+            timestamp: new Date(m.timestamp)
+        }));
+    }
+    return [{
       id: '1',
       role: 'model',
-      text: 'Good morning. I am your Premiere Mortgage Assistant. How can I support your private client deals today?',
+      text: 'Good morning. I am your Premiere Mortgage Assistant. I can check real-time market data, analyze loan scenarios, or draft client communications for you.',
       timestamp: new Date()
-    }
-  ]);
+    }];
+  });
+
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -53,6 +69,10 @@ export const Assistant: React.FC = () => {
   const sessionRef = useRef<any>(null);
   const animationFrameRef = useRef<number | null>(null);
 
+  useEffect(() => {
+     saveToStorage(StorageKeys.CHAT_HISTORY, messages);
+  }, [messages]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -67,13 +87,25 @@ export const Assistant: React.FC = () => {
     };
   }, []);
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+  const handleClearHistory = () => {
+      const resetMsg: ChatMessage[] = [{
+        id: Date.now().toString(),
+        role: 'model',
+        text: 'History cleared. Ready for new queries.',
+        timestamp: new Date()
+      }];
+      setMessages(resetMsg);
+      saveToStorage(StorageKeys.CHAT_HISTORY, resetMsg);
+  };
+
+  const handleSend = async (textOverride?: string) => {
+    const textToSend = textOverride || input;
+    if (!textToSend.trim() || isLoading) return;
 
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: 'user',
-      text: input,
+      text: textToSend,
       timestamp: new Date()
     };
 
@@ -82,6 +114,8 @@ export const Assistant: React.FC = () => {
     setIsLoading(true);
 
     try {
+      // Prepare history excluding the message we just added (since state update is async/batched)
+      // The service expects { role, parts: [{ text }] }
       const history = messages.map(m => ({
         role: m.role,
         parts: [{ text: m.text }]
@@ -98,11 +132,19 @@ export const Assistant: React.FC = () => {
       };
 
       setMessages(prev => [...prev, aiMsg]);
-    } catch (error) {
+    } catch (error: any) {
+      console.error(error);
+      let errorText = "I apologize, but I'm having trouble connecting to the market data service right now. Please try again in a moment.";
+      
+      const errMsg = error.message || JSON.stringify(error);
+      if (errMsg.includes('403') || errMsg.includes('leaked') || errMsg.includes('API key')) {
+          errorText = "Configuration Error: The API Key appears to be invalid or expired (403 Leaked). Please check your environment settings.";
+      }
+
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         role: 'model',
-        text: "I apologize, but I'm having trouble connecting to the market data service right now. Please try again in a moment.",
+        text: errorText,
         timestamp: new Date(),
         isError: true
       }]);
@@ -148,7 +190,8 @@ export const Assistant: React.FC = () => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
 
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+      // Use process.env.API_KEY for reliability in Live mode
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       
       const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
@@ -225,7 +268,7 @@ export const Assistant: React.FC = () => {
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
           },
-          systemInstruction: "You are a professional mortgage banking assistant. Speak concisely."
+          systemInstruction: "You are a professional mortgage banking assistant. Speak concisely. Use real-time data where possible."
         }
       });
       
@@ -272,42 +315,51 @@ export const Assistant: React.FC = () => {
   };
 
   return (
-    <div className="h-[calc(100vh-64px)] md:h-[calc(100vh-32px)] flex flex-col bg-white md:rounded-xl shadow-sm border-t md:border border-gray-200 overflow-hidden mx-auto max-w-5xl md:my-4 relative w-full">
+    <div className="h-[calc(100vh-64px)] md:h-[calc(100vh-32px)] flex flex-col bg-white md:rounded-xl shadow-sm border-t md:border border-gray-200 overflow-hidden mx-auto max-w-5xl md:my-4 relative w-full animate-fade-in">
       
       {/* Header */}
-      <div className="bg-brand-dark p-3 md:p-4 flex items-center justify-between z-20 relative shrink-0">
+      <div className="bg-brand-dark p-3 md:p-4 flex items-center justify-between z-20 relative shrink-0 safe-top">
         <div className="flex items-center space-x-3">
             <div className="bg-white/10 p-2 rounded-lg">
                 <Bot className="text-brand-gold w-6 h-6" />
             </div>
             <div>
-                <h3 className="text-white font-semibold text-sm md:text-base">Live Market Assistant</h3>
+                <h3 className="text-white font-semibold text-sm md:text-base">AI Market Assistant</h3>
                 <p className="text-gray-400 text-xs flex items-center">
                     <span className={`w-2 h-2 rounded-full mr-1 ${isLiveConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`}></span>
-                    Gemini 2.5 • {isLiveMode ? 'Voice Active' : 'Chat Active'}
+                    Gemini 2.5 • {isLiveMode ? 'Voice Active' : 'Online & Grounded'}
                 </p>
             </div>
         </div>
         
-        <button 
-            onClick={toggleLiveMode}
-            className={`flex items-center space-x-2 px-3 py-1.5 rounded-full transition-all border ${
-                isLiveMode 
-                ? 'bg-red-500/20 text-red-200 border-red-500/50 hover:bg-red-500/30' 
-                : 'bg-brand-gold text-brand-dark border-brand-gold hover:bg-yellow-500'
-            }`}
-        >
-            {isLiveMode ? <MicOff size={16}/> : <Mic size={16}/>}
-            <span className="text-xs md:text-sm font-medium">{isLiveMode ? 'End Session' : 'Voice Mode'}</span>
-        </button>
+        <div className="flex items-center space-x-2">
+            <button 
+                onClick={handleClearHistory}
+                className="p-1.5 text-gray-400 hover:text-white transition-colors"
+                title="Clear History"
+            >
+                <Trash2 size={16} />
+            </button>
+            <button 
+                onClick={toggleLiveMode}
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-full transition-all border ${
+                    isLiveMode 
+                    ? 'bg-red-500/20 text-red-200 border-red-500/50 hover:bg-red-500/30' 
+                    : 'bg-brand-gold text-brand-dark border-brand-gold hover:bg-yellow-500'
+                }`}
+            >
+                {isLiveMode ? <MicOff size={16}/> : <Mic size={16}/>}
+                <span className="text-xs md:text-sm font-medium">{isLiveMode ? 'End Session' : 'Voice Mode'}</span>
+            </button>
+        </div>
       </div>
 
       {/* Voice Mode Overlay */}
       {isLiveMode && (
-          <div className="absolute inset-0 top-[60px] md:top-[72px] bg-gradient-to-b from-brand-dark to-slate-900 z-10 flex flex-col items-center justify-center p-8 animate-fade-in">
-              <div className="relative mb-12">
+          <div className="absolute inset-0 top-[60px] md:top-[72px] bg-gradient-to-b from-brand-dark to-slate-900 z-10 flex flex-col items-center justify-center p-8 animate-fade-in safe-bottom">
+              <div className="relative mb-12 flex-1 flex flex-col items-center justify-center">
                   {/* Dynamic Visualizer */}
-                  <div className="flex items-end justify-center space-x-2 h-24">
+                  <div className="flex items-end justify-center space-x-2 h-24 mb-12">
                        {visualizerData.map((val, idx) => (
                            <div 
                                 key={idx}
@@ -319,16 +371,25 @@ export const Assistant: React.FC = () => {
                            ></div>
                        ))}
                   </div>
-              </div>
 
-              <div className="text-center space-y-4">
-                  <h3 className="text-xl md:text-2xl font-bold text-white tracking-wide">
-                      {isLiveConnecting ? 'Connecting Secure Line...' : isLiveConnected ? 'Listening...' : 'Initializing...'}
-                  </h3>
-                  <p className="text-gray-400 max-w-xs md:max-w-md mx-auto text-sm leading-relaxed">
-                      Speak naturally. I can analyze rates, draft emails, or search market news in real-time.
-                  </p>
+                  <div className="text-center space-y-4">
+                      <h3 className="text-xl md:text-2xl font-bold text-white tracking-wide">
+                          {isLiveConnecting ? 'Connecting Secure Line...' : isLiveConnected ? 'Listening...' : 'Initializing...'}
+                      </h3>
+                      <p className="text-gray-400 max-w-xs md:max-w-md mx-auto text-sm leading-relaxed">
+                          Speak naturally. I can analyze rates, draft emails, or search market news in real-time.
+                      </p>
+                  </div>
               </div>
+              
+              {/* Large Mobile End Session Button */}
+              <button 
+                  onClick={stopLiveSession}
+                  className="mb-8 bg-red-500/20 hover:bg-red-500/30 border border-red-500/50 text-red-100 rounded-full px-8 py-4 flex items-center space-x-3 shadow-lg transition-all active:scale-95 animate-fade-in"
+              >
+                  <MicOff size={24} />
+                  <span className="font-bold text-lg">End Session</span>
+              </button>
           </div>
       )}
 
@@ -360,9 +421,9 @@ export const Assistant: React.FC = () => {
                     <div className="whitespace-pre-wrap">{msg.text}</div>
                     
                     {msg.groundingLinks && msg.groundingLinks.length > 0 && (
-                      <div className="mt-4 pt-3 border-t border-gray-100/20">
-                        <p className="text-[10px] font-bold uppercase tracking-wider opacity-70 mb-2 flex items-center">
-                           <LinkIcon size={10} className="mr-1" /> Sources
+                      <div className="mt-3 pt-3 border-t border-dashed border-gray-300/50">
+                        <p className="text-[10px] font-bold uppercase tracking-wider opacity-60 mb-2 flex items-center text-gray-600">
+                           <LinkIcon size={10} className="mr-1" /> Verified Sources
                         </p>
                         <div className="flex flex-wrap gap-2">
                           {msg.groundingLinks.slice(0, 3).map((link, idx) => (
@@ -371,10 +432,10 @@ export const Assistant: React.FC = () => {
                               href={link.uri} 
                               target="_blank" 
                               rel="noopener noreferrer"
-                              className="text-[10px] bg-black/5 hover:bg-black/10 px-2 py-1 rounded flex items-center transition-colors text-current no-underline"
+                              className="text-[10px] bg-white border border-gray-200 hover:border-brand-gold hover:bg-yellow-50 px-2 py-1 rounded-md flex items-center transition-all text-brand-dark no-underline shadow-sm group"
                             >
-                              {link.title.substring(0, 30)}...
-                              <ExternalLink size={10} className="ml-1 opacity-50" />
+                              <span className="max-w-[120px] truncate">{link.title}</span>
+                              <ExternalLink size={10} className="ml-1 opacity-30 group-hover:opacity-100" />
                             </a>
                           ))}
                         </div>
@@ -396,7 +457,7 @@ export const Assistant: React.FC = () => {
                     </div>
                     <div className="bg-white px-4 py-3 rounded-2xl rounded-tl-none border border-gray-200 shadow-sm flex items-center gap-2">
                         <Loader2 className="w-4 h-4 animate-spin text-brand-red" />
-                        <span className="text-sm text-gray-500">Processing...</span>
+                        <span className="text-sm text-gray-500">Searching market data...</span>
                     </div>
                  </div>
             </div>
@@ -404,8 +465,23 @@ export const Assistant: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Suggested Prompts (Visible when limited history) */}
+      {!isLiveMode && (
+          <div className="px-4 pb-3 flex gap-2 overflow-x-auto scrollbar-hide shrink-0 mask-image-fade-right">
+              {SUGGESTED_PROMPTS.map((prompt, idx) => (
+                  <button 
+                      key={idx}
+                      onClick={() => handleSend(prompt)}
+                      className="whitespace-nowrap px-3 py-1.5 bg-gray-50 hover:bg-white hover:border-brand-gold text-gray-600 hover:text-brand-dark text-xs font-medium rounded-full border border-gray-200 transition-all shadow-sm"
+                  >
+                      {prompt}
+                  </button>
+              ))}
+          </div>
+      )}
+
       {/* Input Area */}
-      <div className="p-3 md:p-4 bg-white border-t border-gray-200 shrink-0 mb-safe">
+      <div className="p-3 md:p-4 bg-white border-t border-gray-200 shrink-0 mb-safe safe-bottom">
         <div className="relative flex items-center">
           <textarea
             value={input}
@@ -417,7 +493,7 @@ export const Assistant: React.FC = () => {
             style={{ minHeight: '50px' }}
           />
           <button
-            onClick={handleSend}
+            onClick={() => handleSend()}
             disabled={!input.trim() || isLoading}
             className="absolute right-2 md:right-3 p-2 bg-brand-red text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md active:scale-95"
           >

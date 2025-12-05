@@ -46,28 +46,28 @@ export const DtiAnalysis: React.FC = () => {
                                 <label className="block text-xs font-medium text-gray-500 mb-1">Base Salary</label>
                                 <div className="relative">
                                     <span className="absolute left-3 top-2 text-gray-400">$</span>
-                                    <input type="number" value={income.baseSalary} onChange={(e) => setIncome({...income, baseSalary: parseFloat(e.target.value)||0})} className="w-full pl-6 p-2 bg-gray-50 rounded border border-gray-200 focus:bg-white focus:border-brand-red outline-none transition-colors" />
+                                    <input type="number" inputMode="decimal" value={income.baseSalary} onChange={(e) => setIncome({...income, baseSalary: parseFloat(e.target.value)||0})} className="w-full pl-6 p-2 bg-gray-50 rounded border border-gray-200 focus:bg-white focus:border-brand-red outline-none transition-colors" />
                                 </div>
                             </div>
                             <div>
                                 <label className="block text-xs font-medium text-gray-500 mb-1">Bonus / Commission</label>
                                 <div className="relative">
                                     <span className="absolute left-3 top-2 text-gray-400">$</span>
-                                    <input type="number" value={income.bonus} onChange={(e) => setIncome({...income, bonus: parseFloat(e.target.value)||0})} className="w-full pl-6 p-2 bg-gray-50 rounded border border-gray-200 focus:bg-white focus:border-brand-red outline-none transition-colors" />
+                                    <input type="number" inputMode="decimal" value={income.bonus} onChange={(e) => setIncome({...income, bonus: parseFloat(e.target.value)||0})} className="w-full pl-6 p-2 bg-gray-50 rounded border border-gray-200 focus:bg-white focus:border-brand-red outline-none transition-colors" />
                                 </div>
                             </div>
                             <div>
                                 <label className="block text-xs font-medium text-gray-500 mb-1">RSU / Stock (Vest)</label>
                                 <div className="relative">
                                     <span className="absolute left-3 top-2 text-gray-400">$</span>
-                                    <input type="number" value={income.rsu} onChange={(e) => setIncome({...income, rsu: parseFloat(e.target.value)||0})} className="w-full pl-6 p-2 bg-gray-50 rounded border border-gray-200 focus:bg-white focus:border-brand-red outline-none transition-colors" />
+                                    <input type="number" inputMode="decimal" value={income.rsu} onChange={(e) => setIncome({...income, rsu: parseFloat(e.target.value)||0})} className="w-full pl-6 p-2 bg-gray-50 rounded border border-gray-200 focus:bg-white focus:border-brand-red outline-none transition-colors" />
                                 </div>
                             </div>
                             <div>
                                 <label className="block text-xs font-medium text-gray-500 mb-1">Other</label>
                                 <div className="relative">
                                     <span className="absolute left-3 top-2 text-gray-400">$</span>
-                                    <input type="number" value={income.other} onChange={(e) => setIncome({...income, other: parseFloat(e.target.value)||0})} className="w-full pl-6 p-2 bg-gray-50 rounded border border-gray-200 focus:bg-white focus:border-brand-red outline-none transition-colors" />
+                                    <input type="number" inputMode="decimal" value={income.other} onChange={(e) => setIncome({...income, other: parseFloat(e.target.value)||0})} className="w-full pl-6 p-2 bg-gray-50 rounded border border-gray-200 focus:bg-white focus:border-brand-red outline-none transition-colors" />
                                 </div>
                             </div>
                         </div>
@@ -83,19 +83,19 @@ export const DtiAnalysis: React.FC = () => {
                         <div className="space-y-3">
                              <div className="flex items-center space-x-4">
                                 <label className="w-1/3 text-sm text-gray-600">Credit Cards (Min)</label>
-                                <input type="number" value={debts.creditCards} onChange={(e) => setDebts({...debts, creditCards: parseFloat(e.target.value)||0})} className="flex-1 p-2 bg-gray-50 rounded border border-gray-200 outline-none" />
+                                <input type="number" inputMode="decimal" value={debts.creditCards} onChange={(e) => setDebts({...debts, creditCards: parseFloat(e.target.value)||0})} className="flex-1 p-2 bg-gray-50 rounded border border-gray-200 outline-none" />
                              </div>
                              <div className="flex items-center space-x-4">
                                 <label className="w-1/3 text-sm text-gray-600">Auto Loans/Leases</label>
-                                <input type="number" value={debts.carLoans} onChange={(e) => setDebts({...debts, carLoans: parseFloat(e.target.value)||0})} className="flex-1 p-2 bg-gray-50 rounded border border-gray-200 outline-none" />
+                                <input type="number" inputMode="decimal" value={debts.carLoans} onChange={(e) => setDebts({...debts, carLoans: parseFloat(e.target.value)||0})} className="flex-1 p-2 bg-gray-50 rounded border border-gray-200 outline-none" />
                              </div>
                              <div className="flex items-center space-x-4">
                                 <label className="w-1/3 text-sm text-gray-600">Student Loans</label>
-                                <input type="number" value={debts.studentLoans} onChange={(e) => setDebts({...debts, studentLoans: parseFloat(e.target.value)||0})} className="flex-1 p-2 bg-gray-50 rounded border border-gray-200 outline-none" />
+                                <input type="number" inputMode="decimal" value={debts.studentLoans} onChange={(e) => setDebts({...debts, studentLoans: parseFloat(e.target.value)||0})} className="flex-1 p-2 bg-gray-50 rounded border border-gray-200 outline-none" />
                              </div>
                              <div className="flex items-center space-x-4">
                                 <label className="w-1/3 text-sm text-gray-600">Other Properties (PITIA)</label>
-                                <input type="number" value={debts.otherRealEstate} onChange={(e) => setDebts({...debts, otherRealEstate: parseFloat(e.target.value)||0})} className="flex-1 p-2 bg-gray-50 rounded border border-gray-200 outline-none" />
+                                <input type="number" inputMode="decimal" value={debts.otherRealEstate} onChange={(e) => setDebts({...debts, otherRealEstate: parseFloat(e.target.value)||0})} className="flex-1 p-2 bg-gray-50 rounded border border-gray-200 outline-none" />
                              </div>
                         </div>
                         <div className="mt-4 pt-3 border-t flex justify-between items-center">
@@ -113,6 +113,7 @@ export const DtiAnalysis: React.FC = () => {
                              <DollarSign className="absolute left-3 top-3.5 h-6 w-6 text-gray-400" />
                              <input 
                                 type="number" 
+                                inputMode="decimal"
                                 value={proposedHousing} 
                                 onChange={(e) => setProposedHousing(parseFloat(e.target.value)||0)}
                                 className="w-full pl-10 pr-4 py-3 bg-white/10 border border-white/20 rounded-lg text-2xl font-bold text-white placeholder-gray-400 focus:ring-2 focus:ring-brand-gold outline-none"
