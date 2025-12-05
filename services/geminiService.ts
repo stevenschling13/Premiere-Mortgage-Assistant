@@ -1,8 +1,22 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { Client, CommandIntent } from "../types";
 
-const apiKey = process.env.API_KEY || '';
-const ai = new GoogleGenAI({ apiKey });
+let aiClient: GoogleGenAI | null = null;
+
+const getApiKey = () => {
+  const key = import.meta.env.VITE_GEMINI_API_KEY?.toString().trim();
+  if (!key) {
+    throw new Error("Missing Gemini API key. Set VITE_GEMINI_API_KEY in your .env.local file.");
+  }
+  return key;
+};
+
+export const getGeminiClient = () => {
+  if (!aiClient) {
+    aiClient = new GoogleGenAI({ apiKey: getApiKey() });
+  }
+  return aiClient;
+};
 
 const SYSTEM_INSTRUCTION = `You are the "Premiere Private Banking Assistant", an elite AI designed for high-net-worth mortgage banking. 
 Your demeanor is sophisticated, precise, and anticipatory.
@@ -21,6 +35,7 @@ You specialize in:
 
 export const generateEmailDraft = async (client: Client, topic: string, specificDetails: string) => {
   try {
+    const ai = getGeminiClient();
     const prompt = `Draft a high-touch email for private banking client: ${client.name}.
     
     **Client Context**:
@@ -49,6 +64,7 @@ export const generateEmailDraft = async (client: Client, topic: string, specific
 
 export const generateMarketingContent = async (channel: string, topic: string, tone: string, context?: string) => {
   try {
+    const ai = getGeminiClient();
     const prompt = `Act as a Senior Marketing Director for a Luxury Mortgage Division.
     Create content for: ${channel}.
     Topic: ${topic}.
@@ -75,6 +91,7 @@ export const generateMarketingContent = async (channel: string, topic: string, t
 
 export const chatWithAssistant = async (history: Array<{role: string, parts: Array<{text: string}>}>, message: string) => {
   try {
+    const ai = getGeminiClient();
     const chat = ai.chats.create({
       model: 'gemini-2.5-flash', // Flash is best for Search Grounding per guidelines
       history: history,
@@ -106,6 +123,7 @@ export const chatWithAssistant = async (history: Array<{role: string, parts: Arr
 
 export const analyzeLoanScenario = async (scenarioData: string) => {
   try {
+    const ai = getGeminiClient();
     // Using Gemini 3 Pro with Thinking Budget for complex risk assessment
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
@@ -134,6 +152,7 @@ export const analyzeLoanScenario = async (scenarioData: string) => {
 
 export const analyzeRateTrends = async (rates: any) => {
   try {
+    const ai = getGeminiClient();
     const prompt = `Analyze these daily par rates for a Morning Rate Sheet header:
     - 30-Yr Conforming: ${rates.conforming30}%
     - 30-Yr Jumbo: ${rates.jumbo30}%
@@ -155,6 +174,7 @@ export const analyzeRateTrends = async (rates: any) => {
 
 export const synthesizeMarketNews = async (newsItems: any[]) => {
   try {
+    const ai = getGeminiClient();
     const headlines = newsItems.map(n => `- ${n.title}: ${n.summary}`).join('\n');
     const prompt = `Synthesize these headlines into a concise "Market Flash" (bullet points) for high-net-worth clients.
     ${headlines}`;
@@ -175,7 +195,8 @@ export const synthesizeMarketNews = async (newsItems: any[]) => {
 
 export const analyzeIncomeProjection = async (clients: Client[], currentCommission: number) => {
     try {
-        const pipelineData = clients.map(c => 
+        const ai = getGeminiClient();
+        const pipelineData = clients.map(c =>
             `- ${c.name}: $${c.loanAmount} (${c.status})`
         ).join('\n');
 
@@ -213,6 +234,7 @@ export const analyzeIncomeProjection = async (clients: Client[], currentCommissi
 
 export const transcribeAudio = async (base64Audio: string): Promise<string> => {
     try {
+        const ai = getGeminiClient();
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: {
@@ -231,6 +253,7 @@ export const transcribeAudio = async (base64Audio: string): Promise<string> => {
 
 export const generateSpeech = async (text: string): Promise<string> => {
     try {
+        const ai = getGeminiClient();
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
             contents: { parts: [{ text: text }] },
@@ -256,6 +279,7 @@ export const generateSpeech = async (text: string): Promise<string> => {
 // --- Voice Command Parser ---
 export const parseNaturalLanguageCommand = async (transcript: string): Promise<CommandIntent> => {
   try {
+    const ai = getGeminiClient();
     const prompt = `
       You are a command parser for a Mortgage CRM. Convert the user's natural language request into a specific JSON Action.
       
