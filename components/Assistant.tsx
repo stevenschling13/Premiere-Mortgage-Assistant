@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User as UserIcon, Loader2, Link as LinkIcon, ExternalLink, Mic, MicOff, Trash2 } from 'lucide-react';
 import { ChatMessage } from '../types';
-import { chatWithAssistant } from '../services/geminiService';
-import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
+import { chatWithAssistant, createGeminiClient } from '../services/geminiService';
+import { LiveServerMessage, Modality } from "@google/genai";
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
 
 const floatTo16BitPCM = (float32Array: Float32Array) => {
@@ -190,8 +190,7 @@ export const Assistant: React.FC = () => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
 
-      // Use process.env.API_KEY for reliability in Live mode
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = createGeminiClient();
       
       const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
