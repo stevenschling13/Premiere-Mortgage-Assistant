@@ -340,12 +340,12 @@ export const Assistant: React.FC = () => {
             >
                 <Trash2 size={16} />
             </button>
-            <button 
+            <button
                 onClick={toggleLiveMode}
-                className={`flex items-center space-x-2 px-3 py-1.5 rounded-full transition-all border ${
-                    isLiveMode 
-                    ? 'bg-red-500/20 text-red-200 border-red-500/50 hover:bg-red-500/30' 
-                    : 'bg-brand-gold text-brand-dark border-brand-gold hover:bg-yellow-500'
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-full transition-all border focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none ${
+                    isLiveMode
+                    ? 'bg-red-600 text-white border-red-700 hover:bg-red-700 focus-visible:ring-red-300'
+                    : 'bg-brand-gold text-brand-dark border-brand-gold hover:bg-yellow-500 focus-visible:ring-brand-gold/60'
                 }`}
             >
                 {isLiveMode ? <MicOff size={16}/> : <Mic size={16}/>}
@@ -422,27 +422,27 @@ export const Assistant: React.FC = () => {
                     
                     {msg.groundingLinks && msg.groundingLinks.length > 0 && (
                       <div className="mt-3 pt-3 border-t border-dashed border-gray-300/50">
-                        <p className="text-[10px] font-bold uppercase tracking-wider opacity-60 mb-2 flex items-center text-gray-600">
-                           <LinkIcon size={10} className="mr-1" /> Verified Sources
+                        <p className="text-xs font-bold uppercase tracking-wider opacity-70 mb-2 flex items-center text-gray-600">
+                           <LinkIcon size={12} className="mr-1" /> Verified Sources
                         </p>
                         <div className="flex flex-wrap gap-2">
                           {msg.groundingLinks.slice(0, 3).map((link, idx) => (
-                            <a 
-                              key={idx} 
-                              href={link.uri} 
-                              target="_blank" 
+                            <a
+                              key={idx}
+                              href={link.uri}
+                              target="_blank"
                               rel="noopener noreferrer"
-                              className="text-[10px] bg-white border border-gray-200 hover:border-brand-gold hover:bg-yellow-50 px-2 py-1 rounded-md flex items-center transition-all text-brand-dark no-underline shadow-sm group"
+                              className="text-xs bg-white border border-gray-200 hover:border-brand-gold hover:bg-yellow-50 px-2.5 py-1 rounded-md flex items-center transition-all text-brand-dark no-underline shadow-sm group"
                             >
                               <span className="max-w-[120px] truncate">{link.title}</span>
-                              <ExternalLink size={10} className="ml-1 opacity-30 group-hover:opacity-100" />
+                              <ExternalLink size={12} className="ml-1 opacity-30 group-hover:opacity-100" />
                             </a>
                           ))}
                         </div>
                       </div>
                     )}
                 </div>
-                <span className="text-[10px] text-gray-400 mt-1 px-1">
+                <span className="text-xs text-gray-500 mt-1 px-1">
                     {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>
@@ -490,11 +490,13 @@ export const Assistant: React.FC = () => {
             placeholder="Ask about rates, draft emails, or analyze scenarios..."
             className="w-full pl-4 pr-12 py-3 md:py-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-red focus:bg-white focus:border-brand-red outline-none resize-none text-sm transition-all shadow-inner"
             rows={1}
+            autoFocus
             style={{ minHeight: '50px' }}
           />
           <button
             onClick={() => handleSend()}
             disabled={!input.trim() || isLoading}
+            aria-label="Send message"
             className="absolute right-2 md:right-3 p-2 bg-brand-red text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md active:scale-95"
           >
             <Send size={16} md:size={18} />
