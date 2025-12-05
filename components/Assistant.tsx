@@ -2,9 +2,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User as UserIcon, Loader2, Link as LinkIcon, ExternalLink, Mic, MicOff, X, Activity } from 'lucide-react';
 import { ChatMessage } from '../types';
-import { chatWithAssistant, getGeminiClient } from '../services/geminiService';
-import { useToast } from '../App';
-import { LiveServerMessage, Modality } from "@google/genai";
+import { chatWithAssistant } from '../services/geminiService';
+import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
 
 const floatTo16BitPCM = (float32Array: Float32Array) => {
   const buffer = new ArrayBuffer(float32Array.length * 2);
@@ -53,7 +52,6 @@ export const Assistant: React.FC = () => {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const sessionRef = useRef<any>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const { showToast } = useToast();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -150,7 +148,7 @@ export const Assistant: React.FC = () => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
 
-      const ai = getGeminiClient();
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
       
       const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
@@ -237,7 +235,6 @@ export const Assistant: React.FC = () => {
       console.error("Failed to start live session", e);
       setIsLiveConnecting(false);
       setIsLiveConnected(false);
-      showToast('Unable to start live voice session. Check your API key and microphone permissions.', 'error');
     }
   };
 

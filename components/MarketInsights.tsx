@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { TrendingUp, TrendingDown, Linkedin, Mail, Copy, ArrowRight, MessageSquare, Sparkles, Loader2, FileText, Megaphone, Smartphone, Volume2 } from 'lucide-react';
 import { synthesizeMarketNews, generateMarketingContent, generateSpeech } from '../services/geminiService';
-import { useToast } from '../App';
 
 interface NewsItem {
   id: string;
@@ -24,7 +23,6 @@ export const MarketingStudio: React.FC = () => {
 
   // Market Data State
   const [isSynthesizing, setIsSynthesizing] = useState(false);
-  const { showToast } = useToast();
 
   const indices = [
     { label: '10-Yr Treasury', value: '4.12%', change: '+0.05', isUp: true },
@@ -79,7 +77,6 @@ export const MarketingStudio: React.FC = () => {
         setGeneratedContent(result || 'Could not generate content.');
     } catch (e) {
         console.error(e);
-        showToast('Content generation failed. Please verify your API key and try again.', 'error');
     } finally {
         setIsGenerating(false);
     }
@@ -87,7 +84,7 @@ export const MarketingStudio: React.FC = () => {
 
   const copyToClipboard = (text: string) => {
       navigator.clipboard.writeText(text);
-      showToast('Copied to clipboard', 'success');
+      // Optional: Add a toast notification here
   };
 
   const handleReadContent = async () => {
@@ -101,7 +98,6 @@ export const MarketingStudio: React.FC = () => {
     } catch (e) {
         console.error(e);
         setIsSpeaking(false);
-        showToast('Unable to play audio. Check your API access and try again.', 'error');
     }
   };
 
