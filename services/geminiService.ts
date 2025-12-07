@@ -9,7 +9,13 @@ import { loadFromStorage, StorageKeys } from "./storageService";
 const getAIClient = () => {
   // Priority: 1. User Settings (LocalStorage) 2. Environment Variable
   const storedKey = loadFromStorage<string>(StorageKeys.API_KEY, '');
-  const envKey = process.env.API_KEY;
+
+  // Vite exposes env vars through import.meta.env. Fall back to process.env for tooling compatibility.
+  const envKey =
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_API_KEY) ||
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.GEMINI_API_KEY) ||
+    (typeof process !== 'undefined' ? process.env?.GEMINI_API_KEY || process.env?.API_KEY : undefined);
+
   const apiKey = storedKey || envKey;
 
   if (!apiKey) {
