@@ -35,8 +35,5 @@ If you prefer to work with the Gemini CLI, install it globally and enable the Po
    gemini extensions install https://github.com/gemini-cli-extensions/postgres
    ```
 
-3. Confirm the extension is available:
+3. Confirm the extension is available by running `gemini extensions list` and checking for `postgres` in the output:
 
-   ```
-   gemini extensions list | grep postgres
-   ```
