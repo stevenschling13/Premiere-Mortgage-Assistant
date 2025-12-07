@@ -1,12 +1,24 @@
-
-import React, { useEffect } from 'react';
+import React, { useEffect, createContext, useContext } from 'react';
 import { X, CheckCircle, AlertCircle, Info } from 'lucide-react';
-import { ToastMessage } from '../types';
+import { ToastMessage, ToastType } from '../types';
 
 interface ToastProps {
   toasts: ToastMessage[];
   removeToast: (id: string) => void;
 }
+
+// Context Definition
+export interface ToastContextType {
+  showToast: (message: string, type: ToastType) => void;
+}
+
+export const ToastContext = createContext<ToastContextType | undefined>(undefined);
+
+export const useToast = () => {
+  const context = useContext(ToastContext);
+  if (!context) throw new Error('useToast must be used within a ToastProvider');
+  return context;
+};
 
 export const ToastContainer: React.FC<ToastProps> = ({ toasts, removeToast }) => {
   return (

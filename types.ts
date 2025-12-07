@@ -21,11 +21,16 @@ export interface Client {
   phone: string;
   loanAmount: number;
   propertyAddress: string;
-  status: 'Lead' | 'Pre-Approval' | 'Underwriting' | 'Clear to Close' | 'Closed';
+  status: string; // Changed from union to string to support custom deal stages
   nextActionDate: string;
   notes: string;
   checklist: ChecklistItem[];
   emailHistory: EmailLog[];
+}
+
+export interface DealStage {
+  name: string;
+  color: string;
 }
 
 export interface ChatMessage {
@@ -35,6 +40,8 @@ export interface ChatMessage {
   timestamp: Date;
   isError?: boolean;
   groundingLinks?: Array<{uri: string; title: string}>;
+  searchEntryPoint?: string;
+  searchQueries?: string[];
 }
 
 export interface LoanScenario {
@@ -64,6 +71,30 @@ export interface ToastMessage {
   type: ToastType;
 }
 
+export interface MarketIndex {
+  label: string;
+  value: string;
+  change: string;
+  isUp: boolean;
+}
+
+export interface NewsItem {
+  id: string;
+  source: string;
+  date: string;
+  title: string;
+  summary: string;
+  category: 'Rates' | 'Economy' | 'Housing';
+  talkingPoints?: string[]; // Optional as it might be generated later
+}
+
+export interface UserProfile {
+  baseSalary: number;
+  commissionBps: number; // e.g. 55 for 55bps
+  splitPercentage: number; // e.g. 15 for 15%
+  annualIncomeGoal: number;
+}
+
 export enum AppView {
   DASHBOARD = 'DASHBOARD', // Client Manager
   CALCULATOR = 'CALCULATOR', // Jumbo Calc
@@ -71,7 +102,8 @@ export enum AppView {
   RATES_NOTES = 'RATES_NOTES', // Rates & Notes
   MARKETING = 'MARKETING', // Marketing Studio
   ASSISTANT = 'ASSISTANT',
-  COMPENSATION = 'COMPENSATION' // Wealth & Performance
+  COMPENSATION = 'COMPENSATION', // Wealth & Performance
+  SETTINGS = 'SETTINGS'
 }
 
 // AI Command Types

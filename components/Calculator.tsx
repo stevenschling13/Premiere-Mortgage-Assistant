@@ -91,125 +91,131 @@ export const Calculator: React.FC = () => {
             
             <div className="space-y-5">
               <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Purchase Price</label>
-                <div className="relative group">
-                  <DollarSign className="absolute left-3 top-2.5 h-5 w-5 text-gray-400 group-focus-within:text-brand-red transition-colors" />
-                  <input
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Purchase Price</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-3 text-gray-400">$</span>
+                  <input 
                     type="number"
                     inputMode="decimal"
                     value={scenario.purchasePrice}
                     onChange={(e) => handleInputChange(e, 'purchasePrice')}
-                    className="pl-10 w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red focus:bg-white outline-none transition-all font-medium text-brand-dark"
+                    className="w-full pl-6 p-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none transition-colors"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Down Payment %</label>
-                  <div className="relative group">
-                    <Percent className="absolute left-3 top-2.5 h-4 w-4 text-gray-400 group-focus-within:text-brand-red transition-colors" />
-                    <input
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Down Payment (%)</label>
+                  <div className="relative">
+                    <input 
                       type="number"
                       inputMode="decimal"
                       value={scenario.downPaymentPercent}
                       onChange={(e) => handleInputChange(e, 'downPaymentPercent')}
-                      className="pl-9 w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red focus:bg-white outline-none transition-all font-medium"
+                      className="w-full p-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none transition-colors"
                     />
+                    <span className="absolute right-3 top-3 text-gray-400">%</span>
                   </div>
                 </div>
-                <div className="flex flex-col justify-end pb-2 text-right">
-                    <span className="text-xs text-gray-400 uppercase">Equity Amount</span>
-                    <span className="text-sm font-bold text-green-600 truncate">
-                        ${downPaymentAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                    </span>
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Loan Amount</label>
+                  <div className="p-3 bg-gray-100 text-gray-500 rounded-lg border border-transparent font-medium">
+                    ${(loanAmount / 1000).toFixed(0)}k
+                  </div>
                 </div>
               </div>
 
-              <div className="p-4 bg-brand-dark/5 rounded-lg border border-brand-dark/10">
-                  <div className="flex items-center justify-between mb-2">
-                      <label className="text-sm font-bold text-brand-dark flex items-center">
-                          Interest Only
-                          <Info size={12} className="ml-1 text-gray-400" />
-                      </label>
-                      <button 
-                          onClick={() => setScenario({...scenario, isInterestOnly: !scenario.isInterestOnly})}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-red ${scenario.isInterestOnly ? 'bg-brand-red' : 'bg-gray-300'}`}
-                      >
-                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm ${scenario.isInterestOnly ? 'translate-x-6' : 'translate-x-1'}`} />
-                      </button>
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Interest Rate</label>
+                  <div className="relative">
+                    <input 
+                      type="number"
+                      inputMode="decimal"
+                      step="0.125"
+                      value={scenario.interestRate}
+                      onChange={(e) => handleInputChange(e, 'interestRate')}
+                      className="w-full p-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none transition-colors"
+                    />
+                    <span className="absolute right-3 top-3 text-gray-400">%</span>
                   </div>
-                  <p className="text-xs text-gray-500 leading-tight">
-                      {scenario.isInterestOnly ? 'Lower monthly obligation. Principal repayment deferred.' : 'Standard amortization schedule (P&I).'}
-                  </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Rate (%)</label>
-                  <input
-                    type="number"
-                    step="0.125"
-                    inputMode="decimal"
-                    value={scenario.interestRate}
-                    onChange={(e) => handleInputChange(e, 'interestRate')}
-                    className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red focus:bg-white outline-none font-medium"
-                  />
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Term (Years)</label>
-                  <input
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Term (Years)</label>
+                  <input 
                     type="number"
                     inputMode="numeric"
                     value={scenario.loanTerm}
                     onChange={(e) => handleInputChange(e, 'loanTerm')}
-                    className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red focus:bg-white outline-none font-medium"
+                    className="w-full p-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none transition-colors"
                   />
                 </div>
               </div>
 
-              <div className="border-t border-gray-100 pt-4">
-                 <div className="grid grid-cols-2 gap-4">
-                   <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Tax Rate (%)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        inputMode="decimal"
-                        value={scenario.propertyTaxRate}
-                        onChange={(e) => handleInputChange(e, 'propertyTaxRate')}
-                        className="w-full p-2 border border-gray-200 rounded-lg text-sm"
-                      />
-                   </div>
-                   <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">HOA / Mo</label>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        value={scenario.hoaMonthly}
-                        onChange={(e) => handleInputChange(e, 'hoaMonthly')}
-                        className="w-full p-2 border border-gray-200 rounded-lg text-sm"
-                      />
-                   </div>
-                 </div>
+              <div className="pt-4 border-t border-gray-100">
+                 <label className="flex items-center space-x-3 cursor-pointer group">
+                    <div className={`w-6 h-6 rounded border flex items-center justify-center transition-colors ${scenario.isInterestOnly ? 'bg-brand-red border-brand-red' : 'bg-white border-gray-300'}`}>
+                        {scenario.isInterestOnly && <RefreshCcw size={14} className="text-white" />}
+                    </div>
+                    <input 
+                        type="checkbox" 
+                        className="hidden"
+                        checked={scenario.isInterestOnly}
+                        onChange={(e) => setScenario({...scenario, isInterestOnly: e.target.checked})}
+                    />
+                    <span className="text-sm font-medium text-gray-700 group-hover:text-brand-dark transition-colors">Interest Only Payment</span>
+                 </label>
               </div>
             </div>
           </div>
-          
-          <button 
-              onClick={handleGetAnalysis}
-              disabled={loadingAi}
-              className="w-full py-4 bg-gradient-to-r from-brand-dark to-slate-800 text-white rounded-xl font-bold hover:shadow-lg transition-all flex items-center justify-center space-x-2 disabled:opacity-80 active:scale-[0.99]"
-          >
-              {loadingAi ? <RefreshCcw className="animate-spin w-5 h-5 text-brand-gold"/> : <BrainCircuit className="w-5 h-5 text-brand-gold"/>}
-              <span>{loadingAi ? 'Thinking...' : 'Deep Risk Analysis'}</span>
-          </button>
+
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+             <h3 className="text-lg font-bold mb-4 text-brand-dark">Property Expenses</h3>
+             <div className="space-y-4">
+                 <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Property Tax Rate (%)</label>
+                    <input 
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      value={scenario.propertyTaxRate}
+                      onChange={(e) => handleInputChange(e, 'propertyTaxRate')}
+                      className="w-full p-2 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none"
+                    />
+                 </div>
+                 <div className="grid grid-cols-2 gap-4">
+                     <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Insurance / Yr</label>
+                        <input 
+                          type="number"
+                          inputMode="decimal"
+                          value={scenario.insuranceAnnual}
+                          onChange={(e) => handleInputChange(e, 'insuranceAnnual')}
+                          className="w-full p-2 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none"
+                        />
+                     </div>
+                     <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">HOA / Mo</label>
+                        <input 
+                          type="number"
+                          inputMode="decimal"
+                          value={scenario.hoaMonthly}
+                          onChange={(e) => handleInputChange(e, 'hoaMonthly')}
+                          className="w-full p-2 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none"
+                        />
+                     </div>
+                 </div>
+             </div>
+          </div>
         </div>
 
-        {/* Visualization Column */}
-        <div className="xl:col-span-8 space-y-6">
-            <div className="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row items-center justify-between min-h-[400px]">
-                <div className="w-full md:w-1/2 h-64 md:h-80 relative">
+        {/* Results Column */}
+        <div className="xl:col-span-8 flex flex-col gap-8">
+           {/* Chart Section */}
+           <div className="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-gray-200 flex-1 flex flex-col items-center justify-center min-h-[400px]">
+                <h3 className="text-lg font-bold text-brand-dark mb-8 self-start w-full border-b pb-2">Payment Breakdown</h3>
+                <div className="w-full h-[300px] flex items-center justify-center">
                     <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                             <Pie
@@ -217,72 +223,77 @@ export const Calculator: React.FC = () => {
                                 cx="50%"
                                 cy="50%"
                                 innerRadius={80}
-                                outerRadius={100}
+                                outerRadius={120}
                                 paddingAngle={5}
                                 dataKey="value"
-                                cornerRadius={4}
                             >
                                 {chartData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.color} strokeWidth={0} />
+                                    <Cell key={`cell-${index}`} fill={entry.color} />
                                 ))}
                             </Pie>
                             <RechartsTooltip 
-                                formatter={(value: number) => [`$${value.toLocaleString(undefined, {maximumFractionDigits: 0})}`, '']}
-                                contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}}
+                                formatter={(value: number) => `$${value.toLocaleString(undefined, {maximumFractionDigits: 0})}`}
+                                contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}}
                             />
                         </PieChart>
                     </ResponsiveContainer>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                        <span className="text-gray-400 text-xs font-semibold uppercase tracking-wider">Monthly</span>
-                        <span className="text-brand-dark font-bold text-2xl">${totalMonthlyPayment.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
-                    </div>
                 </div>
-                
-                <div className="w-full md:w-1/2 mt-8 md:mt-0 md:pl-12 space-y-6">
-                    <h3 className="font-bold text-gray-800 border-b border-gray-100 pb-2">Payment Breakdown</h3>
-                    <div className="space-y-3">
-                        {chartData.map((item) => (
-                            <div key={item.name} className="flex justify-between items-center group">
-                                <div className="flex items-center space-x-3">
-                                    <div className="w-3 h-3 rounded-full shadow-sm" style={{backgroundColor: item.color}}></div>
-                                    <span className="text-gray-600 font-medium text-sm">{item.name}</span>
-                                </div>
-                                <span className="font-bold text-gray-900 text-sm group-hover:scale-105 transition-transform">
-                                    ${item.value.toLocaleString(undefined, {maximumFractionDigits: 0})}
-                                </span>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full mt-8">
+                    {chartData.map((item, idx) => (
+                        <div key={idx} className="flex flex-col items-center p-3 rounded-lg bg-gray-50">
+                            <div className="flex items-center space-x-2 mb-1">
+                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
+                                <span className="text-xs font-bold text-gray-500 uppercase">{item.name}</span>
                             </div>
-                        ))}
+                            <span className="text-lg font-bold text-brand-dark">${item.value.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
+                        </div>
+                    ))}
+                </div>
+           </div>
+           
+           {/* AI Analysis Section */}
+           <div className="bg-brand-dark text-white p-6 rounded-xl shadow-lg relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-6 opacity-10">
+                    <BrainCircuit size={120} />
+                </div>
+                <div className="relative z-10">
+                    <div className="flex justify-between items-start mb-4">
+                        <div className="flex items-center space-x-3">
+                            <div className="bg-white/10 p-2 rounded-lg">
+                                <BrainCircuit className="text-brand-gold" size={24} />
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-lg">AI Scenario Auditor (Gemini Pro)</h3>
+                                <p className="text-xs text-gray-400">Deep-dive risk analysis & structuring advice</p>
+                            </div>
+                        </div>
+                        <button 
+                            onClick={handleGetAnalysis}
+                            disabled={loadingAi}
+                            className="px-4 py-2 bg-brand-red hover:bg-red-700 text-white text-sm font-bold rounded-lg transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                        >
+                            {loadingAi ? 'Analyzing...' : 'Run Analysis'}
+                        </button>
                     </div>
                     
-                    <div className="pt-6 border-t border-gray-100 space-y-3">
-                         <div className="flex justify-between text-sm">
-                             <span className="text-gray-500">Loan Amount</span>
-                             <span className="font-semibold text-brand-dark">${loanAmount.toLocaleString()}</span>
-                         </div>
-                         <div className="flex justify-between text-sm">
-                             <span className="text-gray-500">Total Down Payment</span>
-                             <span className="font-semibold text-green-600">${downPaymentAmount.toLocaleString()} ({scenario.downPaymentPercent}%)</span>
-                         </div>
+                    <div className="bg-white/5 border border-white/10 rounded-xl p-4 min-h-[100px] text-sm leading-relaxed text-gray-300">
+                        {loadingAi ? (
+                            <div className="flex items-center justify-center h-full text-brand-gold animate-pulse">
+                                <RefreshCcw className="animate-spin mr-2" /> Thinking...
+                            </div>
+                        ) : aiAnalysis ? (
+                            <div className="prose prose-invert prose-sm max-w-none">
+                                <pre className="whitespace-pre-wrap font-sans">{aiAnalysis}</pre>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center h-full text-gray-500 opacity-60">
+                                <Info size={24} className="mb-2"/>
+                                <p>Run analysis to get AI feedback on DTI, reserves, and risk factors.</p>
+                            </div>
+                        )}
                     </div>
                 </div>
-            </div>
-
-            {aiAnalysis && (
-                <div className="bg-brand-light rounded-xl border border-brand-red/10 shadow-sm relative overflow-hidden animate-slide-up">
-                    <div className="absolute top-0 left-0 w-1.5 h-full bg-brand-gold"></div>
-                    <div className="p-6 md:p-8">
-                        <div className="flex items-center space-x-3 mb-4">
-                             <div className="p-1.5 bg-brand-gold/10 rounded-md">
-                                <BrainCircuit size={16} className="text-brand-dark"/>
-                             </div>
-                             <span className="text-brand-dark font-bold text-sm uppercase tracking-wider">Strategic Risk Assessment</span>
-                        </div>
-                        <div className="prose prose-sm text-gray-700 max-w-none">
-                            <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-gray-600">{aiAnalysis}</pre>
-                        </div>
-                    </div>
-                </div>
-            )}
+           </div>
         </div>
       </div>
     </div>

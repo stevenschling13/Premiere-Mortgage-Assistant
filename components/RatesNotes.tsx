@@ -1,19 +1,18 @@
-
 import React, { useState, useEffect } from 'react';
 import { Save, Calendar, PenTool, Sparkles, Loader2, Copy } from 'lucide-react';
 import { analyzeRateTrends } from '../services/geminiService';
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
-import { useToast } from '../App';
+import { useToast } from './Toast';
 
 export const RatesNotes: React.FC = () => {
     const { showToast } = useToast();
 
-    // Default Rates
+    // Start with empty strings for production
     const defaultRates = {
-        conforming30: '6.625',
-        jumbo30: '6.125',
-        arm7_1: '5.875',
-        arm5_1: '5.750'
+        conforming30: '',
+        jumbo30: '',
+        arm7_1: '',
+        arm5_1: ''
     };
 
     // Load from storage
@@ -23,11 +22,6 @@ export const RatesNotes: React.FC = () => {
     const [lastSaved, setLastSaved] = useState<string>('');
     const [aiCommentary, setAiCommentary] = useState<string>('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
-
-    // Persist changes automatically or on specific trigger? 
-    // For notes, let's allow manual save. For rates, auto-save might be annoying if typing.
-    // Let's implement manual save for the "Professional Control" feel, or auto-save debounce.
-    // For simplicity and control, manual save button acts as the commit.
 
     const handleSave = () => {
         saveToStorage(StorageKeys.RATES, rates);
@@ -40,6 +34,12 @@ export const RatesNotes: React.FC = () => {
     };
 
     const handleAnalyzeRates = async () => {
+        // Validate inputs before analysis
+        if (!rates.conforming30 && !rates.jumbo30) {
+            showToast('Please enter at least one rate to analyze', 'error');
+            return;
+        }
+
         setIsAnalyzing(true);
         try {
             const result = await analyzeRateTrends(rates);
@@ -77,7 +77,7 @@ export const RatesNotes: React.FC = () => {
                         <button 
                             onClick={handleAnalyzeRates}
                             disabled={isAnalyzing}
-                            className="text-xs flex items-center bg-brand-light hover:bg-gray-200 text-brand-dark px-2 py-1 rounded transition-colors"
+                            className="text-xs flex items-center bg-brand-light hover:bg-gray-200 text-brand-dark px-2 py-1 rounded transition-colors disabled:opacity-50"
                         >
                             {isAnalyzing ? <Loader2 size={12} className="animate-spin mr-1"/> : <Sparkles size={12} className="mr-1 text-brand-gold"/>}
                             {isAnalyzing ? 'Analyzing...' : 'AI Commentary'}
@@ -91,7 +91,8 @@ export const RatesNotes: React.FC = () => {
                                     type="text" 
                                     value={rates.conforming30}
                                     onChange={(e) => setRates({...rates, conforming30: e.target.value})}
-                                    className="w-full p-2 pr-6 border border-gray-300 rounded text-right font-mono focus:ring-1 focus:ring-brand-red outline-none"
+                                    className="w-full p-2 pr-6 border border-gray-300 rounded text-right font-mono focus:ring-1 focus:ring-brand-red outline-none bg-white text-gray-900"
+                                    placeholder="0.000"
                                 />
                                 <span className="absolute right-2 top-2 text-gray-400 text-sm">%</span>
                             </div>
@@ -103,7 +104,8 @@ export const RatesNotes: React.FC = () => {
                                     type="text" 
                                     value={rates.jumbo30}
                                     onChange={(e) => setRates({...rates, jumbo30: e.target.value})}
-                                    className="w-full p-2 pr-6 border border-gray-300 rounded text-right font-mono focus:ring-1 focus:ring-brand-red outline-none"
+                                    className="w-full p-2 pr-6 border border-gray-300 rounded text-right font-mono focus:ring-1 focus:ring-brand-red outline-none bg-white text-gray-900"
+                                    placeholder="0.000"
                                 />
                                 <span className="absolute right-2 top-2 text-gray-400 text-sm">%</span>
                             </div>
@@ -115,7 +117,8 @@ export const RatesNotes: React.FC = () => {
                                     type="text" 
                                     value={rates.arm7_1}
                                     onChange={(e) => setRates({...rates, arm7_1: e.target.value})}
-                                    className="w-full p-2 pr-6 border border-gray-300 rounded text-right font-mono focus:ring-1 focus:ring-brand-red outline-none"
+                                    className="w-full p-2 pr-6 border border-gray-300 rounded text-right font-mono focus:ring-1 focus:ring-brand-red outline-none bg-white text-gray-900"
+                                    placeholder="0.000"
                                 />
                                 <span className="absolute right-2 top-2 text-gray-400 text-sm">%</span>
                             </div>
@@ -127,7 +130,8 @@ export const RatesNotes: React.FC = () => {
                                     type="text" 
                                     value={rates.arm5_1}
                                     onChange={(e) => setRates({...rates, arm5_1: e.target.value})}
-                                    className="w-full p-2 pr-6 border border-gray-300 rounded text-right font-mono focus:ring-1 focus:ring-brand-red outline-none"
+                                    className="w-full p-2 pr-6 border border-gray-300 rounded text-right font-mono focus:ring-1 focus:ring-brand-red outline-none bg-white text-gray-900"
+                                    placeholder="0.000"
                                 />
                                 <span className="absolute right-2 top-2 text-gray-400 text-sm">%</span>
                             </div>
@@ -174,7 +178,7 @@ export const RatesNotes: React.FC = () => {
                 <textarea 
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    className="flex-1 w-full p-6 outline-none resize-none font-mono text-sm leading-relaxed text-gray-800"
+                    className="flex-1 w-full p-6 outline-none resize-none font-mono text-sm leading-relaxed text-gray-800 bg-white"
                     placeholder="Type notes here during calls..."
                 />
             </div>

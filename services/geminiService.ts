@@ -1,142 +1,198 @@
+
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import { Client, CommandIntent, EmailLog } from "../types";
+import { Client, CommandIntent, EmailLog, MarketIndex, NewsItem } from "../types";
+import { Logger } from "./logger";
+import { loadFromStorage, StorageKeys } from "./storageService";
 
-const SYSTEM_INSTRUCTION = `You are the "Premiere Private Banking Assistant", an elite AI designed for high-net-worth mortgage banking. 
-Your demeanor is sophisticated, precise, and anticipatory.
+// --- Configuration & Validation ---
 
-**Your User's Context (The "Unicorn" Role)**:
-- **Role**: Private Mortgage Banker (Hybrid Model).
-- **Compensation**: Base Salary ($51,001/yr) + Commission.
-- **Commission Structure**: You receive a 15% cut of the Gross Commission.
-- **Volume Model**: "Volume Arbitrage" (High volume from bank referrals, lower bps).
-- **Target Income**: ~$108,750/yr (Target Volume: $70M).
+const getAIClient = () => {
+  // Priority: 1. User Settings (LocalStorage) 2. Environment Variable
+  const storedKey = loadFromStorage<string>(StorageKeys.API_KEY, '');
+  const envKey = process.env.API_KEY;
+  const apiKey = storedKey || envKey;
 
-**You specialize in**:
-1.  **Market Authority**: Use Google Search to provide real-time bond market movements (10yr Treasury, MBS), current mortgage rates, and Fed news. Synthesize this into actionable advice.
-2.  **Complex Deal Structuring**: Analyzing jumbo loans, trust income, and RSU/Asset depletion scenarios.
-3.  **High-Touch Communication**: Drafting white-glove emails that are concise yet warm.
+  if (!apiKey) {
+      throw new Error("API Key is missing. Please configure it in Settings.");
+  }
+  return new GoogleGenAI({ apiKey: apiKey });
+};
 
-**Guidelines**:
--   **Tone**: Professional, confident, concise. Avoid fluff.
--   **Formatting**: Use bullet points for readability in analysis.
--   **Compliance**: Never provide binding tax or legal advice. Always add a disclaimer when discussing specific rates or approvals.
+// --- Cognitive Architecture: System Blueprint ---
+
+const SYSTEM_INSTRUCTION = `
+<system_instruction>
+  <role>
+    You are the "Premiere Private Banking Assistant", an elite AI architected for high-net-worth mortgage banking.
+    You do not behave like a generic chatbot. You are a sophisticated financial analyst and relationship strategist.
+  </role>
+
+  <persona>
+    <tone>Professional, Anticipatory, Concise, Exclusive.</tone>
+    <expertise>
+      - Jumbo & Super Jumbo Loan Structuring
+      - Complex Income Analysis (RSU, Trust, Asset Depletion)
+      - Bond Market Dynamics (10yr Treasury vs MBS spreads)
+      - Private Wealth Relationship Management
+    </expertise>
+  </persona>
+
+  <critical_constraints>
+    <rule id="1">DATA INTEGRITY: Cite ONLY Tier-1 Financial Sources (Bloomberg, WSJ, Fed, Mortgage News Daily).</rule>
+    <rule id="2">COMPLIANCE: Never provide binding tax or legal advice. Always append disclaimers for rates/approvals.</rule>
+    <rule id="3">PRECISION: When discussing rates, specify "Indicative Par Rates" unless live data is present.</rule>
+    <rule id="4">OUTPUT: Use clear formatting (Bullet points, Bold key terms) for readability.</rule>
+  </critical_constraints>
+
+  <context>
+    The user is a "Unicorn" Private Mortgage Banker (Volume Arbitrage Model).
+    Goals: Maximize volume, maintain white-glove service, manage risk.
+  </context>
+</system_instruction>
 `;
 
 // --- Text Generation & Chat ---
 
 export const generateEmailDraft = async (client: Client, topic: string, specificDetails: string) => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const prompt = `Draft a high-touch email for private banking client: ${client.name}.
+    const ai = getAIClient();
     
-    **Client Context**:
-    - Status: ${client.status}
-    - Loan: $${client.loanAmount.toLocaleString()} (${client.propertyAddress})
+    // Prompt Engineering: Task-Specific Context Injection
+    const prompt = `
+    <task>Draft a high-touch email for a private banking client.</task>
     
-    **Objective**: ${topic}
-    **Key Details to Cover**: ${specificDetails}
+    <client_profile>
+      <name>${client.name}</name>
+      <status>${client.status}</status>
+      <loan_context>$${client.loanAmount.toLocaleString()} (${client.propertyAddress})</loan_context>
+    </client_profile>
     
-    The email should feel personal and exclusive. Use a subject line that drives open rates.`;
+    <email_objective>${topic}</email_objective>
+    
+    <key_details>
+      ${specificDetails}
+    </key_details>
+    
+    <style_guide>
+      - Opening: Warm but professional.
+      - Body: Direct, value-focused, avoiding "salesy" fluff.
+      - Closing: Clear next steps or Call to Action.
+      - Subject Line: Compelling, implies exclusivity.
+    </style_guide>
+    `;
 
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
-        temperature: 0.7,
+        temperature: 0.7, // Higher for creative fluency
+        topP: 0.9,
+        topK: 40,
       }
     });
     return response.text;
   } catch (error) {
-    console.error("Error generating email:", error);
-    throw new Error("Unable to draft email at this time.");
+    Logger.error("Error generating email", error);
+    throw new Error("Unable to draft email. Check API Key configuration.");
+  }
+};
+
+export const generateSubjectLines = async (client: Client, topic: string): Promise<string[]> => {
+  try {
+    const ai = getAIClient();
+    const prompt = `Generate 3 high-performing email subject lines for client ${client.name} regarding "${topic}".
+    Context: Loan $${client.loanAmount.toLocaleString()}.
+    Requirement: Return JSON array of strings only.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING }
+        },
+        temperature: 0.8 // High creativity for marketing hooks
+      }
+    });
+
+    if (response.text) {
+        return JSON.parse(response.text) as string[];
+    }
+    return [];
+  } catch (error) {
+    Logger.error("Error generating subject lines", error);
+    return [];
   }
 };
 
 export const generateMarketingContent = async (channel: string, topic: string, tone: string, context?: string) => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const prompt = `Act as a Senior Marketing Director for a Luxury Mortgage Division.
-    Create content for: ${channel}.
-    Topic: ${topic}.
-    Tone: ${tone}.
-    Context: ${context || 'General market expertise'}.
+    const ai = getAIClient();
+    const prompt = `
+    <role>Senior Marketing Director for Luxury Real Estate Finance</role>
+    <task>Create content for ${channel}</task>
+    <topic>${topic}</topic>
+    <tone>${tone}</tone>
+    <market_context>${context || 'General market expertise'}</market_context>
     
-    **Requirements**:
-    - For LinkedIn: Professional, authoritative, use 3-4 strategic hashtags.
-    - For Email: Compelling subject line, clear call to action.
-    - For SMS: Under 160 chars, punchy, urgent.
+    <channel_rules>
+       <linkedin>Professional, authoritative, 3-4 strategic hashtags, spaced paragraphs.</linkedin>
+       <email>Compelling subject, value-first body, clear CTA.</email>
+       <sms>Under 160 chars, urgent, personal.</sms>
+    </channel_rules>
     `;
 
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,
-        config: { systemInstruction: SYSTEM_INSTRUCTION }
+        config: { 
+            systemInstruction: SYSTEM_INSTRUCTION,
+            temperature: 0.6 
+        }
     });
     return response.text;
   } catch (error) {
-    console.error("Error generating marketing content:", error);
+    Logger.error("Error generating marketing content", error);
     throw error;
   }
 };
 
-export const analyzeCommunicationHistory = async (clientName: string, history: EmailLog[]) => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    // Sort chronologically for analysis context to understand the arc
-    const sortedHistory = [...history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    const historyText = sortedHistory.map(h => `[${new Date(h.date).toLocaleDateString()}] ${h.subject}: ${h.body.substring(0, 200)}...`).join('\n');
-    
-    const prompt = `You are a strategic communication advisor. Analyze the communication history for client ${clientName}.
-    
-    **Communication Log (Chronological)**:
-    ${historyText}
-    
-    **Task**:
-    Provide a brief strategic summary in this format:
-    **Engagement Summary**: [1 sentence on responsiveness/sentiment]
-    **Suggested Next Action**: [Specific tactic, e.g. "Call to discuss rate drop", "Wait 3 days"]
-    **Drafting Angle**: [Key hook if we were to email now]`;
-
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: { systemInstruction: SYSTEM_INSTRUCTION }
-    });
-    return response.text;
-  } catch (error) {
-    console.error("Error analyzing communication:", error);
-    throw error;
-  }
-}
-
 export const chatWithAssistant = async (history: Array<{role: string, parts: Array<{text: string}>}>, message: string) => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = getAIClient();
     const chat = ai.chats.create({
-      model: 'gemini-2.5-flash', // Flash is best for Search Grounding per guidelines
+      model: 'gemini-2.5-flash', 
       history: history,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
-        tools: [{googleSearch: {}}] 
+        tools: [{googleSearch: {}}],
+        temperature: 0.4, // Balanced for chat
       }
     });
 
     const response = await chat.sendMessage({ message });
     
-    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const candidate = response.candidates?.[0];
+    const groundingMetadata = candidate?.groundingMetadata;
+    const groundingChunks = groundingMetadata?.groundingChunks || [];
+    
     const links = groundingChunks
       .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
       .filter((link: any) => link !== null);
 
     return {
       text: response.text,
-      links: links
+      links: links,
+      searchEntryPoint: groundingMetadata?.searchEntryPoint?.renderedContent,
+      searchQueries: groundingMetadata?.webSearchQueries
     };
 
   } catch (error) {
-    console.error("Error in chat:", error);
-    throw error; // Re-throw so UI can handle specific error codes
+    Logger.error("Error in chat", error);
+    throw error; 
   }
 };
 
@@ -144,40 +200,146 @@ export const chatWithAssistant = async (history: Array<{role: string, parts: Arr
 
 export const analyzeLoanScenario = async (scenarioData: string) => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    // Using Gemini 3 Pro with Thinking Budget for complex risk assessment
+    const ai = getAIClient();
+    
+    // Chain-of-Thought Strategy
+    const cotPrompt = `
+    <task>Perform a Deep-Dive Risk Assessment on this Jumbo Loan Scenario.</task>
+    <data>${scenarioData}</data>
+    
+    <reasoning_protocol>
+      1. ANALYZE DTI: Calculate Front-End and Back-End ratios. Flag if > 43%.
+      2. ANALYZE ASSETS: Assess post-closing liquidity requirements for Jumbo guidelines (usually 12-24 months reserves).
+      3. EVALUATE COLLATERAL: Consider LTV impact on rate and risk.
+      4. IDENTIFY COMPENSATING FACTORS: High credit score? Low LTV? High residual income?
+      5. FORMULATE STRATEGY: Suggest structure (IO, 7/1 ARM) to mitigate risk.
+    </reasoning_protocol>
+
+    <output_format>
+      Provide a structured "Underwriter's Memo":
+      1. **Strengths**: 3 key positive factors.
+      2. **Risk Factors**: 3 potential challenges.
+      3. **Strategic Recommendation**: Actionable structuring advice.
+    </output_format>
+    `;
+
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
-      contents: `Perform a deep-dive risk assessment on this Jumbo Loan Scenario: ${scenarioData}.
-      
-      Think step-by-step about:
-      1. Debt-to-Income implications.
-      2. Residual income requirements for Jumbo.
-      3. Collateral risk based on the data.
-      4. Potential compensating factors.
-
-      Provide a structured output:
-      1. **Strengths**: 3 key positive factors.
-      2. **Risk Factors**: 3 potential underwriting challenges (e.g., reserves, DTI, collateral).
-      3. **Recommendation**: Suggest a structuring strategy (e.g., "Consider Interest Only to lower DTI").`,
+      contents: cotPrompt,
       config: {
-        thinkingConfig: { thinkingBudget: 32768 } // Max thinking budget for Pro
+        thinkingConfig: { thinkingBudget: 32768 },
+        temperature: 0.2, // Low temperature for deterministic analysis
       }
     });
     return response.text;
   } catch (error) {
-    console.error("Error in thinking analysis:", error);
+    Logger.error("Error in thinking analysis", error);
+    throw error;
+  }
+}
+
+// --- Market Pulse & Deep Thinking ---
+
+export const fetchDailyMarketPulse = async (): Promise<{ indices: MarketIndex[], news: NewsItem[] }> => {
+  try {
+    const ai = getAIClient();
+    const today = new Date().toLocaleDateString();
+    
+    const prompt = `
+      Find current market data for today, ${today}.
+      
+      <sources>
+      STRICTLY use: Bloomberg, CNBC, Mortgage News Daily, Federal Reserve, WSJ.
+      </sources>
+
+      <requirements>
+      1. 10-Year Treasury Yield (Value and daily change).
+      2. S&P 500 Index (Value and daily change).
+      3. Average 30-Year Fixed Mortgage Rate.
+      4. 3 top news headlines impacting Mortgage Rates/Housing.
+      </requirements>
+
+      <output_format>
+      JSON ONLY. No markdown.
+      Schema:
+      {
+        "indices": [
+           { "label": "10-Yr Treasury", "value": "x.xx%", "change": "+/-x.xx", "isUp": boolean },
+           ...
+        ],
+        "news": [
+           { "id": "1", "source": "Source", "date": "Date", "title": "Headline", "summary": "Short summary", "category": "Rates" | "Economy" | "Housing" }
+        ]
+      }
+      </output_format>
+    `;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }],
+        temperature: 0.1, // Near-deterministic for data extraction
+      }
+    });
+
+    if (response.text) {
+       const cleanJson = response.text.replace(/```json\n?|\n?```/g, '').trim();
+       try {
+           const data = JSON.parse(cleanJson);
+           return data;
+       } catch (parseError) {
+           Logger.error("Failed to parse market data JSON", parseError);
+           throw new Error("Data parse error.");
+       }
+    }
+    throw new Error("No data returned");
+  } catch (error) {
+    Logger.error("Error fetching daily pulse", error);
+    throw error;
+  }
+};
+
+export const generateClientFriendlyAnalysis = async (marketData: any) => {
+  try {
+    const ai = getAIClient();
+    
+    const prompt = `
+      <role>Mortgage Market Translator</role>
+      <input>${JSON.stringify(marketData)}</input>
+      
+      <mission>
+      Translate these technical financial metrics into a "Client Brief" that a first-time homebuyer can understand.
+      Use analogies (e.g., "The 10-Year Treasury is like the weather forecast for mortgage rates...").
+      </mission>
+      
+      <output>
+      - What It Means For You (Simple summary)
+      - Recommendation (Lock or Float)
+      </output>
+    `;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: prompt,
+      config: {
+        thinkingConfig: { thinkingBudget: 2048 },
+        temperature: 0.5
+      }
+    });
+    return response.text;
+  } catch (error) {
+    Logger.error("Error generating client analysis", error);
     throw error;
   }
 }
 
 export const analyzeRateTrends = async (rates: any) => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const prompt = `Analyze these daily par rates for a Morning Rate Sheet header:
+    const ai = getAIClient();
+    const prompt = `Analyze these daily par rates:
     - 30-Yr Conforming: ${rates.conforming30}%
     - 30-Yr Jumbo: ${rates.jumbo30}%
-    - 7/1 ARM: ${rates.arm7_1}%
     
     Provide a 2-sentence commentary on the Yield Curve and the Jumbo vs. Conforming spread. Advise on "Float vs. Lock".`;
 
@@ -188,14 +350,14 @@ export const analyzeRateTrends = async (rates: any) => {
     });
     return response.text;
   } catch (error) {
-    console.error("Error analyzing rates", error);
+    Logger.error("Error analyzing rates", error);
     throw error;
   }
 }
 
 export const synthesizeMarketNews = async (newsItems: any[]) => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = getAIClient();
     const headlines = newsItems.map(n => `- ${n.title}: ${n.summary}`).join('\n');
     const prompt = `Synthesize these headlines into a concise "Market Flash" (bullet points) for high-net-worth clients.
     ${headlines}`;
@@ -207,55 +369,49 @@ export const synthesizeMarketNews = async (newsItems: any[]) => {
     });
     return response.text;
   } catch (error) {
-    console.error("Error synthesizing news", error);
+    Logger.error("Error synthesizing news", error);
     throw error;
   }
 }
 
-// --- Compensation Analysis ---
-
 export const analyzeIncomeProjection = async (clients: Client[], currentCommission: number) => {
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const ai = getAIClient();
         const pipelineData = clients.map(c => 
             `- ${c.name}: $${c.loanAmount} (${c.status})`
         ).join('\n');
 
         const prompt = `
-            You are a Financial Performance Analyst for a Mortgage Professional.
-            Analyze the user's pipeline to see if they are on track to hit their "Unicorn Role" target of $108,750/year.
+            You are a Financial Performance Analyst.
             
-            **Compensation Rules**:
-            - Base Salary: $51,001/year (Fixed)
-            - Target Annual Commission: $57,750
-            - Current Realized Commission YTD: $${currentCommission}
+            **Current Realized Commission YTD**: $${currentCommission}
             
             **Current Pipeline**:
             ${pipelineData}
             
             **Task**:
-            1. Estimate the "Risk-Adjusted" commission value of the pipeline (Status probabilities: Lead=10%, Pre-Approval=30%, Underwriting=70%, Clear to Close=95%).
-            2. Identify which 2 deals are most critical to close this month to boost the "Wealth Check".
-            3. Provide a brief strategy to accelerate the "Volume Arbitrage" game.
+            Write a cohesive, natural-language executive summary (2-3 paragraphs) analyzing progress.
+            - Estimate "Risk-Adjusted" commission.
+            - Identify critical deals.
+
+            **STYLE**: Plain text paragraphs only. No markdown.
         `;
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
-            config: { systemInstruction: SYSTEM_INSTRUCTION }
+            config: { systemInstruction: "Plain text paragraphs only." }
         });
         return response.text;
     } catch (error) {
-        console.error("Error analyzing compensation:", error);
+        Logger.error("Error analyzing compensation", error);
         throw error;
     }
 };
 
-// --- Audio Services (Transcription & TTS) ---
-
 export const transcribeAudio = async (base64Audio: string, mimeType: string = 'audio/webm'): Promise<string> => {
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const ai = getAIClient();
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: {
@@ -267,14 +423,14 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string = 'a
         });
         return response.text || "";
     } catch (error) {
-        console.error("Error transcribing audio:", error);
+        Logger.error("Error transcribing audio", error);
         throw new Error("Audio transcription failed.");
     }
 };
 
 export const generateSpeech = async (text: string): Promise<string> => {
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const ai = getAIClient();
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
             contents: { parts: [{ text: text }] },
@@ -292,29 +448,26 @@ export const generateSpeech = async (text: string): Promise<string> => {
         if (!base64Audio) throw new Error("No audio generated");
         return base64Audio;
     } catch (error) {
-        console.error("Error generating speech:", error);
+        Logger.error("Error generating speech", error);
         throw error;
     }
 };
 
-// --- Voice Command Parser ---
-export const parseNaturalLanguageCommand = async (transcript: string): Promise<CommandIntent> => {
+export const parseNaturalLanguageCommand = async (transcript: string, validStatuses?: string[]): Promise<CommandIntent> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const statusList = validStatuses ? validStatuses.join("', '") : "Lead', 'Pre-Approval', 'Underwriting', 'Clear to Close', 'Closed";
+
+    const ai = getAIClient();
     const prompt = `
       You are a command parser for a Mortgage CRM. Convert the user's natural language request into a specific JSON Action.
       
       **Available Actions**:
-      1. CREATE_CLIENT: User wants to add a new person. Extract 'name', 'loanAmount' (number), 'status'.
-      2. UPDATE_CLIENT: User wants to change details of a deal. 
-         - Use this for STATUS UPDATES (e.g. "Move John to Underwriting").
-         - Extract 'clientName' and any of: 'status', 'loanAmount', 'phone', 'email'.
-      3. ADD_NOTE: User wants to append a note. Extract 'clientName' and 'note'.
-      4. ADD_TASK: User wants to add a checklist item. Extract 'clientName', 'taskLabel', and 'date' (YYYY-MM-DD) if mentioned.
+      1. CREATE_CLIENT
+      2. UPDATE_CLIENT
+      3. ADD_NOTE
+      4. ADD_TASK
 
-      **Status Values**: 'Lead', 'Pre-Approval', 'Underwriting', 'Clear to Close', 'Closed'. 
-      - Map "Closing" or "CTC" to "Clear to Close".
-      - Map "Approved" to "Pre-Approval" or "Underwriting" based on context.
+      **Status Values**: '${statusList}'. 
 
       **User Request**: "${transcript}"
       **Today's Date**: ${new Date().toISOString().split('T')[0]}
@@ -355,7 +508,7 @@ export const parseNaturalLanguageCommand = async (transcript: string): Promise<C
     }
     throw new Error("No response from parser");
   } catch (error) {
-    console.error("Error parsing command", error);
+    Logger.error("Error parsing command", error);
     return { action: 'UNKNOWN', payload: {} };
   }
 };

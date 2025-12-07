@@ -1,0 +1,17 @@
+
+{
+  "short_name": "PremiereBank",
+  "name": "Premiere Private Mortgage Workspace",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#1E293B",
+  "background_color": "#F8FAFC",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/25/25231.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}

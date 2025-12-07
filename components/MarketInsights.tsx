@@ -1,18 +1,11 @@
 import React, { useState } from 'react';
-import { TrendingUp, TrendingDown, Linkedin, Mail, Copy, ArrowRight, MessageSquare, Sparkles, Loader2, FileText, Megaphone, Smartphone, Volume2 } from 'lucide-react';
-import { synthesizeMarketNews, generateMarketingContent, generateSpeech } from '../services/geminiService';
-
-interface NewsItem {
-  id: string;
-  source: string;
-  date: string;
-  title: string;
-  summary: string;
-  talkingPoints: string[];
-  category: 'Rates' | 'Economy' | 'Housing';
-}
+import { TrendingUp, TrendingDown, Linkedin, Mail, Copy, ArrowRight, MessageSquare, Sparkles, Loader2, FileText, Megaphone, Smartphone, Volume2, RefreshCw, BrainCircuit } from 'lucide-react';
+import { synthesizeMarketNews, generateMarketingContent, generateSpeech, fetchDailyMarketPulse, generateClientFriendlyAnalysis } from '../services/geminiService';
+import { MarketIndex, NewsItem } from '../types';
+import { useToast } from './Toast';
 
 export const MarketingStudio: React.FC = () => {
+  const { showToast } = useToast();
   // Content Generation State
   const [genChannel, setGenChannel] = useState('LinkedIn Post');
   const [genTopic, setGenTopic] = useState('Weekly Rate Update');
@@ -21,54 +14,51 @@ export const MarketingStudio: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // Market Data State
-  const [isSynthesizing, setIsSynthesizing] = useState(false);
+  // Market Data State - Start Empty for Production
+  const [indices, setIndices] = useState<MarketIndex[]>([]);
+  const [newsFeed, setNewsFeed] = useState<NewsItem[]>([]);
+  
+  const [isFetchingData, setIsFetchingData] = useState(false);
+  const [clientAnalysis, setClientAnalysis] = useState('');
+  const [isThinking, setIsThinking] = useState(false);
 
-  const indices = [
-    { label: '10-Yr Treasury', value: '4.12%', change: '+0.05', isUp: true },
-    { label: 'S&P 500', value: '5,230', change: '-12.4', isUp: false },
-    { label: 'MBS (UMBS 5.5)', value: '98.42', change: '-0.15', isUp: false },
-    { label: 'Brent Crude', value: '$82.40', change: '+0.45', isUp: true },
-  ];
+  // --- Handlers ---
 
-  const newsFeed: NewsItem[] = [
-    {
-      id: '1',
-      source: 'Federal Reserve',
-      date: 'Today, 8:30 AM',
-      category: 'Economy',
-      title: "Fed Signals 'Higher for Longer' After Strong Jobs Report",
-      summary: "Chairman Powell emphasized that while inflation is cooling, the labor market remains too tight to justify immediate rate cuts. Markets are now pricing in the first cut for September rather than June.",
-      talkingPoints: [
-        "Advise clients to lock in rates now if closing within 45 days.",
-        "For long time horizons, 7/1 ARM is 0.5% lower than 30-year fixed.",
-      ]
-    },
-    {
-      id: '2',
-      source: 'Housing Wire',
-      date: 'Yesterday',
-      category: 'Housing',
-      title: "Luxury Inventory Tightens: Jumbo Listings Down 12% YoY",
-      summary: "High-end markets in SF, NY, and Miami are seeing a shortage of turnkey properties, leading to renewed bidding wars despite elevated interest rates.",
-      talkingPoints: [
-        "Pre-underwriting is critical for 'good as cash' offers.",
-        "Be prepared for appraisal gaps in the $5M+ range."
-      ]
-    },
-    {
-      id: '3',
-      source: 'Bond Market Update',
-      date: '2 Days Ago',
-      category: 'Rates',
-      title: "Jumbo-Conforming Spread Narrows to Historic Lows",
-      summary: "The spread between Jumbo rates and Conforming rates has compressed. Jumbo liquidity remains strong as private banks compete for high-quality assets.",
-      talkingPoints: [
-        "Portfolio relationship pricing is beating standard secondary market.",
-        "Moving assets to the bank (AUM) can unlock rate discounts."
-      ]
-    }
-  ];
+  const handleRefreshMarketData = async () => {
+      setIsFetchingData(true);
+      try {
+          showToast('Scanning live markets...', 'info');
+          const data = await fetchDailyMarketPulse();
+          if (data) {
+              setIndices(data.indices);
+              setNewsFeed(data.news);
+              showToast('Market data updated successfully', 'success');
+          }
+      } catch (error) {
+          console.error(error);
+          showToast('Failed to fetch live data', 'error');
+      } finally {
+          setIsFetchingData(false);
+      }
+  };
+
+  const handleGenerateAnalysis = async () => {
+      if (indices.length === 0) {
+          showToast('Please update market data first', 'error');
+          return;
+      }
+      setIsThinking(true);
+      try {
+          const context = { indices, news: newsFeed.slice(0, 3) };
+          const analysis = await generateClientFriendlyAnalysis(context);
+          setClientAnalysis(analysis || "Analysis unavailable.");
+      } catch (error) {
+          console.error(error);
+          showToast('Analysis failed', 'error');
+      } finally {
+          setIsThinking(false);
+      }
+  };
 
   const handleGenerateContent = async (customContext?: string) => {
     setIsGenerating(true);
@@ -84,7 +74,7 @@ export const MarketingStudio: React.FC = () => {
 
   const copyToClipboard = (text: string) => {
       navigator.clipboard.writeText(text);
-      // Optional: Add a toast notification here
+      showToast('Copied to clipboard', 'info');
   };
 
   const handleReadContent = async () => {
@@ -109,15 +99,159 @@ export const MarketingStudio: React.FC = () => {
              <Megaphone className="mr-3 text-brand-red" size={32}/>
              Marketing Studio
           </h2>
-          <p className="text-gray-500 mt-1">Generate high-impact content to nurture leads and build authority.</p>
+          <p className="text-gray-500 mt-1">Real-time market intelligence & content generation.</p>
+        </div>
+        <button 
+            onClick={handleRefreshMarketData}
+            disabled={isFetchingData}
+            className="flex items-center space-x-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-brand-red transition-all shadow-sm text-sm font-medium text-gray-700 disabled:opacity-50"
+        >
+            <RefreshCw size={16} className={`${isFetchingData ? 'animate-spin text-brand-red' : ''}`}/>
+            <span>{isFetchingData ? 'Updating...' : 'Update Daily Data'}</span>
+        </button>
+      </div>
+
+      {/* Market Pulse / Sources */}
+      <div className="mb-8">
+        <h3 className="font-bold text-gray-700 mb-4 flex items-center">
+            <TrendingUp className="mr-2" size={20}/>
+            Market Pulse (Live)
+        </h3>
+
+        {/* Indices Ticker */}
+        {indices.length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                {indices.map((index, idx) => (
+                <div key={idx} className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex flex-col">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{index.label}</span>
+                    <div className="flex items-end justify-between mt-1">
+                    <span className="text-lg font-bold text-brand-dark">{index.value}</span>
+                    <span className={`text-xs font-medium ${index.isUp ? 'text-green-600' : 'text-red-600'}`}>
+                        {index.change}
+                    </span>
+                    </div>
+                </div>
+                ))}
+            </div>
+        ) : (
+            <div className="bg-gray-50 border border-dashed border-gray-300 rounded-xl p-8 text-center mb-6">
+                <TrendingUp className="mx-auto text-gray-300 mb-2" size={32}/>
+                <p className="text-gray-500 text-sm">Market data not loaded.</p>
+                <button onClick={handleRefreshMarketData} className="text-brand-red text-sm font-bold hover:underline mt-1">
+                    Fetch Live Data
+                </button>
+            </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+             {/* News Column */}
+             <div className="lg:col-span-2 space-y-4">
+                 {newsFeed.length > 0 ? (
+                     newsFeed.map((news, idx) => (
+                        <div key={idx} className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 flex flex-col hover:shadow-md transition-shadow relative group">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
+                                    news.category === 'Rates' ? 'bg-blue-100 text-blue-700' : 
+                                    news.category === 'Economy' ? 'bg-purple-100 text-purple-700' : 
+                                    'bg-orange-100 text-orange-700'
+                                }`}>
+                                    {news.category}
+                                </span>
+                                <span className="text-[10px] text-gray-400">{news.date}</span>
+                            </div>
+                            <h4 className="font-bold text-gray-900 mb-1 leading-tight">{news.title}</h4>
+                            <p className="text-xs text-gray-600 leading-relaxed mb-4">{news.summary}</p>
+                            
+                            <div className="flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity absolute top-4 right-4 bg-white shadow-sm p-1 rounded-lg border border-gray-100">
+                                <button 
+                                    onClick={() => {
+                                        setGenTopic(news.title);
+                                        setGenChannel('LinkedIn Post');
+                                        handleGenerateContent(`Source: ${news.title}. Summary: ${news.summary}`);
+                                        window.scrollTo({top: 500, behavior: 'smooth'});
+                                    }}
+                                    className="p-1.5 hover:bg-gray-100 rounded text-blue-600" title="Draft LinkedIn"
+                                >
+                                    <Linkedin size={14} />
+                                </button>
+                                <button 
+                                    onClick={() => {
+                                        setGenTopic(news.title);
+                                        setGenChannel('Client Email Blast');
+                                        handleGenerateContent(`Source: ${news.title}. Summary: ${news.summary}`);
+                                        window.scrollTo({top: 500, behavior: 'smooth'});
+                                    }}
+                                    className="p-1.5 hover:bg-gray-100 rounded text-gray-600" title="Draft Email"
+                                >
+                                    <Mail size={14} />
+                                </button>
+                            </div>
+                        </div>
+                     ))
+                 ) : (
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center flex flex-col items-center justify-center h-full min-h-[200px]">
+                        <FileText className="text-gray-200 mb-3" size={48}/>
+                        <p className="text-gray-400 text-sm">No news feed available.</p>
+                    </div>
+                 )}
+             </div>
+
+             {/* Client Analysis (Deep Thinking) */}
+             <div className="lg:col-span-1">
+                 <div className="bg-brand-dark text-white rounded-xl shadow-lg p-6 relative overflow-hidden h-full">
+                     <div className="absolute top-0 right-0 p-6 opacity-10">
+                         <BrainCircuit size={100} />
+                     </div>
+                     <div className="relative z-10 flex flex-col h-full">
+                         <div className="flex items-center space-x-2 mb-4">
+                             <div className="bg-white/10 p-2 rounded-lg">
+                                <BrainCircuit className="text-brand-gold" size={20} />
+                             </div>
+                             <div>
+                                 <h3 className="font-bold text-sm">Client-Ready Intelligence</h3>
+                                 <p className="text-[10px] text-gray-400">Gemini 3 Pro • Deep Thinking Analysis</p>
+                             </div>
+                         </div>
+                         
+                         <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex-1 text-sm leading-relaxed mb-4 overflow-y-auto max-h-[300px]">
+                             {isThinking ? (
+                                 <div className="flex flex-col items-center justify-center h-full space-y-3">
+                                     <Loader2 className="animate-spin text-brand-gold" size={24} />
+                                     <p className="text-xs text-brand-gold animate-pulse text-center">
+                                         Analyzing Yield Curves...<br/>Simulating Inflation Impact...<br/>Simplifying for Borrowers...
+                                     </p>
+                                 </div>
+                             ) : clientAnalysis ? (
+                                 <div className="prose prose-invert prose-sm">
+                                     <pre className="whitespace-pre-wrap font-sans text-xs">{clientAnalysis}</pre>
+                                 </div>
+                             ) : (
+                                 <div className="flex flex-col items-center justify-center h-full text-gray-500 opacity-60 text-center">
+                                     <p className="text-xs">
+                                         Click below to translate complex market data into a simple "What it means for you" brief for clients.
+                                     </p>
+                                 </div>
+                             )}
+                         </div>
+
+                         <button 
+                            onClick={handleGenerateAnalysis}
+                            disabled={isThinking || indices.length === 0}
+                            className="w-full py-2 bg-brand-gold text-brand-dark font-bold text-sm rounded-lg hover:bg-yellow-500 transition-colors shadow-lg active:scale-95 disabled:opacity-50"
+                         >
+                            {isThinking ? 'Thinking Deeply...' : 'Generate Daily Brief'}
+                         </button>
+                     </div>
+                 </div>
+             </div>
         </div>
       </div>
 
       {/* Content Generator Panel */}
       <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 mb-8 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-2 h-full bg-brand-gold"></div>
+          <div className="absolute top-0 left-0 w-2 h-full bg-brand-red"></div>
           <div className="flex items-center space-x-2 mb-6">
-              <Sparkles className="text-brand-gold" size={20}/>
+              <Sparkles className="text-brand-red" size={20}/>
               <h3 className="font-bold text-brand-dark text-lg">AI Content Generator</h3>
           </div>
 
@@ -128,7 +262,7 @@ export const MarketingStudio: React.FC = () => {
                       <select 
                         value={genChannel}
                         onChange={(e) => setGenChannel(e.target.value)}
-                        className="w-full p-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-red text-sm"
+                        className="w-full p-2 bg-white text-gray-900 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-red text-sm"
                       >
                           <option>LinkedIn Post</option>
                           <option>Client Email Blast</option>
@@ -143,7 +277,7 @@ export const MarketingStudio: React.FC = () => {
                         type="text"
                         value={genTopic}
                         onChange={(e) => setGenTopic(e.target.value)}
-                        className="w-full p-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-red text-sm"
+                        className="w-full p-2 bg-white text-gray-900 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-red text-sm"
                         placeholder="e.g. Fed Rate Decision"
                       />
                   </div>
@@ -152,7 +286,7 @@ export const MarketingStudio: React.FC = () => {
                       <select 
                         value={genTone}
                         onChange={(e) => setGenTone(e.target.value)}
-                        className="w-full p-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-red text-sm"
+                        className="w-full p-2 bg-white text-gray-900 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-red text-sm"
                       >
                           <option>Professional & Educational</option>
                           <option>Urgent & Opportunity Focused</option>
@@ -171,13 +305,13 @@ export const MarketingStudio: React.FC = () => {
               </div>
 
               <div className="md:col-span-2">
-                  <div className="bg-gray-50 border border-gray-200 rounded-xl h-full min-h-[250px] relative p-4">
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl h-[400px] md:h-full md:min-h-[400px] relative p-4 flex flex-col">
                       {generatedContent ? (
                           <>
                             <textarea 
                                 value={generatedContent}
                                 onChange={(e) => setGeneratedContent(e.target.value)}
-                                className="w-full h-full bg-transparent border-none outline-none resize-none text-sm text-gray-800 leading-relaxed font-sans pr-8"
+                                className="w-full flex-1 bg-transparent border-none outline-none resize-none text-base text-gray-900 leading-relaxed font-sans pr-10"
                             />
                             <div className="absolute top-3 right-3 flex flex-col gap-2">
                                 <button 
@@ -206,77 +340,6 @@ export const MarketingStudio: React.FC = () => {
                   </div>
               </div>
           </div>
-      </div>
-
-      {/* Market Pulse / Sources */}
-      <h3 className="font-bold text-gray-700 mb-4 flex items-center">
-          <TrendingUp className="mr-2" size={20}/>
-          Market Pulse (Content Sources)
-      </h3>
-
-      {/* Indices Ticker */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        {indices.map((index, idx) => (
-          <div key={idx} className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex flex-col">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{index.label}</span>
-            <div className="flex items-end justify-between mt-1">
-              <span className="text-lg font-bold text-brand-dark">{index.value}</span>
-              <span className={`text-xs font-medium ${index.isUp ? 'text-green-600' : 'text-red-600'}`}>{index.change}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {newsFeed.map((news) => (
-          <div key={news.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col hover:shadow-md transition-shadow">
-            <div className="p-5 flex-1">
-              <div className="flex items-center justify-between mb-3">
-                <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
-                  news.category === 'Rates' ? 'bg-blue-100 text-blue-700' : 
-                  news.category === 'Economy' ? 'bg-purple-100 text-purple-700' : 
-                  'bg-orange-100 text-orange-700'
-                }`}>
-                  {news.category}
-                </span>
-                <span className="text-[10px] text-gray-400">{news.date}</span>
-              </div>
-              
-              <h4 className="font-bold text-gray-900 mb-2 leading-tight">{news.title}</h4>
-              <p className="text-xs text-gray-600 leading-relaxed mb-4 line-clamp-3">{news.summary}</p>
-              
-              <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
-                  <p className="text-[10px] font-bold text-gray-500 uppercase mb-1">Key Talking Point</p>
-                  <p className="text-xs text-gray-700">{news.talkingPoints[0]}</p>
-              </div>
-            </div>
-
-            <div className="p-3 bg-gray-50 border-t border-gray-100 flex justify-between space-x-2">
-                <button 
-                    onClick={() => {
-                        setGenTopic(news.title);
-                        setGenChannel('LinkedIn Post');
-                        handleGenerateContent(`Source: ${news.title}. Summary: ${news.summary}`);
-                        window.scrollTo({top: 0, behavior: 'smooth'});
-                    }}
-                    className="flex-1 bg-white border border-gray-200 hover:bg-gray-100 text-brand-dark text-xs py-2 rounded flex items-center justify-center transition-colors font-medium"
-                >
-                    <Linkedin size={14} className="mr-1 text-blue-700"/> Post
-                </button>
-                 <button 
-                    onClick={() => {
-                        setGenTopic(news.title);
-                        setGenChannel('Client Email Blast');
-                        handleGenerateContent(`Source: ${news.title}. Summary: ${news.summary}`);
-                        window.scrollTo({top: 0, behavior: 'smooth'});
-                    }}
-                    className="flex-1 bg-white border border-gray-200 hover:bg-gray-100 text-brand-dark text-xs py-2 rounded flex items-center justify-center transition-colors font-medium"
-                >
-                    <Mail size={14} className="mr-1 text-gray-600"/> Email
-                </button>
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User as UserIcon, Loader2, Link as LinkIcon, ExternalLink, Mic, MicOff, Trash2 } from 'lucide-react';
+import { Send, Bot, User as UserIcon, Loader2, Link as LinkIcon, ExternalLink, Mic, MicOff, Trash2, Search } from 'lucide-react';
 import { ChatMessage } from '../types';
 import { chatWithAssistant } from '../services/geminiService';
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
@@ -68,6 +68,8 @@ export const Assistant: React.FC = () => {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const sessionRef = useRef<any>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
+  const shouldConnectRef = useRef(false);
 
   useEffect(() => {
      saveToStorage(StorageKeys.CHAT_HISTORY, messages);
@@ -82,7 +84,9 @@ export const Assistant: React.FC = () => {
   }, [messages]);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       stopLiveSession();
     };
   }, []);
@@ -128,7 +132,9 @@ export const Assistant: React.FC = () => {
         role: 'model',
         text: response.text,
         timestamp: new Date(),
-        groundingLinks: response.links
+        groundingLinks: response.links,
+        searchEntryPoint: response.searchEntryPoint,
+        searchQueries: response.searchQueries
       };
 
       setMessages(prev => [...prev, aiMsg]);
@@ -182,12 +188,23 @@ export const Assistant: React.FC = () => {
 
   const startLiveSession = async () => {
     setIsLiveConnecting(true);
+    shouldConnectRef.current = true;
+
     try {
       const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
       const ctx = new AudioContext({ sampleRate: 16000 });
       audioContextRef.current = ctx;
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Prevent race condition: if component unmounted or session stopped while awaiting stream
+      if (!mountedRef.current || !shouldConnectRef.current) {
+          stream.getTracks().forEach(track => track.stop());
+          ctx.close();
+          setIsLiveConnecting(false);
+          return;
+      }
+
       mediaStreamRef.current = stream;
 
       // Use process.env.API_KEY for reliability in Live mode
@@ -197,6 +214,7 @@ export const Assistant: React.FC = () => {
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
         callbacks: {
           onopen: () => {
+            if (!mountedRef.current || !shouldConnectRef.current) return;
             console.log("Live session opened");
             setIsLiveConnected(true);
             setIsLiveConnecting(false);
@@ -234,6 +252,7 @@ export const Assistant: React.FC = () => {
             processor.connect(ctx.destination); 
           },
           onmessage: async (msg: LiveServerMessage) => {
+            if (!mountedRef.current) return;
             const base64Audio = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (base64Audio && audioContextRef.current) {
                 const audioData = base64ToUint8Array(base64Audio);
@@ -256,11 +275,15 @@ export const Assistant: React.FC = () => {
           },
           onclose: () => {
             console.log("Live session closed");
-            stopLiveSession();
+            if (mountedRef.current) {
+              stopLiveSession();
+            }
           },
           onerror: (err) => {
             console.error("Live session error", err);
-            stopLiveSession();
+            if (mountedRef.current) {
+              stopLiveSession();
+            }
           }
         },
         config: {
@@ -276,15 +299,21 @@ export const Assistant: React.FC = () => {
 
     } catch (e) {
       console.error("Failed to start live session", e);
-      setIsLiveConnecting(false);
-      setIsLiveConnected(false);
+      if (mountedRef.current) {
+        setIsLiveConnecting(false);
+        setIsLiveConnected(false);
+      }
     }
   };
 
   const stopLiveSession = () => {
-    setIsLiveConnected(false);
-    setIsLiveConnecting(false);
-    setIsLiveMode(false);
+    shouldConnectRef.current = false;
+    
+    if (mountedRef.current) {
+        setIsLiveConnected(false);
+        setIsLiveConnecting(false);
+        setIsLiveMode(false);
+    }
     
     if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
@@ -297,7 +326,10 @@ export const Assistant: React.FC = () => {
     sourceNodeRef.current?.disconnect();
     analyserRef.current?.disconnect();
     
-    audioContextRef.current?.close();
+    // Close context safely
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close().catch(console.error);
+    }
     audioContextRef.current = null;
 
     sessionRef.current?.then((s: any) => {
@@ -418,27 +450,50 @@ export const Assistant: React.FC = () => {
                             : 'bg-white text-gray-800 border border-gray-200 rounded-tl-none'
                     }`}
                 >
-                    <div className="whitespace-pre-wrap">{msg.text}</div>
+                    <div className="whitespace-pre-wrap text-gray-900">{msg.text}</div>
                     
-                    {msg.groundingLinks && msg.groundingLinks.length > 0 && (
+                    {/* Grounding Info */}
+                    {(msg.groundingLinks?.length! > 0 || msg.searchQueries?.length! > 0) && (
                       <div className="mt-3 pt-3 border-t border-dashed border-gray-300/50">
-                        <p className="text-[10px] font-bold uppercase tracking-wider opacity-60 mb-2 flex items-center text-gray-600">
-                           <LinkIcon size={10} className="mr-1" /> Verified Sources
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {msg.groundingLinks.slice(0, 3).map((link, idx) => (
-                            <a 
-                              key={idx} 
-                              href={link.uri} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="text-[10px] bg-white border border-gray-200 hover:border-brand-gold hover:bg-yellow-50 px-2 py-1 rounded-md flex items-center transition-all text-brand-dark no-underline shadow-sm group"
-                            >
-                              <span className="max-w-[120px] truncate">{link.title}</span>
-                              <ExternalLink size={10} className="ml-1 opacity-30 group-hover:opacity-100" />
-                            </a>
-                          ))}
-                        </div>
+                        
+                        {/* Search Queries Used */}
+                        {msg.searchQueries && msg.searchQueries.length > 0 && (
+                            <div className="mb-2 text-[10px] text-gray-500 italic flex items-center">
+                                <Search size={10} className="mr-1" />
+                                Searched for: {msg.searchQueries.map(q => `"${q}"`).join(', ')}
+                            </div>
+                        )}
+
+                        {/* Source Links */}
+                        {msg.groundingLinks && msg.groundingLinks.length > 0 && (
+                            <>
+                                <p className="text-[10px] font-bold uppercase tracking-wider opacity-60 mb-2 flex items-center text-gray-600">
+                                <LinkIcon size={10} className="mr-1" /> Verified Sources
+                                </p>
+                                <div className="flex flex-wrap gap-2 mb-2">
+                                {msg.groundingLinks.slice(0, 4).map((link, idx) => (
+                                    <a 
+                                    key={idx} 
+                                    href={link.uri} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="text-[10px] bg-white border border-gray-200 hover:border-brand-gold hover:bg-yellow-50 px-2 py-1 rounded-md flex items-center transition-all text-brand-dark no-underline shadow-sm group"
+                                    >
+                                    <span className="max-w-[150px] truncate">{link.title}</span>
+                                    <ExternalLink size={10} className="ml-1 opacity-30 group-hover:opacity-100" />
+                                    </a>
+                                ))}
+                                </div>
+                            </>
+                        )}
+
+                        {/* Search Entry Point Compliance Footer */}
+                        {msg.searchEntryPoint && (
+                            <div 
+                                className="mt-2 text-[10px] text-gray-400 [&_a]:text-gray-500 [&_a]:underline"
+                                dangerouslySetInnerHTML={{ __html: msg.searchEntryPoint }}
+                            />
+                        )}
                       </div>
                     )}
                 </div>
@@ -488,7 +543,7 @@ export const Assistant: React.FC = () => {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Ask about rates, draft emails, or analyze scenarios..."
-            className="w-full pl-4 pr-12 py-3 md:py-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-red focus:bg-white focus:border-brand-red outline-none resize-none text-sm transition-all shadow-inner"
+            className="w-full pl-4 pr-12 py-3 md:py-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-red focus:bg-white focus:border-brand-red outline-none resize-none text-sm transition-all shadow-inner text-gray-900"
             rows={1}
             style={{ minHeight: '50px' }}
           />
