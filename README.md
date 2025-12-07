@@ -15,25 +15,6 @@ View your app in AI Studio: https://ai.studio/apps/drive/186_Uuec2HzFHN-DoXsysBS
 
 1. Install dependencies:
    `npm install`
-2. Set the `VITE_GEMINI_API_KEY` (or `GEMINI_API_KEY`) in [.env.local](.env.local) to your Gemini API key so the browser client can access it.
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
-
-## Gemini CLI setup
-
-If you prefer to work with the Gemini CLI, install it globally and enable the Postgres extension so database-powered prompts run correctly:
-
-1. Install the CLI:
-
-   ```
-   npm install -g @google/gemini-cli
-   ```
-
-2. Add the Postgres extension:
-
-   ```
-   gemini extensions install https://github.com/gemini-cli-extensions/postgres
-   ```
-
-3. Confirm the extension is available by running `gemini extensions list` and checking for `postgres` in the output:
-

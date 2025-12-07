@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { Client, CommandIntent, EmailLog, MarketIndex, NewsItem } from "../types";
 import { Logger } from "./logger";
@@ -9,13 +8,7 @@ import { loadFromStorage, StorageKeys } from "./storageService";
 const getAIClient = () => {
   // Priority: 1. User Settings (LocalStorage) 2. Environment Variable
   const storedKey = loadFromStorage<string>(StorageKeys.API_KEY, '');
-
-  // Vite exposes env vars through import.meta.env. Fall back to process.env for tooling compatibility.
-  const envKey =
-    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_API_KEY) ||
-    (typeof import.meta !== 'undefined' && (import.meta as any).env?.GEMINI_API_KEY) ||
-    (typeof process !== 'undefined' ? process.env?.GEMINI_API_KEY || process.env?.API_KEY : undefined);
-
+  const envKey = process.env.API_KEY;
   const apiKey = storedKey || envKey;
 
   if (!apiKey) {
@@ -233,7 +226,7 @@ export const analyzeLoanScenario = async (scenarioData: string) => {
       model: 'gemini-3-pro-preview',
       contents: cotPrompt,
       config: {
-        thinkingConfig: { thinkingBudget: 32768 },
+        thinkingConfig: { thinkingBudget: 2048 },
         temperature: 0.2, // Low temperature for deterministic analysis
       }
     });
@@ -462,21 +455,38 @@ export const generateSpeech = async (text: string): Promise<string> => {
 export const parseNaturalLanguageCommand = async (transcript: string, validStatuses?: string[]): Promise<CommandIntent> => {
   try {
     const statusList = validStatuses ? validStatuses.join("', '") : "Lead', 'Pre-Approval', 'Underwriting', 'Clear to Close', 'Closed";
+    const today = new Date().toISOString().split('T')[0];
 
     const ai = getAIClient();
+    
+    // Few-Shot Prompting (Golden Dataset)
     const prompt = `
       You are a command parser for a Mortgage CRM. Convert the user's natural language request into a specific JSON Action.
       
-      **Available Actions**:
-      1. CREATE_CLIENT
-      2. UPDATE_CLIENT
-      3. ADD_NOTE
-      4. ADD_TASK
+      <examples>
+        <example>
+          <input>Create a new lead for John Smith with a 2 million dollar loan</input>
+          <output>{ "action": "CREATE_CLIENT", "payload": { "name": "John Smith", "loanAmount": 2000000, "status": "Lead" } }</output>
+        </example>
+        <example>
+          <input>Mark the Sarah Jones file as Clear to Close</input>
+          <output>{ "action": "UPDATE_STATUS", "clientName": "Sarah Jones", "payload": { "status": "Clear to Close" } }</output>
+        </example>
+        <example>
+          <input>Remind me to call Mike on Friday to discuss rates</input>
+          <output>{ "action": "ADD_TASK", "clientName": "Mike", "payload": { "taskLabel": "Call to discuss rates", "date": "Friday" } }</output>
+        </example>
+         <example>
+          <input>Add a note to Tom that he is self-employed</input>
+          <output>{ "action": "ADD_NOTE", "clientName": "Tom", "payload": { "note": "Client is self-employed" } }</output>
+        </example>
+      </examples>
 
-      **Status Values**: '${statusList}'. 
+      **Available Actions**: CREATE_CLIENT, UPDATE_CLIENT, ADD_NOTE, ADD_TASK
+      **Valid Status Values**: '${statusList}'.
+      **Today's Date**: ${today}
 
       **User Request**: "${transcript}"
-      **Today's Date**: ${new Date().toISOString().split('T')[0]}
 
       **Output Format**: JSON only.
     `;

@@ -3,57 +3,90 @@ import { AlertTriangle, RefreshCw } from 'lucide-react';
 
 interface Props {
   children?: ReactNode;
+  fallback?: ReactNode;
 }
 
 interface State {
   hasError: boolean;
   error: Error | null;
+  errorInfo: ErrorInfo | null;
 }
 
-export class ErrorBoundary extends Component<Props, State> {
-  public props: Props;
-  public state: State;
-
+class ErrorBoundary extends Component<Props, State> {
   public constructor(props: Props) {
     super(props);
-    this.props = props;
     this.state = {
       hasError: false,
       error: null,
+      errorInfo: null,
     };
   }
 
-  public static getDerivedStateFromError(error: Error): State {
+  public static getDerivedStateFromError(error: Error): Partial<State> {
     return { hasError: true, error };
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  public componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     console.error('Uncaught error:', error, errorInfo);
+    this.setState({
+      error,
+      errorInfo,
+    });
   }
+
+  private handleReset = (): void => {
+    this.setState({
+      hasError: false,
+      error: null,
+      errorInfo: null,
+    });
+  };
 
   public render(): ReactNode {
     if (this.state.hasError) {
+      if (this.props.fallback) {
+        return this.props.fallback;
+      }
+
       return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-          <div className="bg-white p-8 rounded-xl shadow-xl max-w-md w-full text-center border border-gray-200">
-            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
-              <AlertTriangle className="text-red-600" size={32} />
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-900 px-4 animate-fade-in">
+          <div className="max-w-md w-full bg-white border border-slate-200 rounded-2xl p-6 shadow-xl text-center">
+            <div className="flex justify-center mb-4">
+              <div className="h-12 w-12 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                <AlertTriangle className="text-red-500" size={24} />
+              </div>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Something went wrong</h1>
-            <p className="text-gray-500 mb-6 text-sm">
-              The application encountered an unexpected error. Our team has been notified.
+            
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Something went wrong</h2>
+            <p className="text-sm text-slate-600 mb-6">
+              We encountered an unexpected error.
             </p>
-            <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 text-left mb-6 overflow-hidden">
-                <code className="text-xs text-red-800 break-all font-mono">
-                    {this.state.error?.message}
-                </code>
-            </div>
+
+            {this.state.error && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl text-left overflow-hidden">
+                <details className="text-xs text-red-800">
+                  <summary className="font-bold cursor-pointer mb-1 outline-none focus:text-red-900">
+                    Error Details
+                  </summary>
+                  <pre className="whitespace-pre-wrap font-mono mt-2 text-red-600 bg-red-50/50 p-2 rounded">
+                    {this.state.error.toString()}
+                  </pre>
+                  {this.state.errorInfo && (
+                     <pre className="whitespace-pre-wrap font-mono mt-2 text-red-500 opacity-75 text-[10px] p-2">
+                       {this.state.errorInfo.componentStack}
+                     </pre>
+                  )}
+                </details>
+              </div>
+            )}
+
             <button
-              onClick={() => window.location.reload()}
-              className="w-full flex items-center justify-center space-x-2 bg-brand-dark text-white py-3 rounded-lg hover:bg-gray-800 transition-colors font-medium shadow-lg"
+              type="button"
+              onClick={this.handleReset}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-brand-red hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-brand-red focus-visible:ring-offset-white px-4 py-2.5 text-sm font-bold text-white transition-all shadow-sm active:scale-95"
             >
-              <RefreshCw size={18} />
-              <span>Reload Application</span>
+              <RefreshCw size={16} />
+              Try again
             </button>
           </div>
         </div>
@@ -63,3 +96,5 @@ export class ErrorBoundary extends Component<Props, State> {
     return this.props.children;
   }
 }
+
+export default ErrorBoundary;

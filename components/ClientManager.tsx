@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { 
-    Users, Search, Plus, Trash2, X, Loader2, Mic, Square, Edit2, CheckSquare, History, Settings, ChevronRight, Filter
+    Users, Search, Plus, Trash2, X, Loader2, Mic, Square, Edit2, CheckSquare, History, Settings, ChevronRight, Filter as FilterIcon
 } from 'lucide-react';
 import { Client, ChecklistItem, DealStage, CommandIntent } from '../types';
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
@@ -417,7 +417,7 @@ export const ClientManager: React.FC = () => {
                             const base64Audio = (reader.result as string).split(',')[1];
                             try {
                                 showToast('Transcribing audio...', 'info');
-                                const transcript = await transcribeAudio(base64Audio);
+                                const transcript = await transcribeAudio(base64Audio, 'audio/webm');
                                 showToast(`Heard: "${transcript}"`, 'info');
                                 const command = await parseNaturalLanguageCommand(transcript, dealStages.map(s => s.name));
                                 await executeCommand(command);
@@ -517,7 +517,7 @@ export const ClientManager: React.FC = () => {
                                 />
                             </div>
                             <button onClick={() => setIsFilterOpen(!isFilterOpen)} className={`p-2 rounded-lg border ${isFilterOpen ? 'bg-brand-red text-white border-brand-red' : 'bg-white text-gray-500 border-gray-200'}`}>
-                                <Filter size={18} /> {/* Corrected Filter Import */}
+                                <FilterIcon size={18} />
                             </button>
                         </div>
                         <ClientFilters 
