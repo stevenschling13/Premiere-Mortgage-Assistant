@@ -14,9 +14,34 @@ export const MarketingStudio: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // Market Data State - Start Empty for Production
-  const [indices, setIndices] = useState<MarketIndex[]>([]);
-  const [newsFeed, setNewsFeed] = useState<NewsItem[]>([]);
+  // Market Data State
+  const [indices, setIndices] = useState<MarketIndex[]>([
+    { label: '10-Yr Treasury', value: '4.12%', change: '+0.05', isUp: true },
+    { label: 'S&P 500', value: '5,230', change: '-12.4', isUp: false },
+    { label: 'MBS (UMBS 5.5)', value: '98.42', change: '-0.15', isUp: false },
+    { label: 'Brent Crude', value: '$82.40', change: '+0.45', isUp: true },
+  ]);
+
+  const [newsFeed, setNewsFeed] = useState<NewsItem[]>([
+    {
+      id: '1',
+      source: 'Federal Reserve',
+      date: 'Today, 8:30 AM',
+      title: "Fed Signals 'Higher for Longer' After Strong Jobs Report",
+      summary: "Chairman Powell emphasized that while inflation is cooling, the labor market remains too tight to justify immediate rate cuts.",
+      category: 'Economy',
+      talkingPoints: ["Advise clients to lock in rates now if closing within 45 days."]
+    },
+    {
+      id: '2',
+      source: 'Housing Wire',
+      date: 'Yesterday',
+      title: "Luxury Inventory Tightens: Jumbo Listings Down 12% YoY",
+      summary: "High-end markets in SF, NY, and Miami are seeing a shortage of turnkey properties.",
+      category: 'Housing',
+      talkingPoints: ["Be prepared for appraisal gaps in the $5M+ range."]
+    }
+  ]);
   
   const [isFetchingData, setIsFetchingData] = useState(false);
   const [clientAnalysis, setClientAnalysis] = useState('');
@@ -43,10 +68,6 @@ export const MarketingStudio: React.FC = () => {
   };
 
   const handleGenerateAnalysis = async () => {
-      if (indices.length === 0) {
-          showToast('Please update market data first', 'error');
-          return;
-      }
       setIsThinking(true);
       try {
           const context = { indices, news: newsFeed.slice(0, 3) };
@@ -119,81 +140,64 @@ export const MarketingStudio: React.FC = () => {
         </h3>
 
         {/* Indices Ticker */}
-        {indices.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                {indices.map((index, idx) => (
-                <div key={idx} className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex flex-col">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{index.label}</span>
-                    <div className="flex items-end justify-between mt-1">
-                    <span className="text-lg font-bold text-brand-dark">{index.value}</span>
-                    <span className={`text-xs font-medium ${index.isUp ? 'text-green-600' : 'text-red-600'}`}>
-                        {index.change}
-                    </span>
-                    </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            {indices.map((index, idx) => (
+            <div key={idx} className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex flex-col">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{index.label}</span>
+                <div className="flex items-end justify-between mt-1">
+                <span className="text-lg font-bold text-brand-dark">{index.value}</span>
+                <span className={`text-xs font-medium ${index.isUp ? 'text-green-600' : 'text-red-600'}`}>
+                    {index.change}
+                </span>
                 </div>
-                ))}
             </div>
-        ) : (
-            <div className="bg-gray-50 border border-dashed border-gray-300 rounded-xl p-8 text-center mb-6">
-                <TrendingUp className="mx-auto text-gray-300 mb-2" size={32}/>
-                <p className="text-gray-500 text-sm">Market data not loaded.</p>
-                <button onClick={handleRefreshMarketData} className="text-brand-red text-sm font-bold hover:underline mt-1">
-                    Fetch Live Data
-                </button>
-            </div>
-        )}
+            ))}
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
              {/* News Column */}
              <div className="lg:col-span-2 space-y-4">
-                 {newsFeed.length > 0 ? (
-                     newsFeed.map((news, idx) => (
-                        <div key={idx} className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 flex flex-col hover:shadow-md transition-shadow relative group">
-                            <div className="flex items-center justify-between mb-2">
-                                <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
-                                    news.category === 'Rates' ? 'bg-blue-100 text-blue-700' : 
-                                    news.category === 'Economy' ? 'bg-purple-100 text-purple-700' : 
-                                    'bg-orange-100 text-orange-700'
-                                }`}>
-                                    {news.category}
-                                </span>
-                                <span className="text-[10px] text-gray-400">{news.date}</span>
-                            </div>
-                            <h4 className="font-bold text-gray-900 mb-1 leading-tight">{news.title}</h4>
-                            <p className="text-xs text-gray-600 leading-relaxed mb-4">{news.summary}</p>
-                            
-                            <div className="flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity absolute top-4 right-4 bg-white shadow-sm p-1 rounded-lg border border-gray-100">
-                                <button 
-                                    onClick={() => {
-                                        setGenTopic(news.title);
-                                        setGenChannel('LinkedIn Post');
-                                        handleGenerateContent(`Source: ${news.title}. Summary: ${news.summary}`);
-                                        window.scrollTo({top: 500, behavior: 'smooth'});
-                                    }}
-                                    className="p-1.5 hover:bg-gray-100 rounded text-blue-600" title="Draft LinkedIn"
-                                >
-                                    <Linkedin size={14} />
-                                </button>
-                                <button 
-                                    onClick={() => {
-                                        setGenTopic(news.title);
-                                        setGenChannel('Client Email Blast');
-                                        handleGenerateContent(`Source: ${news.title}. Summary: ${news.summary}`);
-                                        window.scrollTo({top: 500, behavior: 'smooth'});
-                                    }}
-                                    className="p-1.5 hover:bg-gray-100 rounded text-gray-600" title="Draft Email"
-                                >
-                                    <Mail size={14} />
-                                </button>
-                            </div>
+                 {newsFeed.map((news, idx) => (
+                    <div key={idx} className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 flex flex-col hover:shadow-md transition-shadow relative group">
+                        <div className="flex items-center justify-between mb-2">
+                            <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
+                                news.category === 'Rates' ? 'bg-blue-100 text-blue-700' : 
+                                news.category === 'Economy' ? 'bg-purple-100 text-purple-700' : 
+                                'bg-orange-100 text-orange-700'
+                            }`}>
+                                {news.category}
+                            </span>
+                            <span className="text-[10px] text-gray-400">{news.date}</span>
                         </div>
-                     ))
-                 ) : (
-                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center flex flex-col items-center justify-center h-full min-h-[200px]">
-                        <FileText className="text-gray-200 mb-3" size={48}/>
-                        <p className="text-gray-400 text-sm">No news feed available.</p>
+                        <h4 className="font-bold text-gray-900 mb-1 leading-tight">{news.title}</h4>
+                        <p className="text-xs text-gray-600 leading-relaxed mb-4">{news.summary}</p>
+                        
+                        <div className="flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity absolute top-4 right-4 bg-white shadow-sm p-1 rounded-lg border border-gray-100">
+                             <button 
+                                onClick={() => {
+                                    setGenTopic(news.title);
+                                    setGenChannel('LinkedIn Post');
+                                    handleGenerateContent(`Source: ${news.title}. Summary: ${news.summary}`);
+                                    window.scrollTo({top: 500, behavior: 'smooth'});
+                                }}
+                                className="p-1.5 hover:bg-gray-100 rounded text-blue-600" title="Draft LinkedIn"
+                             >
+                                <Linkedin size={14} />
+                             </button>
+                             <button 
+                                onClick={() => {
+                                    setGenTopic(news.title);
+                                    setGenChannel('Client Email Blast');
+                                    handleGenerateContent(`Source: ${news.title}. Summary: ${news.summary}`);
+                                    window.scrollTo({top: 500, behavior: 'smooth'});
+                                }}
+                                className="p-1.5 hover:bg-gray-100 rounded text-gray-600" title="Draft Email"
+                             >
+                                <Mail size={14} />
+                             </button>
+                        </div>
                     </div>
-                 )}
+                 ))}
              </div>
 
              {/* Client Analysis (Deep Thinking) */}
@@ -236,7 +240,7 @@ export const MarketingStudio: React.FC = () => {
 
                          <button 
                             onClick={handleGenerateAnalysis}
-                            disabled={isThinking || indices.length === 0}
+                            disabled={isThinking}
                             className="w-full py-2 bg-brand-gold text-brand-dark font-bold text-sm rounded-lg hover:bg-yellow-500 transition-colors shadow-lg active:scale-95 disabled:opacity-50"
                          >
                             {isThinking ? 'Thinking Deeply...' : 'Generate Daily Brief'}

@@ -102,8 +102,7 @@ export enum AppView {
   RATES_NOTES = 'RATES_NOTES', // Rates & Notes
   MARKETING = 'MARKETING', // Marketing Studio
   ASSISTANT = 'ASSISTANT',
-  COMPENSATION = 'COMPENSATION', // Wealth & Performance
-  SETTINGS = 'SETTINGS'
+  COMPENSATION = 'COMPENSATION' // Wealth & Performance
 }
 
 // AI Command Types

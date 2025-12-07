@@ -1,26 +1,21 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { DollarSign, TrendingUp, ShieldCheck, Briefcase, CheckCircle2, Settings, ArrowUpRight, Loader2, Sparkles, X } from 'lucide-react';
+import { DollarSign, TrendingUp, ShieldCheck, Briefcase, CheckCircle2, PlayCircle, PlusCircle, Sparkles, Loader2, ArrowUpRight } from 'lucide-react';
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
-import { Client, UserProfile } from '../types';
+import { Client } from '../types';
 import { analyzeIncomeProjection } from '../services/geminiService';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ReferenceLine, CartesianGrid } from 'recharts';
 import { useToast } from './Toast';
-
-const DEFAULT_PROFILE: UserProfile = {
-    baseSalary: 50000,
-    commissionBps: 55, // 0.55%
-    splitPercentage: 15, // 15%
-    annualIncomeGoal: 100000
-};
 
 export const CompensationTracker: React.FC = () => {
     const { showToast } = useToast();
     const [clients, setClients] = useState<Client[]>(() => loadFromStorage(StorageKeys.CLIENTS, []));
     
-    // User Settings State
-    const [profile, setProfile] = useState<UserProfile>(() => loadFromStorage(StorageKeys.USER_PROFILE, DEFAULT_PROFILE));
-    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [tempProfile, setTempProfile] = useState<UserProfile>(profile);
+    // "The Unicorn Role" Constants
+    const HOURLY_RATE = 24.52;
+    const ANNUAL_BASE = 51001;
+    const TARGET_ANNUAL_INCOME = 108750;
+    const BANKER_BPS = 0.0055; // 55 BPS blended average for April
+    const ASSISTANT_SPLIT = 0.15; // 15% cut
 
     const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -29,19 +24,9 @@ export const CompensationTracker: React.FC = () => {
         saveToStorage(StorageKeys.CLIENTS, clients);
     }, [clients]);
 
-    useEffect(() => {
-        saveToStorage(StorageKeys.USER_PROFILE, profile);
-    }, [profile]);
-
-    // Derived Constants from Profile
-    const HOURLY_RATE = profile.baseSalary / 2080; // approx 2080 work hours
-    const BANKER_BPS = profile.commissionBps / 10000; 
-    const ASSISTANT_SPLIT = profile.splitPercentage / 100;
-
-    // Calculate YTD Base (Simulation: Assumes we are in month 4 for context, or just prorate)
-    // For production, let's just show annual base stats and realized YTD base
+    // Calculate YTD Base (Simulation: Assumes we are in month 4)
     const currentMonth = new Date().getMonth() + 1; // 1-indexed
-    const ytdBase = (profile.baseSalary / 12) * currentMonth;
+    const ytdBase = (ANNUAL_BASE / 12) * currentMonth;
 
     // Calculate Commissions from Closed Deals
     const closedClients = clients.filter(c => c.status === 'Closed');
@@ -56,12 +41,12 @@ export const CompensationTracker: React.FC = () => {
                 myCut
             };
         }).sort((a, b) => b.myCut - a.myCut);
-    }, [closedClients, BANKER_BPS, ASSISTANT_SPLIT]);
+    }, [closedClients]);
 
     const ytdCommission = closedData.reduce((acc, deal) => acc + deal.myCut, 0);
 
     const totalYtdIncome = ytdBase + ytdCommission;
-    const percentToGoal = (totalYtdIncome / profile.annualIncomeGoal) * 100;
+    const percentToGoal = (totalYtdIncome / TARGET_ANNUAL_INCOME) * 100;
 
     // Calculate Projected Pipeline Commission
     const activeClients = clients.filter(c => c.status !== 'Closed' && c.status !== 'Lead');
@@ -87,7 +72,7 @@ export const CompensationTracker: React.FC = () => {
                 weightedValue: myCut * probability
             };
         }).sort((a, b) => b.weightedValue - a.weightedValue);
-    }, [activeClients, BANKER_BPS, ASSISTANT_SPLIT]);
+    }, [activeClients]);
 
     const projectedCommission = pipelineData.reduce((acc, item) => acc + item.weightedValue, 0);
 
@@ -131,44 +116,143 @@ export const CompensationTracker: React.FC = () => {
         }
     };
 
-    const handleSaveSettings = () => {
-        setProfile(tempProfile);
-        setIsSettingsOpen(false);
-        showToast('Compensation settings updated', 'success');
+    const generateHighVolumePipeline = () => {
+        const firstNames = ['James', 'Mary', 'Robert', 'Patricia', 'John', 'Jennifer', 'Michael', 'Linda', 'David', 'Elizabeth', 'William', 'Barbara', 'Richard', 'Susan', 'Joseph', 'Jessica', 'Thomas', 'Sarah', 'Charles', 'Karen', 'Christopher', 'Nancy', 'Daniel', 'Lisa', 'Matthew', 'Betty', 'Anthony', 'Margaret', 'Mark', 'Sandra'];
+        const lastNames = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez', 'Hernandez', 'Lopez', 'Gonzalez', 'Wilson', 'Anderson', 'Thomas', 'Taylor', 'Moore', 'Jackson', 'Martin', 'Lee', 'Perez', 'Thompson', 'White', 'Harris', 'Sanchez', 'Clark', 'Ramirez', 'Lewis', 'Robinson'];
+        const streets = ['Oak', 'Maple', 'Cedar', 'Elm', 'Washington', 'Lake', 'Hill', 'Highland', 'Market', 'Main', 'Park', 'Sunset', 'Ridge', 'Meadow', 'Aspen'];
+        const cities = ['San Francisco', 'Palo Alto', 'Atherton', 'Los Altos', 'Burlingame', 'Menlo Park', 'Hillsborough', 'Tiburon', 'Sausalito', 'Mill Valley'];
+
+        const createClient = (status: string, isHistorical: boolean = false): Client => {
+            const fn = firstNames[Math.floor(Math.random() * firstNames.length)];
+            const ln = lastNames[Math.floor(Math.random() * lastNames.length)];
+            // Loan Amount: Weighted towards Jumbo ($800k - $4.5M)
+            const loan = Math.floor(Math.random() * (4500000 - 800000) + 800000); 
+            const address = `${Math.floor(Math.random() * 9999)} ${streets[Math.floor(Math.random() * streets.length)]} St, ${cities[Math.floor(Math.random() * cities.length)]}`;
+            
+            let dateStr;
+            if (isHistorical) {
+                // Generate a date between Jan 1st of current year and today
+                const now = new Date();
+                const startOfYear = new Date(now.getFullYear(), 0, 1);
+                const timeDiff = now.getTime() - startOfYear.getTime();
+                const randomTime = Math.random() * timeDiff;
+                const d = new Date(startOfYear.getTime() + randomTime);
+                dateStr = d.toISOString().split('T')[0];
+            } else {
+                // Future date for active pipeline
+                const d = new Date();
+                d.setDate(d.getDate() + Math.floor(Math.random() * 60)); // Next 60 days
+                dateStr = d.toISOString().split('T')[0];
+            }
+
+            return {
+                id: `sim-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                name: `${fn} ${ln}`,
+                email: `${fn.toLowerCase()}.${ln.toLowerCase()}@example.com`,
+                phone: `(555) ${Math.floor(Math.random() * 899 + 100)}-${Math.floor(Math.random() * 8999 + 1000)}`,
+                loanAmount: loan,
+                propertyAddress: address,
+                status: status,
+                nextActionDate: dateStr,
+                notes: 'Simulated high-net-worth portfolio client.',
+                checklist: [],
+                emailHistory: []
+            };
+        };
+
+        const newClients: Client[] = [];
+        
+        // Generate a $70M Year Pace Pipeline
+        // ~22 Closed YTD (Historical)
+        for(let i=0; i<22; i++) newClients.push(createClient('Closed', true));
+        // ~4 Clear to Close
+        for(let i=0; i<4; i++) newClients.push(createClient('Clear to Close'));
+        // ~7 Underwriting
+        for(let i=0; i<7; i++) newClients.push(createClient('Underwriting'));
+        // ~12 Pre-Approval
+        for(let i=0; i<12; i++) newClients.push(createClient('Pre-Approval'));
+        // ~15 Leads
+        for(let i=0; i<15; i++) newClients.push(createClient('Lead'));
+
+        return newClients;
+    };
+
+    const handleInjectSchlingman = () => {
+         const schlingman: Client = {
+            id: `sim-schlingman-${Date.now()}`,
+            name: 'Steven & Sophia Schlingman',
+            email: 'steven.schlingman@example.com',
+            phone: '(415) 555-8822',
+            loanAmount: 3000000,
+            propertyAddress: '1288 California St, San Francisco',
+            status: 'Underwriting',
+            nextActionDate: new Date().toISOString().split('T')[0],
+            notes: 'VIP Client. $3M Jumbo. Fast track requested.',
+            checklist: [{ id: 'chk-1', label: 'Verify Trust Docs', checked: false }],
+            emailHistory: []
+        };
+        setClients(prev => [schlingman, ...prev]);
+        showToast('Schlingman Deal ($3M) Added!', 'success');
+    };
+
+    const handleSimulateScenario = () => {
+        // Removed confirm dialog to ensure execution
+        const simulationData = generateHighVolumePipeline();
+        
+        // Add Schlingman to the batch
+        simulationData.unshift({
+            id: `sim-schlingman-${Date.now()}`,
+            name: 'Steven & Sophia Schlingman',
+            email: 'steven.schlingman@example.com',
+            phone: '(415) 555-8822',
+            loanAmount: 3000000,
+            propertyAddress: '1288 California St, San Francisco',
+            status: 'Underwriting',
+            nextActionDate: new Date().toISOString().split('T')[0],
+            notes: 'VIP Client. $3M Jumbo. Fast track requested.',
+            checklist: [{ id: 'chk-1', label: 'Verify Trust Docs', checked: false }],
+            emailHistory: []
+        });
+
+        setClients(prev => [...simulationData, ...prev]);
+        showToast('Full $70M Pipeline (60+ Deals) Loaded!', 'success');
     };
 
     const chartData = [
-        { name: 'Base Salary', amount: profile.baseSalary, fill: '#1E293B' },
+        { name: 'Base Salary', amount: ANNUAL_BASE, fill: '#1E293B' },
         { name: 'YTD Comm.', amount: ytdCommission, fill: '#F4B23E' },
         { name: 'Projected', amount: projectedCommission, fill: '#CD1337' },
     ];
 
     return (
-        <div className="p-4 md:p-8 max-w-7xl mx-auto animate-fade-in pb-20 md:pb-8 relative">
+        <div className="p-4 md:p-8 max-w-7xl mx-auto animate-fade-in pb-20 md:pb-8">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4">
                 <div>
                     <h2 className="text-3xl font-bold text-brand-dark tracking-tight flex items-center">
                         <ShieldCheck className="mr-3 text-brand-gold" size={32}/>
                         Wealth & Performance
                     </h2>
-                    <p className="text-sm text-gray-500 mt-1">Track your income against targets.</p>
+                    <p className="text-sm text-gray-500 mt-1">"The Unicorn Role" - Compensation Tracker</p>
                 </div>
                 <div className="flex flex-col md:flex-row items-end md:items-center gap-4 w-full md:w-auto">
                     <button 
-                        onClick={() => {
-                            setTempProfile(profile);
-                            setIsSettingsOpen(true);
-                        }}
-                        className="bg-white hover:bg-gray-50 text-gray-600 border border-gray-200 px-4 py-2 rounded-lg text-xs font-bold shadow-sm transition-all flex items-center whitespace-nowrap"
+                        onClick={handleInjectSchlingman}
+                        className="bg-white hover:bg-gray-50 text-brand-dark border border-gray-200 px-4 py-2 rounded-lg text-xs font-bold shadow-sm transition-all flex items-center whitespace-nowrap"
                     >
-                        <Settings size={16} className="mr-2"/>
-                        Configure Comp
+                        <PlusCircle size={16} className="mr-2 text-green-600"/>
+                        Add Schlingman ($3M)
                     </button>
-                    
+                    <button 
+                        onClick={handleSimulateScenario}
+                        className="bg-white hover:bg-gray-50 text-brand-dark border border-gray-200 px-4 py-2 rounded-lg text-xs font-bold shadow-sm transition-all flex items-center whitespace-nowrap"
+                    >
+                        <PlayCircle size={16} className="mr-2 text-brand-red"/>
+                        Load Full $70M Pipeline
+                    </button>
                     <div className="bg-gradient-to-r from-brand-dark to-slate-800 text-white px-6 py-3 rounded-xl shadow-lg flex items-center gap-4 w-full md:w-auto justify-between md:justify-start">
                         <div className="text-right">
                             <span className="block text-xs text-brand-gold uppercase tracking-wider font-bold">Annual Target</span>
-                            <span className="text-2xl font-bold">${profile.annualIncomeGoal.toLocaleString()}</span>
+                            <span className="text-2xl font-bold">${TARGET_ANNUAL_INCOME.toLocaleString()}</span>
                         </div>
                         <div className="h-10 w-px bg-white/20"></div>
                         <div className="text-right">
@@ -188,12 +272,16 @@ export const CompensationTracker: React.FC = () => {
                     </div>
                     <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">The Foundation (Salary)</p>
                     <div className="flex items-baseline space-x-1">
-                        <span className="text-3xl font-bold text-brand-dark">${profile.baseSalary.toLocaleString()}</span>
+                        <span className="text-3xl font-bold text-brand-dark">${(HOURLY_RATE * 40 * 52).toLocaleString()}</span>
                         <span className="text-sm text-gray-400">/ yr</span>
                     </div>
                     <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between text-sm">
-                        <span className="text-gray-500">Hourly Rate (Est)</span>
-                        <span className="font-semibold text-gray-800">${HOURLY_RATE.toFixed(2)}</span>
+                        <span className="text-gray-500">Hourly Rate</span>
+                        <span className="font-semibold text-gray-800">${HOURLY_RATE}</span>
+                    </div>
+                    <div className="flex justify-between text-sm mt-1">
+                         <span className="text-gray-500">Rent Covered</span>
+                         <span className="text-green-600 font-bold flex items-center"><ShieldCheck size={12} className="mr-1"/> 100%</span>
                     </div>
                 </div>
 
@@ -202,45 +290,45 @@ export const CompensationTracker: React.FC = () => {
                      <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                         <TrendingUp size={64} className="text-brand-red"/>
                     </div>
-                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Commission ({profile.splitPercentage}% Cut)</p>
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Growth Engine (15% Cut)</p>
                     <div className="flex items-baseline space-x-1">
                         <span className="text-3xl font-bold text-brand-red">${ytdCommission.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
                         <span className="text-sm text-gray-400">YTD</span>
                     </div>
                      <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between text-sm">
-                        <span className="text-gray-500">Avg Deal Value</span>
-                        <span className="font-semibold text-gray-800">
-                             {closedData.length > 0 
-                                ? `$${(ytdCommission / closedData.length).toLocaleString(undefined, {maximumFractionDigits:0})}` 
-                                : '$0'}
-                        </span>
+                        <span className="text-gray-500">April's Gross (Est)</span>
+                        <span className="font-semibold text-gray-800">${(ytdCommission / ASSISTANT_SPLIT).toLocaleString(undefined, {maximumFractionDigits:0})}</span>
+                    </div>
+                    <div className="flex justify-between text-sm mt-1">
+                         <span className="text-gray-500">Avg Deal Value</span>
+                         <span className="text-brand-red font-bold">~$575.00</span>
                     </div>
                 </div>
 
                  {/* Paycheck Projector */}
                  <div className="bg-brand-dark text-white p-6 rounded-xl shadow-lg relative overflow-hidden">
                     <div className="absolute -right-6 -top-6 w-24 h-24 bg-brand-gold rounded-full opacity-20 blur-xl"></div>
-                    <p className="text-xs font-bold text-brand-gold uppercase tracking-wider mb-2">Projected Monthly Net</p>
+                    <p className="text-xs font-bold text-brand-gold uppercase tracking-wider mb-2">Next "Wealth Check"</p>
                     <div className="flex items-baseline space-x-1">
                         <span className="text-3xl font-bold text-white">
-                            ${((profile.baseSalary / 26) + (projectedCommission / 3)).toLocaleString(undefined, {maximumFractionDigits:0})}*
+                            ${(2080 + (projectedCommission / 3)).toLocaleString(undefined, {maximumFractionDigits:0})}*
                         </span>
-                        <span className="text-sm text-gray-400">est</span>
+                        <span className="text-sm text-gray-400">est. net</span>
                     </div>
                     <p className="text-[10px] text-gray-400 mt-2 leading-tight">
-                        *Projection includes bi-weekly base + 1/3 of weighted pipeline closing soon.
+                        *Projection includes base pay + 1/3 of weighted pipeline closing this month. 
+                        Hit your "Magic Months" (3 paychecks) in May & November.
                     </p>
                     <div className="mt-4 w-full bg-gray-700 rounded-full h-1.5">
                         <div className="bg-brand-gold h-1.5 rounded-full" style={{width: `${Math.min(percentToGoal, 100)}%`}}></div>
                     </div>
                     <div className="flex justify-between text-[10px] mt-1 text-gray-400">
-                        <span>Progress to Goal</span>
+                        <span>Progress to $108k</span>
                         <span>{percentToGoal.toFixed(1)}%</span>
                     </div>
                 </div>
             </div>
 
-            {/* Main Content Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Pipeline Table */}
                 <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col max-h-[500px]">
@@ -249,6 +337,7 @@ export const CompensationTracker: React.FC = () => {
                             <DollarSign size={16} className="mr-2 text-brand-dark"/>
                             Active Pipeline Commission
                         </h3>
+                        <span className="text-xs font-medium text-gray-500 bg-white px-2 py-1 rounded border">Volume Arbitrage Model</span>
                     </div>
                     <div className="overflow-y-auto">
                         <table className="w-full text-left">
@@ -257,7 +346,7 @@ export const CompensationTracker: React.FC = () => {
                                     <th className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase bg-gray-50">Client</th>
                                     <th className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase bg-gray-50">Status</th>
                                     <th className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase text-right bg-gray-50">Loan Vol</th>
-                                    <th className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase text-right text-brand-red bg-gray-50">Your Cut</th>
+                                    <th className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase text-right text-brand-red bg-gray-50">Your Cut (15%)</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100 text-sm">
@@ -284,17 +373,26 @@ export const CompensationTracker: React.FC = () => {
                                 {pipelineData.length === 0 && (
                                     <tr>
                                         <td colSpan={4} className="p-8 text-center text-gray-400 text-sm">
-                                            No active deals. Add clients in Dashboard to see projections.
+                                            No active deals in pipeline to calculate.
                                         </td>
                                     </tr>
                                 )}
                             </tbody>
+                            <tfoot className="bg-gray-50 border-t border-gray-200 sticky bottom-0">
+                                <tr>
+                                    <td colSpan={3} className="px-4 py-3 text-right font-bold text-gray-600 text-xs uppercase">Total Pipeline Potential</td>
+                                    <td className="px-4 py-3 text-right font-bold text-brand-red text-sm">
+                                        ${pipelineData.reduce((a, b) => a + b.myCut, 0).toLocaleString()}
+                                    </td>
+                                </tr>
+                            </tfoot>
                         </table>
                     </div>
                 </div>
 
                 {/* AI Analysis & Chart */}
                 <div className="space-y-6">
+                    {/* Chart */}
                     <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm h-64">
                          <h4 className="text-xs font-bold text-gray-500 uppercase mb-4">Income Composition</h4>
                          <ResponsiveContainer width="100%" height="100%">
@@ -305,12 +403,13 @@ export const CompensationTracker: React.FC = () => {
                                     contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}}
                                     formatter={(value: number) => [`$${value.toLocaleString()}`, 'Amount']}
                                 />
-                                <ReferenceLine y={profile.annualIncomeGoal} stroke="red" strokeDasharray="3 3" />
+                                <ReferenceLine y={TARGET_ANNUAL_INCOME} stroke="red" strokeDasharray="3 3" />
                                 <Bar dataKey="amount" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
 
+                    {/* AI Advisor */}
                     <div className="bg-brand-light rounded-xl border border-brand-gold/30 overflow-hidden shadow-sm">
                         <div className="bg-brand-gold/10 p-4 border-b border-brand-gold/20 flex justify-between items-center">
                             <div className="flex items-center space-x-2">
@@ -335,7 +434,7 @@ export const CompensationTracker: React.FC = () => {
                                 </div>
                             ) : (
                                 <div className="text-center py-6">
-                                    <p className="text-xs text-gray-500 mb-2">Click refresh to analyze your pipeline against your ${profile.annualIncomeGoal.toLocaleString()} target.</p>
+                                    <p className="text-xs text-gray-500 mb-2">Click refresh to analyze your pipeline against the $108k target.</p>
                                 </div>
                             )}
                         </div>
@@ -343,88 +442,117 @@ export const CompensationTracker: React.FC = () => {
                 </div>
             </div>
 
-            {/* Settings Modal */}
-            {isSettingsOpen && (
-                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden animate-scale-up">
-                        <div className="bg-brand-dark text-white p-4 flex justify-between items-center">
-                            <h3 className="font-bold flex items-center">
-                                <Settings size={18} className="mr-2"/> 
-                                Compensation Settings
-                            </h3>
-                            <button onClick={() => setIsSettingsOpen(false)} className="text-gray-400 hover:text-white">
-                                <X size={20} />
-                            </button>
-                        </div>
-                        <div className="p-6 space-y-4">
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Annual Base Salary</label>
-                                <div className="relative">
-                                    <span className="absolute left-3 top-2.5 text-gray-400">$</span>
-                                    <input 
-                                        type="number"
-                                        value={tempProfile.baseSalary}
-                                        onChange={(e) => setTempProfile({...tempProfile, baseSalary: parseFloat(e.target.value) || 0})}
-                                        className="w-full pl-6 p-2 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-red outline-none"
-                                    />
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Total Commission (Basis Points)</label>
-                                <div className="relative">
-                                    <input 
-                                        type="number"
-                                        value={tempProfile.commissionBps}
-                                        onChange={(e) => setTempProfile({...tempProfile, commissionBps: parseFloat(e.target.value) || 0})}
-                                        className="w-full p-2 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-red outline-none"
-                                    />
-                                    <span className="absolute right-3 top-2.5 text-gray-400 text-xs">bps</span>
-                                </div>
-                                <p className="text-[10px] text-gray-400 mt-1">Total bps earned by the banker on loan volume (e.g., 55).</p>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Your Split Percentage</label>
-                                <div className="relative">
-                                    <input 
-                                        type="number"
-                                        value={tempProfile.splitPercentage}
-                                        onChange={(e) => setTempProfile({...tempProfile, splitPercentage: parseFloat(e.target.value) || 0})}
-                                        className="w-full p-2 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-red outline-none"
-                                    />
-                                    <span className="absolute right-3 top-2.5 text-gray-400">%</span>
-                                </div>
-                                <p className="text-[10px] text-gray-400 mt-1">Percentage of the gross commission that you keep.</p>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Annual Income Goal</label>
-                                <div className="relative">
-                                    <span className="absolute left-3 top-2.5 text-gray-400">$</span>
-                                    <input 
-                                        type="number"
-                                        value={tempProfile.annualIncomeGoal}
-                                        onChange={(e) => setTempProfile({...tempProfile, annualIncomeGoal: parseFloat(e.target.value) || 0})}
-                                        className="w-full pl-6 p-2 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-red outline-none"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                        <div className="p-4 bg-gray-50 flex justify-end space-x-2">
-                            <button 
-                                onClick={() => setIsSettingsOpen(false)}
-                                className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800"
-                            >
-                                Cancel
-                            </button>
-                            <button 
-                                onClick={handleSaveSettings}
-                                className="px-4 py-2 text-sm font-bold text-white bg-brand-red rounded-lg hover:bg-red-700 shadow-sm"
-                            >
-                                Save Changes
-                            </button>
-                        </div>
+            {/* Monthly Breakdown Section */}
+            <div className="mt-8 bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                <div className="flex justify-between items-center mb-6">
+                    <div>
+                        <h3 className="font-bold text-gray-800 flex items-center">
+                            <TrendingUp size={18} className="mr-2 text-brand-dark"/>
+                            Monthly Commission Trends
+                        </h3>
+                        <p className="text-xs text-gray-500 mt-1">
+                            Realized income performance by month (YTD).
+                        </p>
+                    </div>
+                     <div className="text-right">
+                         <span className="block text-xs text-gray-400 uppercase font-bold">Avg Monthly Comm.</span>
+                         <span className="text-lg font-bold text-brand-dark">
+                             ${(ytdCommission / (monthlyData.filter(m => m.commission > 0).length || 1)).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                         </span>
                     </div>
                 </div>
-            )}
+
+                <div className="h-[300px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={monthlyData} margin={{top: 10, right: 10, left: 0, bottom: 0}}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                            <XAxis 
+                                dataKey="month" 
+                                axisLine={false} 
+                                tickLine={false} 
+                                tick={{fontSize: 12, fill: '#64748b'}} 
+                                dy={10}
+                            />
+                            <YAxis 
+                                axisLine={false} 
+                                tickLine={false} 
+                                tick={{fontSize: 12, fill: '#64748b'}}
+                                tickFormatter={(value) => `$${value/1000}k`}
+                            />
+                            <RechartsTooltip 
+                                cursor={{fill: '#f8fafc'}}
+                                contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}}
+                                formatter={(value: number, name: string, props: any) => {
+                                    if (name === 'commission') return [`$${value.toLocaleString()}`, 'Commission'];
+                                    return [value, name];
+                                }}
+                                labelStyle={{fontWeight: 'bold', color: '#1e293b'}}
+                            />
+                            <Bar 
+                                dataKey="commission" 
+                                name="Commission" 
+                                fill="#CD1337" 
+                                radius={[4, 4, 0, 0]} 
+                                barSize={40}
+                            />
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+            </div>
+
+            {/* Realized Income Breakdown */}
+            <div className="mt-8 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col max-h-[500px]">
+                <div className="p-5 border-b border-gray-200 bg-gray-50 flex justify-between items-center sticky top-0 z-10">
+                    <div>
+                        <h3 className="font-bold text-gray-800 flex items-center">
+                            <CheckCircle2 size={18} className="mr-2 text-green-600"/>
+                            Commission Breakdown (Closed Deals)
+                        </h3>
+                        <p className="text-xs text-gray-500 mt-1 pl-6">
+                            Detailed calculation of your 15% cut from realized bank revenue.
+                        </p>
+                    </div>
+                    <div className="text-right">
+                         <span className="block text-xs text-gray-400 uppercase font-bold">Total Earned</span>
+                         <span className="text-xl font-bold text-green-600">${ytdCommission.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                    </div>
+                </div>
+                <div className="overflow-y-auto">
+                    <table className="w-full text-left">
+                        <thead className="bg-gray-50/50 border-b border-gray-100 sticky top-0">
+                            <tr>
+                                <th className="px-6 py-3 text-[10px] font-bold text-gray-500 uppercase bg-gray-50">Client</th>
+                                <th className="px-6 py-3 text-[10px] font-bold text-gray-500 uppercase bg-gray-50">Loan Amount</th>
+                                <th className="px-6 py-3 text-[10px] font-bold text-gray-500 uppercase text-right bg-gray-50">Banker Gross (55bps)</th>
+                                <th className="px-6 py-3 text-[10px] font-bold text-gray-500 uppercase text-right text-brand-red bg-gray-50">Your Cut (15%)</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 text-sm">
+                            {closedData.map((deal) => (
+                                <tr key={deal.id} className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-6 py-4 font-medium text-gray-900">{deal.name}</td>
+                                    <td className="px-6 py-4 text-gray-600 font-mono">
+                                        ${(deal.loanAmount).toLocaleString()}
+                                    </td>
+                                    <td className="px-6 py-4 text-right text-gray-500 font-mono">
+                                        ${deal.bankerGross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                    </td>
+                                    <td className="px-6 py-4 text-right font-bold text-brand-dark font-mono bg-green-50/30">
+                                        ${deal.myCut.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                    </td>
+                                </tr>
+                            ))}
+                            {closedData.length === 0 && (
+                                <tr>
+                                    <td colSpan={4} className="p-8 text-center text-gray-400 text-sm">
+                                        No closed deals yet. Move clients to "Closed" status to populate this ledger.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     );
 };

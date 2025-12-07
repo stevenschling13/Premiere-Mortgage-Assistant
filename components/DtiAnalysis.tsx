@@ -2,31 +2,29 @@ import React, { useState } from 'react';
 import { DollarSign, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export const DtiAnalysis: React.FC = () => {
-    // Production Ready: Start with 0s
     const [income, setIncome] = useState({
-        baseSalary: 0,
-        bonus: 0,
-        rsu: 0,
+        baseSalary: 25000,
+        bonus: 5000,
+        rsu: 8000,
         other: 0
     });
 
     const [debts, setDebts] = useState({
-        creditCards: 0,
-        carLoans: 0,
+        creditCards: 500,
+        carLoans: 1200,
         studentLoans: 0,
-        otherRealEstate: 0,
+        otherRealEstate: 2500,
         otherLoans: 0
     });
 
-    const [proposedHousing, setProposedHousing] = useState(0);
+    const [proposedHousing, setProposedHousing] = useState(14500);
 
     // Calculations
     const totalMonthlyIncome = (Object.values(income) as number[]).reduce((a, b) => a + b, 0);
     const totalMonthlyDebts = (Object.values(debts) as number[]).reduce((a, b) => a + b, 0);
     
-    // Avoid division by zero
-    const frontEndRatio = totalMonthlyIncome > 0 ? (proposedHousing / totalMonthlyIncome) * 100 : 0;
-    const backEndRatio = totalMonthlyIncome > 0 ? ((proposedHousing + totalMonthlyDebts) / totalMonthlyIncome) * 100 : 0;
+    const frontEndRatio = (proposedHousing / totalMonthlyIncome) * 100;
+    const backEndRatio = ((proposedHousing + totalMonthlyDebts) / totalMonthlyIncome) * 100;
 
     const isHighRisk = backEndRatio > 43;
 
@@ -48,28 +46,28 @@ export const DtiAnalysis: React.FC = () => {
                                 <label className="block text-xs font-medium text-gray-500 mb-1">Base Salary</label>
                                 <div className="relative">
                                     <span className="absolute left-3 top-2 text-gray-400">$</span>
-                                    <input type="number" inputMode="decimal" value={income.baseSalary || ''} onChange={(e) => setIncome({...income, baseSalary: parseFloat(e.target.value)||0})} className="w-full pl-6 p-2 bg-gray-50 text-gray-900 rounded border border-gray-200 focus:bg-white focus:border-brand-red outline-none transition-colors" placeholder="0" />
+                                    <input type="number" inputMode="decimal" value={income.baseSalary} onChange={(e) => setIncome({...income, baseSalary: parseFloat(e.target.value)||0})} className="w-full pl-6 p-2 bg-gray-50 text-gray-900 rounded border border-gray-200 focus:bg-white focus:border-brand-red outline-none transition-colors" />
                                 </div>
                             </div>
                             <div>
                                 <label className="block text-xs font-medium text-gray-500 mb-1">Bonus / Commission</label>
                                 <div className="relative">
                                     <span className="absolute left-3 top-2 text-gray-400">$</span>
-                                    <input type="number" inputMode="decimal" value={income.bonus || ''} onChange={(e) => setIncome({...income, bonus: parseFloat(e.target.value)||0})} className="w-full pl-6 p-2 bg-gray-50 text-gray-900 rounded border border-gray-200 focus:bg-white focus:border-brand-red outline-none transition-colors" placeholder="0" />
+                                    <input type="number" inputMode="decimal" value={income.bonus} onChange={(e) => setIncome({...income, bonus: parseFloat(e.target.value)||0})} className="w-full pl-6 p-2 bg-gray-50 text-gray-900 rounded border border-gray-200 focus:bg-white focus:border-brand-red outline-none transition-colors" />
                                 </div>
                             </div>
                             <div>
                                 <label className="block text-xs font-medium text-gray-500 mb-1">RSU / Stock (Vest)</label>
                                 <div className="relative">
                                     <span className="absolute left-3 top-2 text-gray-400">$</span>
-                                    <input type="number" inputMode="decimal" value={income.rsu || ''} onChange={(e) => setIncome({...income, rsu: parseFloat(e.target.value)||0})} className="w-full pl-6 p-2 bg-gray-50 text-gray-900 rounded border border-gray-200 focus:bg-white focus:border-brand-red outline-none transition-colors" placeholder="0" />
+                                    <input type="number" inputMode="decimal" value={income.rsu} onChange={(e) => setIncome({...income, rsu: parseFloat(e.target.value)||0})} className="w-full pl-6 p-2 bg-gray-50 text-gray-900 rounded border border-gray-200 focus:bg-white focus:border-brand-red outline-none transition-colors" />
                                 </div>
                             </div>
                             <div>
                                 <label className="block text-xs font-medium text-gray-500 mb-1">Other</label>
                                 <div className="relative">
                                     <span className="absolute left-3 top-2 text-gray-400">$</span>
-                                    <input type="number" inputMode="decimal" value={income.other || ''} onChange={(e) => setIncome({...income, other: parseFloat(e.target.value)||0})} className="w-full pl-6 p-2 bg-gray-50 text-gray-900 rounded border border-gray-200 focus:bg-white focus:border-brand-red outline-none transition-colors" placeholder="0" />
+                                    <input type="number" inputMode="decimal" value={income.other} onChange={(e) => setIncome({...income, other: parseFloat(e.target.value)||0})} className="w-full pl-6 p-2 bg-gray-50 text-gray-900 rounded border border-gray-200 focus:bg-white focus:border-brand-red outline-none transition-colors" />
                                 </div>
                             </div>
                         </div>
@@ -85,19 +83,19 @@ export const DtiAnalysis: React.FC = () => {
                         <div className="space-y-3">
                              <div className="flex items-center space-x-4">
                                 <label className="w-1/3 text-sm text-gray-600">Credit Cards (Min)</label>
-                                <input type="number" inputMode="decimal" value={debts.creditCards || ''} onChange={(e) => setDebts({...debts, creditCards: parseFloat(e.target.value)||0})} className="flex-1 p-2 bg-gray-50 text-gray-900 rounded border border-gray-200 outline-none" placeholder="0" />
+                                <input type="number" inputMode="decimal" value={debts.creditCards} onChange={(e) => setDebts({...debts, creditCards: parseFloat(e.target.value)||0})} className="flex-1 p-2 bg-gray-50 text-gray-900 rounded border border-gray-200 outline-none" />
                              </div>
                              <div className="flex items-center space-x-4">
                                 <label className="w-1/3 text-sm text-gray-600">Auto Loans/Leases</label>
-                                <input type="number" inputMode="decimal" value={debts.carLoans || ''} onChange={(e) => setDebts({...debts, carLoans: parseFloat(e.target.value)||0})} className="flex-1 p-2 bg-gray-50 text-gray-900 rounded border border-gray-200 outline-none" placeholder="0" />
+                                <input type="number" inputMode="decimal" value={debts.carLoans} onChange={(e) => setDebts({...debts, carLoans: parseFloat(e.target.value)||0})} className="flex-1 p-2 bg-gray-50 text-gray-900 rounded border border-gray-200 outline-none" />
                              </div>
                              <div className="flex items-center space-x-4">
                                 <label className="w-1/3 text-sm text-gray-600">Student Loans</label>
-                                <input type="number" inputMode="decimal" value={debts.studentLoans || ''} onChange={(e) => setDebts({...debts, studentLoans: parseFloat(e.target.value)||0})} className="flex-1 p-2 bg-gray-50 text-gray-900 rounded border border-gray-200 outline-none" placeholder="0" />
+                                <input type="number" inputMode="decimal" value={debts.studentLoans} onChange={(e) => setDebts({...debts, studentLoans: parseFloat(e.target.value)||0})} className="flex-1 p-2 bg-gray-50 text-gray-900 rounded border border-gray-200 outline-none" />
                              </div>
                              <div className="flex items-center space-x-4">
                                 <label className="w-1/3 text-sm text-gray-600">Other Properties (PITIA)</label>
-                                <input type="number" inputMode="decimal" value={debts.otherRealEstate || ''} onChange={(e) => setDebts({...debts, otherRealEstate: parseFloat(e.target.value)||0})} className="flex-1 p-2 bg-gray-50 text-gray-900 rounded border border-gray-200 outline-none" placeholder="0" />
+                                <input type="number" inputMode="decimal" value={debts.otherRealEstate} onChange={(e) => setDebts({...debts, otherRealEstate: parseFloat(e.target.value)||0})} className="flex-1 p-2 bg-gray-50 text-gray-900 rounded border border-gray-200 outline-none" />
                              </div>
                         </div>
                         <div className="mt-4 pt-3 border-t flex justify-between items-center">
@@ -116,10 +114,9 @@ export const DtiAnalysis: React.FC = () => {
                              <input 
                                 type="number" 
                                 inputMode="decimal"
-                                value={proposedHousing || ''} 
+                                value={proposedHousing} 
                                 onChange={(e) => setProposedHousing(parseFloat(e.target.value)||0)}
                                 className="w-full pl-10 pr-4 py-3 bg-white/10 border border-white/20 rounded-lg text-2xl font-bold text-white placeholder-gray-400 focus:ring-2 focus:ring-brand-gold outline-none"
-                                placeholder="0.00"
                             />
                         </div>
                         <p className="text-xs text-gray-400">Enter total PITIA + HOA for subject property</p>
