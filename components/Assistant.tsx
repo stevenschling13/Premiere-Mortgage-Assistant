@@ -1,20 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User as UserIcon, Loader2, Link as LinkIcon, ExternalLink, Mic, MicOff, Trash2, Search } from 'lucide-react';
+import { Send, Bot, User as UserIcon, Loader2, Link as LinkIcon, ExternalLink, Mic, MicOff, Trash2, Search, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { ChatMessage } from '../types';
-import { chatWithAssistant } from '../services/geminiService';
+import { chatWithAssistant, verifyFactualClaims } from '../services/geminiService';
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
+import { MarkdownRenderer } from './MarkdownRenderer';
 
-const floatTo16BitPCM = (float32Array: Float32Array) => {
-  const buffer = new ArrayBuffer(float32Array.length * 2);
-  const view = new DataView(buffer);
-  let offset = 0;
-  for (let i = 0; i < float32Array.length; i++, offset += 2) {
-    let s = Math.max(-1, Math.min(1, float32Array[i]));
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+// Robust manual encoding to avoid stack overflow with large buffers
+function encode(bytes: Uint8Array) {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
   }
-  return buffer;
-};
+  return btoa(binary);
+}
 
 const base64ToUint8Array = (base64: string) => {
   const binaryString = atob(base64);
@@ -36,7 +36,7 @@ const SUGGESTED_PROMPTS = [
 export const Assistant: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     const saved = loadFromStorage<any[]>(StorageKeys.CHAT_HISTORY, []);
-    if (saved && saved.length > 0) {
+    if (Array.isArray(saved) && saved.length > 0) {
         return saved.map(m => ({
             ...m,
             timestamp: new Date(m.timestamp)
@@ -52,6 +52,7 @@ export const Assistant: React.FC = () => {
 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [verifyingMsgIds, setVerifyingMsgIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Live Voice State
@@ -66,7 +67,6 @@ export const Assistant: React.FC = () => {
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const sessionRef = useRef<any>(null);
   const animationFrameRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const shouldConnectRef = useRef(false);
@@ -102,6 +102,27 @@ export const Assistant: React.FC = () => {
       saveToStorage(StorageKeys.CHAT_HISTORY, resetMsg);
   };
 
+  const handleVerifyMessage = async (msgId: string, text: string) => {
+      if (verifyingMsgIds.has(msgId)) return;
+      
+      setVerifyingMsgIds(prev => new Set(prev).add(msgId));
+      
+      try {
+          const result = await verifyFactualClaims(text);
+          setMessages(prev => prev.map(m => 
+              m.id === msgId ? { ...m, verificationResult: result } : m
+          ));
+      } catch (e) {
+          console.error("Verification failed", e);
+      } finally {
+          setVerifyingMsgIds(prev => {
+              const next = new Set(prev);
+              next.delete(msgId);
+              return next;
+          });
+      }
+  };
+
   const handleSend = async (textOverride?: string) => {
     const textToSend = textOverride || input;
     if (!textToSend.trim() || isLoading) return;
@@ -119,7 +140,6 @@ export const Assistant: React.FC = () => {
 
     try {
       // Prepare history excluding the message we just added (since state update is async/batched)
-      // The service expects { role, parts: [{ text }] }
       const history = messages.map(m => ({
         role: m.role,
         parts: [{ text: m.text }]
@@ -187,6 +207,9 @@ export const Assistant: React.FC = () => {
   };
 
   const startLiveSession = async () => {
+    // If already connecting or connected, don't start again
+    if (shouldConnectRef.current) return;
+    
     setIsLiveConnecting(true);
     shouldConnectRef.current = true;
 
@@ -234,9 +257,16 @@ export const Assistant: React.FC = () => {
 
             processor.onaudioprocess = (e) => {
               const inputData = e.inputBuffer.getChannelData(0);
-              const pcm16 = floatTo16BitPCM(inputData);
-              const base64Data = btoa(String.fromCharCode(...new Uint8Array(pcm16)));
+              const l = inputData.length;
+              // Convert Float32 to Int16
+              const int16 = new Int16Array(l);
+              for (let i = 0; i < l; i++) {
+                int16[i] = inputData[i] * 32768;
+              }
+              // Safer manual encoding
+              const base64Data = encode(new Uint8Array(int16.buffer));
 
+              // IMPORTANT: Send input only after session resolves
               sessionPromise.then(session => {
                   session.sendRealtimeInput({
                       media: {
@@ -247,7 +277,7 @@ export const Assistant: React.FC = () => {
               });
             };
 
-            // Connect for processing (but not to destination to avoid self-echo, unless we want to monitor)
+            // Connect for processing (but not to destination to avoid self-echo)
             source.connect(processor);
             processor.connect(ctx.destination); 
           },
@@ -295,13 +325,13 @@ export const Assistant: React.FC = () => {
         }
       });
       
-      sessionRef.current = sessionPromise;
 
     } catch (e) {
       console.error("Failed to start live session", e);
       if (mountedRef.current) {
         setIsLiveConnecting(false);
         setIsLiveConnected(false);
+        shouldConnectRef.current = false;
       }
     }
   };
@@ -309,32 +339,44 @@ export const Assistant: React.FC = () => {
   const stopLiveSession = () => {
     shouldConnectRef.current = false;
     
-    if (mountedRef.current) {
-        setIsLiveConnected(false);
-        setIsLiveConnecting(false);
-        setIsLiveMode(false);
-    }
+    // Always reset UI state immediately to prevent "stuck" buttons
+    setIsLiveConnected(false);
+    setIsLiveConnecting(false);
+    setIsLiveMode(false);
+    setVisualizerData(new Array(5).fill(10));
     
     if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
     }
 
-    mediaStreamRef.current?.getTracks().forEach(track => track.stop());
-    mediaStreamRef.current = null;
+    if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach(track => track.stop());
+        mediaStreamRef.current = null;
+    }
 
-    processorRef.current?.disconnect();
-    sourceNodeRef.current?.disconnect();
-    analyserRef.current?.disconnect();
+    if (processorRef.current) {
+        processorRef.current.disconnect();
+        processorRef.current = null;
+    }
+    
+    if (sourceNodeRef.current) {
+        sourceNodeRef.current.disconnect();
+        sourceNodeRef.current = null;
+    }
+    
+    if (analyserRef.current) {
+        analyserRef.current.disconnect();
+        analyserRef.current = null;
+    }
     
     // Close context safely
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close().catch(console.error);
+    if (audioContextRef.current) {
+        if(audioContextRef.current.state !== 'closed') {
+             audioContextRef.current.close().catch(console.error);
+        }
+        audioContextRef.current = null;
     }
-    audioContextRef.current = null;
-
-    sessionRef.current?.then((s: any) => {
-        // s.close() if available
-    });
   };
 
   const toggleLiveMode = () => {
@@ -347,19 +389,22 @@ export const Assistant: React.FC = () => {
   };
 
   return (
-    <div className="h-[calc(100vh-64px)] md:h-[calc(100vh-32px)] flex flex-col bg-white md:rounded-xl shadow-sm border-t md:border border-gray-200 overflow-hidden mx-auto max-w-5xl md:my-4 relative w-full animate-fade-in">
+    <div className="h-[calc(100dvh-64px)] md:h-[calc(100dvh-32px)] flex flex-col bg-white md:rounded-xl shadow-sm border-t md:border border-gray-200 overflow-hidden mx-auto max-w-5xl md:my-4 relative w-full animate-fade-in">
       
       {/* Header */}
       <div className="bg-brand-dark p-3 md:p-4 flex items-center justify-between z-20 relative shrink-0 safe-top">
         <div className="flex items-center space-x-3">
-            <div className="bg-white/10 p-2 rounded-lg">
+            <div className="bg-white/10 p-2 rounded-lg relative">
                 <Bot className="text-brand-gold w-6 h-6" />
+                <div className="absolute -bottom-1 -right-1 bg-brand-gold text-brand-dark rounded-full p-[2px] border border-brand-dark">
+                  <ShieldCheck size={10} />
+                </div>
             </div>
             <div>
-                <h3 className="text-white font-semibold text-sm md:text-base">AI Market Assistant</h3>
+                <h3 className="text-white font-semibold text-sm md:text-base">Verified Market Assistant</h3>
                 <p className="text-gray-400 text-xs flex items-center">
                     <span className={`w-2 h-2 rounded-full mr-1 ${isLiveConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`}></span>
-                    Gemini 2.5 • {isLiveMode ? 'Voice Active' : 'Online & Grounded'}
+                    Gemini 3 Pro • {isLiveMode ? 'Voice Active' : 'Tier-1 Sources Only'}
                 </p>
             </div>
         </div>
@@ -442,7 +487,7 @@ export const Assistant: React.FC = () => {
 
               <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                 <div
-                    className={`px-4 py-2 md:px-5 md:py-3 rounded-2xl shadow-sm text-sm leading-relaxed ${
+                    className={`px-4 py-2 md:px-5 md:py-3 rounded-2xl shadow-sm text-sm leading-relaxed relative ${
                     msg.role === 'user'
                         ? 'bg-brand-red text-white rounded-tr-none'
                         : msg.isError 
@@ -450,25 +495,83 @@ export const Assistant: React.FC = () => {
                             : 'bg-white text-gray-800 border border-gray-200 rounded-tl-none'
                     }`}
                 >
-                    <div className="whitespace-pre-wrap text-gray-900">{msg.text}</div>
-                    
-                    {/* Grounding Info */}
-                    {(msg.groundingLinks?.length! > 0 || msg.searchQueries?.length! > 0) && (
-                      <div className="mt-3 pt-3 border-t border-dashed border-gray-300/50">
-                        
-                        {/* Search Queries Used */}
-                        {msg.searchQueries && msg.searchQueries.length > 0 && (
-                            <div className="mb-2 text-[10px] text-gray-500 italic flex items-center">
-                                <Search size={10} className="mr-1" />
-                                Searched for: {msg.searchQueries.map(q => `"${q}"`).join(', ')}
-                            </div>
-                        )}
+                    {msg.role === 'user' ? (
+                         <div className="whitespace-pre-wrap">{msg.text}</div>
+                    ) : (
+                         <>
+                            <MarkdownRenderer content={msg.text} />
+                            
+                            {/* Verification Button */}
+                            {!msg.isError && !msg.verificationResult && (
+                                <div className="mt-3 pt-2 border-t border-gray-100 flex justify-end">
+                                    <button 
+                                        onClick={() => handleVerifyMessage(msg.id, msg.text)}
+                                        disabled={verifyingMsgIds.has(msg.id)}
+                                        className="flex items-center space-x-1.5 px-3 py-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-full text-xs font-semibold text-gray-600 transition-colors disabled:opacity-50"
+                                    >
+                                        {verifyingMsgIds.has(msg.id) ? (
+                                            <Loader2 size={12} className="animate-spin text-brand-red" />
+                                        ) : (
+                                            <ShieldCheck size={12} className="text-gray-400" />
+                                        )}
+                                        <span>{verifyingMsgIds.has(msg.id) ? 'Verifying...' : 'Verify Data'}</span>
+                                    </button>
+                                </div>
+                            )}
 
+                            {/* Verification Result Card */}
+                            {msg.verificationResult && (
+                                <div className={`mt-3 pt-3 border-t-2 border-dashed ${
+                                    msg.verificationResult.status === 'VERIFIED' ? 'border-green-200' : 'border-red-200'
+                                }`}>
+                                    <div className={`p-3 rounded-lg text-xs border mb-2 ${
+                                        msg.verificationResult.status === 'VERIFIED' 
+                                            ? 'bg-green-50 border-green-200 text-green-800' 
+                                            : 'bg-red-50 border-red-200 text-red-800'
+                                    }`}>
+                                        <div className="flex items-center font-bold mb-2 uppercase tracking-wide">
+                                            {msg.verificationResult.status === 'VERIFIED' ? (
+                                                <ShieldCheck size={14} className="mr-1.5" />
+                                            ) : (
+                                                <AlertTriangle size={14} className="mr-1.5" />
+                                            )}
+                                            Audit Report: {msg.verificationResult.status === 'VERIFIED' ? 'Verified Accurate' : 'Issues Found'}
+                                        </div>
+                                        <div className="prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1">
+                                            <MarkdownRenderer content={msg.verificationResult.text} />
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Sources from Verification */}
+                                    {msg.verificationResult.sources.length > 0 && (
+                                        <div className="flex flex-wrap gap-2">
+                                            {msg.verificationResult.sources.slice(0, 3).map((s, idx) => (
+                                                <a 
+                                                    key={idx}
+                                                    href={s.uri}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="flex items-center px-2 py-1 bg-white border border-gray-200 rounded text-[10px] text-gray-500 hover:text-brand-dark hover:border-brand-gold transition-colors"
+                                                >
+                                                    <LinkIcon size={10} className="mr-1 opacity-50"/>
+                                                    <span className="truncate max-w-[120px]">{s.title}</span>
+                                                </a>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                         </>
+                    )}
+                    
+                    {/* Grounding Info (Original Generation) */}
+                    {((msg.groundingLinks?.length || 0) > 0 || (msg.searchQueries?.length || 0) > 0) && (
+                      <div className="mt-3 pt-3 border-t border-dashed border-gray-300/50">
                         {/* Source Links */}
                         {msg.groundingLinks && msg.groundingLinks.length > 0 && (
                             <>
                                 <p className="text-[10px] font-bold uppercase tracking-wider opacity-60 mb-2 flex items-center text-gray-600">
-                                <LinkIcon size={10} className="mr-1" /> Verified Sources
+                                <LinkIcon size={10} className="mr-1" /> Original Sources
                                 </p>
                                 <div className="flex flex-wrap gap-2 mb-2">
                                 {msg.groundingLinks.slice(0, 4).map((link, idx) => (
@@ -552,7 +655,7 @@ export const Assistant: React.FC = () => {
             disabled={!input.trim() || isLoading}
             className="absolute right-2 md:right-3 p-2 bg-brand-red text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md active:scale-95"
           >
-            <Send size={16} md:size={18} />
+            <Send className="w-4 h-4 md:w-[18px] md:h-[18px]" />
           </button>
         </div>
       </div>

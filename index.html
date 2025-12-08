@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Premiere Mortgage Assistant</title>
+    <!-- Keeping Tailwind CDN for consistent styling as requested, though build-time CSS is preferred for pure production speed -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
@@ -15,7 +16,7 @@
             },
             colors: {
               brand: {
-                red: '#CD1337', // Inspired by WF red but distinct
+                red: '#CD1337',
                 gold: '#F4B23E',
                 dark: '#1E293B',
                 slate: '#64748B',
@@ -51,14 +52,17 @@
       }
     </script>
     <style>
+      html {
+        scrollbar-width: thin;
+        scrollbar-color: #cbd5e1 transparent;
+      }
       body {
         font-family: 'Inter', sans-serif;
         background-color: #F8FAFC;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
-        overflow-x: hidden; /* Prevent horizontal scroll bounce */
+        overflow-x: hidden;
       }
-      /* Custom scrollbar for sleeker look */
       ::-webkit-scrollbar {
         width: 6px;
         height: 6px;
@@ -73,12 +77,21 @@
       ::-webkit-scrollbar-thumb:hover {
         background: #94a3b8; 
       }
-      /* Prevent mobile bounce */
+      .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+      }
+      .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+      }
+      .mask-image-fade-right {
+        mask-image: linear-gradient(to right, black 85%, transparent 100%);
+        -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%);
+      }
       html, body {
         height: 100%;
         overscroll-behavior-y: none;
       }
-      /* Mobile safe area padding utility */
       .safe-top {
         padding-top: env(safe-area-inset-top);
       }
@@ -89,17 +102,20 @@
   <script type="importmap">
 {
   "imports": {
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
-    "recharts": "https://aistudiocdn.com/recharts@^3.5.1"
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.2",
+    "recharts": "https://aistudiocdn.com/recharts@^3.5.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
+    "react": "https://aistudiocdn.com/react@^19.2.1",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0",
+    "vite": "https://aistudiocdn.com/vite@^7.2.7"
   }
 }
 </script>
 </head>
   <body>
     <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>

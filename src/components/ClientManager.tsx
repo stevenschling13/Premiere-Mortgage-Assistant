@@ -419,6 +419,30 @@ export const ClientManager: React.FC = () => {
         handleUpdateClient({ ...selectedClient, checklist: updatedChecklist });
     };
 
+    const addQuickTask = (label: string, daysOffset: number) => {
+        if (!selectedClient) return;
+        
+        const date = new Date();
+        if (daysOffset > 0) {
+            date.setDate(date.getDate() + daysOffset);
+        }
+        
+        const reminderDate = daysOffset > 0 ? date.toISOString().split('T')[0] : undefined;
+        
+        const newItem: ChecklistItem = {
+            id: Date.now().toString() + Math.random().toString().slice(2),
+            label: label,
+            checked: false,
+            reminderDate: reminderDate
+        };
+
+        handleUpdateClient({
+            ...selectedClient,
+            checklist: [...selectedClient.checklist, newItem]
+        });
+        showToast('Quick task added', 'success');
+    };
+
     const handleDeleteClient = (id: string) => {
         // Use functional updates for state consistency
         if (confirm('Are you sure you want to delete this client?')) {

@@ -1,11 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { LoanScenario } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
-import { DollarSign, Percent, Calendar, RefreshCcw, Info, BrainCircuit } from 'lucide-react';
+import { RefreshCcw, Info, BrainCircuit, RotateCcw } from 'lucide-react';
 import { analyzeLoanScenario } from '../services/geminiService';
+import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
+import { useToast } from './Toast';
+import { MarkdownRenderer } from './MarkdownRenderer';
 
-export const Calculator: React.FC = () => {
-  const [scenario, setScenario] = useState<LoanScenario>({
+const DEFAULT_SCENARIO: LoanScenario = {
     purchasePrice: 2500000,
     downPaymentPercent: 20,
     interestRate: 6.625,
@@ -14,10 +16,23 @@ export const Calculator: React.FC = () => {
     insuranceAnnual: 6000,
     hoaMonthly: 850,
     isInterestOnly: false
-  });
+};
+
+export const Calculator: React.FC = () => {
+  const { showToast } = useToast();
+  
+  // Persisted State
+  const [scenario, setScenario] = useState<LoanScenario>(() => 
+      loadFromStorage(StorageKeys.CALCULATOR_SCENARIO, DEFAULT_SCENARIO)
+  );
 
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [loadingAi, setLoadingAi] = useState(false);
+
+  // Persistence Effect
+  useEffect(() => {
+      saveToStorage(StorageKeys.CALCULATOR_SCENARIO, scenario);
+  }, [scenario]);
 
   const downPaymentAmount = useMemo(() => scenario.purchasePrice * (scenario.downPaymentPercent / 100), [scenario.purchasePrice, scenario.downPaymentPercent]);
   const loanAmount = useMemo(() => scenario.purchasePrice - downPaymentAmount, [scenario.purchasePrice, downPaymentAmount]);
@@ -52,6 +67,14 @@ export const Calculator: React.FC = () => {
     });
   };
 
+  const handleReset = () => {
+      if(confirm('Reset calculator to defaults?')) {
+          setScenario(DEFAULT_SCENARIO);
+          setAiAnalysis(null);
+          showToast('Calculator reset', 'info');
+      }
+  };
+
   const handleGetAnalysis = async () => {
     setLoadingAi(true);
     setAiAnalysis(null);
@@ -61,6 +84,7 @@ export const Calculator: React.FC = () => {
       setAiAnalysis(result);
     } catch (e) {
       console.error(e);
+      showToast('AI Analysis failed', 'error');
     } finally {
       setLoadingAi(false);
     }
@@ -73,11 +97,20 @@ export const Calculator: React.FC = () => {
           <h2 className="text-3xl font-bold text-brand-dark tracking-tight">Jumbo Calculator</h2>
           <p className="text-sm text-gray-500 mt-1">Advanced scenario modeling for high-value properties.</p>
         </div>
-        <div className="bg-white px-8 py-4 rounded-xl border border-gray-200 shadow-sm text-right">
-          <span className="block text-gray-400 text-xs uppercase tracking-wider font-semibold mb-1">Est. Monthly Payment</span>
-          <span className="text-4xl font-bold text-brand-red tracking-tight">
-            ${totalMonthlyPayment.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-          </span>
+        <div className="flex items-center gap-4 w-full md:w-auto">
+            <button 
+                onClick={handleReset}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+                title="Reset Defaults"
+            >
+                <RotateCcw size={20} />
+            </button>
+            <div className="bg-white px-8 py-4 rounded-xl border border-gray-200 shadow-sm text-right flex-1 md:flex-none">
+                <span className="block text-gray-400 text-xs uppercase tracking-wider font-semibold mb-1">Est. Monthly Payment</span>
+                <span className="text-4xl font-bold text-brand-red tracking-tight">
+                    ${totalMonthlyPayment.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                </span>
+            </div>
         </div>
       </div>
 
@@ -99,7 +132,7 @@ export const Calculator: React.FC = () => {
                     inputMode="decimal"
                     value={scenario.purchasePrice}
                     onChange={(e) => handleInputChange(e, 'purchasePrice')}
-                    className="w-full pl-6 p-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none transition-colors"
+                    className="w-full pl-6 p-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none transition-colors font-medium"
                   />
                 </div>
               </div>
@@ -240,7 +273,7 @@ export const Calculator: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full mt-8">
                     {chartData.map((item, idx) => (
-                        <div key={idx} className="flex flex-col items-center p-3 rounded-lg bg-gray-50">
+                        <div key={idx} className="flex flex-col items-center p-3 rounded-lg bg-gray-50 border border-gray-100">
                             <div className="flex items-center space-x-2 mb-1">
                                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
                                 <span className="text-xs font-bold text-gray-500 uppercase">{item.name}</span>
@@ -283,7 +316,7 @@ export const Calculator: React.FC = () => {
                             </div>
                         ) : aiAnalysis ? (
                             <div className="prose prose-invert prose-sm max-w-none">
-                                <pre className="whitespace-pre-wrap font-sans">{aiAnalysis}</pre>
+                                <MarkdownRenderer content={aiAnalysis} />
                             </div>
                         ) : (
                             <div className="flex flex-col items-center justify-center h-full text-gray-500 opacity-60">

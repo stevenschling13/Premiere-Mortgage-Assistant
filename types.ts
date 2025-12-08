@@ -21,16 +21,32 @@ export interface Client {
   phone: string;
   loanAmount: number;
   propertyAddress: string;
+  estimatedPropertyValue?: number; // AI-fetched estimate
   status: string; // Changed from union to string to support custom deal stages
   nextActionDate: string;
   notes: string;
   checklist: ChecklistItem[];
   emailHistory: EmailLog[];
+  lastSummary?: string;
+}
+
+export interface ManualDeal {
+  id: string;
+  date: string;
+  clientName: string;
+  loanAmount: number;
+  commission: number;
 }
 
 export interface DealStage {
   name: string;
   color: string;
+}
+
+export interface VerificationResult {
+  status: 'VERIFIED' | 'ISSUES_FOUND' | 'UNVERIFIABLE';
+  text: string;
+  sources: Array<{uri: string; title: string}>;
 }
 
 export interface ChatMessage {
@@ -42,6 +58,7 @@ export interface ChatMessage {
   groundingLinks?: Array<{uri: string; title: string}>;
   searchEntryPoint?: string;
   searchQueries?: string[];
+  verificationResult?: VerificationResult;
 }
 
 export interface LoanScenario {
@@ -120,5 +137,29 @@ export interface CommandIntent {
     note?: string;
     taskLabel?: string;
     date?: string;
+  };
+}
+
+// Marketing Types
+export interface MarketingCampaign {
+  linkedInPost: string;
+  emailSubject: string;
+  emailBody: string;
+  smsTeaser: string;
+}
+
+export interface GeneratedImage {
+  url: string; // Base64 data URL
+  prompt: string;
+}
+
+export interface SavedClientView {
+  id: string;
+  name: string;
+  filters: {
+    status: string;
+    loanAmount: string;
+    date: string;
+    searchQuery: string;
   };
 }
