@@ -456,7 +456,10 @@ export const ClientManager: React.FC = () => {
     };
 
     const handleGenerateEmail = async () => {
-        if (!selectedClient || !emailDraftTopic) return;
+        if (!selectedClient || !emailDraftTopic) {
+            showToast('Please enter a topic for the email.', 'error');
+            return;
+        }
         setIsDrafting(true);
         try {
             const draft = await generateEmailDraft(selectedClient, emailDraftTopic, 'Standard follow up');
@@ -503,7 +506,10 @@ export const ClientManager: React.FC = () => {
     };
 
     const handleGenerateSubjects = async () => {
-        if (!selectedClient || !emailDraftTopic) return;
+        if (!selectedClient || !emailDraftTopic) {
+            showToast('Please enter a topic first.', 'error');
+            return;
+        }
         setIsGeneratingSubjects(true);
         try {
             const subjects = await generateSubjectLines(selectedClient, emailDraftTopic);
@@ -1244,7 +1250,7 @@ export const ClientManager: React.FC = () => {
                                             <button 
                                                 onClick={handleGenerateEmail}
                                                 disabled={isDrafting || !emailDraftTopic}
-                                                className="bg-brand-dark text-white px-4 py-2 rounded text-sm hover:bg-gray-800 disabled:opacity-50 transition-colors flex items-center"
+                                                className="bg-brand-dark text-white px-4 py-2 rounded text-sm hover:bg-gray-800 disabled:opacity-50 transition-colors flex items-center shadow-sm"
                                             >
                                                 {isDrafting ? <Loader2 size={16} className="animate-spin"/> : <Zap size={16}/>}
                                             </button>
@@ -1259,7 +1265,13 @@ export const ClientManager: React.FC = () => {
                                                         {isGeneratingSubjects ? (
                                                             <Loader2 size={14} className="animate-spin text-gray-400"/>
                                                         ) : (
-                                                            <button onClick={handleGenerateSubjects} className="text-[10px] text-blue-600 hover:underline">Suggest Subjects</button>
+                                                            <button 
+                                                                onClick={handleGenerateSubjects} 
+                                                                className="text-[10px] text-blue-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                disabled={!emailDraftTopic}
+                                                            >
+                                                                Suggest Subjects
+                                                            </button>
                                                         )}
                                                     </div>
                                                     <button onClick={() => {navigator.clipboard.writeText(currentDraft); showToast('Copied draft', 'info')}} className="text-gray-400 hover:text-brand-dark"><Copy size={14}/></button>

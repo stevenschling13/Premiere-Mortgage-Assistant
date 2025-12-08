@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, ReactNode } from 'react';
+import React, { useState, useCallback, useEffect, ReactNode, Component } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Calculator } from './components/Calculator';
 import { ClientManager } from './components/ClientManager';
@@ -22,6 +22,14 @@ interface ErrorBoundaryState {
 
 // Error Boundary Implementation
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  readonly props: Readonly<ErrorBoundaryProps>;
+
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.props = props;
+    this.state = { hasError: false };
+  }
+
   public state: ErrorBoundaryState = { hasError: false };
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
