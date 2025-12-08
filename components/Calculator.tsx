@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useDeferredValue } from 'react';
 import { LoanScenario } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { RefreshCcw, Info, BrainCircuit, RotateCcw } from 'lucide-react';
@@ -59,6 +59,9 @@ export const Calculator: React.FC = () => {
     { name: 'HOA', value: scenario.hoaMonthly, color: '#64748B' },
   ], [monthlyPI, monthlyPropertyTax, monthlyInsurance, scenario.hoaMonthly, scenario.isInterestOnly]);
 
+  // Defer chart updates to prevent input lag
+  const deferredChartData = useDeferredValue(chartData);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>, field: keyof LoanScenario) => {
     const val = parseFloat(e.target.value);
     setScenario({
@@ -100,7 +103,7 @@ export const Calculator: React.FC = () => {
         <div className="flex items-center gap-4 w-full md:w-auto">
             <button 
                 onClick={handleReset}
-                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-red"
                 title="Reset Defaults"
             >
                 <RotateCcw size={20} />
@@ -252,15 +255,16 @@ export const Calculator: React.FC = () => {
                     <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                             <Pie
-                                data={chartData}
+                                data={deferredChartData}
                                 cx="50%"
                                 cy="50%"
                                 innerRadius={80}
                                 outerRadius={120}
                                 paddingAngle={5}
                                 dataKey="value"
+                                isAnimationActive={false} // Disable animation for responsiveness
                             >
-                                {chartData.map((entry, index) => (
+                                {deferredChartData.map((entry, index) => (
                                     <Cell key={`cell-${index}`} fill={entry.color} />
                                 ))}
                             </Pie>
@@ -272,7 +276,7 @@ export const Calculator: React.FC = () => {
                     </ResponsiveContainer>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full mt-8">
-                    {chartData.map((item, idx) => (
+                    {deferredChartData.map((item, idx) => (
                         <div key={idx} className="flex flex-col items-center p-3 rounded-lg bg-gray-50 border border-gray-100">
                             <div className="flex items-center space-x-2 mb-1">
                                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
@@ -303,7 +307,7 @@ export const Calculator: React.FC = () => {
                         <button 
                             onClick={handleGetAnalysis}
                             disabled={loadingAi}
-                            className="px-4 py-2 bg-brand-red hover:bg-red-700 text-white text-sm font-bold rounded-lg transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                            className="px-4 py-2 bg-brand-red hover:bg-red-700 text-white text-sm font-bold rounded-lg transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center focus:outline-none focus:ring-2 focus:ring-white"
                         >
                             {loadingAi ? 'Analyzing...' : 'Run Analysis'}
                         </button>

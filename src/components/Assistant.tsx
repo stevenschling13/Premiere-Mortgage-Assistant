@@ -63,14 +63,11 @@ export const Assistant: React.FC = () => {
 
   // Live Audio Refs
   const audioContextRef = useRef<AudioContext | null>(null);
-  const outputAudioContextRef = useRef<AudioContext | null>(null); // Separate context for playback (24kHz)
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const nextStartTimeRef = useRef<number>(0);
-  
   const mountedRef = useRef(true);
   const shouldConnectRef = useRef(false);
 
@@ -222,18 +219,12 @@ export const Assistant: React.FC = () => {
       const ctx = new AudioContext({ sampleRate: 16000 });
       audioContextRef.current = ctx;
 
-      // Create persistent output context (24kHz typical for Gemini output)
-      const outCtx = new AudioContext({ sampleRate: 24000 });
-      outputAudioContextRef.current = outCtx;
-      nextStartTimeRef.current = 0;
-
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
       // Prevent race condition: if component unmounted or session stopped while awaiting stream
       if (!mountedRef.current || !shouldConnectRef.current) {
           stream.getTracks().forEach(track => track.stop());
           ctx.close();
-          outCtx.close();
           setIsLiveConnecting(false);
           return;
       }
@@ -266,9 +257,6 @@ export const Assistant: React.FC = () => {
             processorRef.current = processor;
 
             processor.onaudioprocess = (e) => {
-              // Gate: Stop processing if we are no longer connected/mounted
-              if (!mountedRef.current || !shouldConnectRef.current) return;
-
               const inputData = e.inputBuffer.getChannelData(0);
               const l = inputData.length;
               // Convert Float32 to Int16
@@ -281,15 +269,12 @@ export const Assistant: React.FC = () => {
 
               // IMPORTANT: Send input only after session resolves
               sessionPromise.then(session => {
-                  if (!mountedRef.current || !shouldConnectRef.current) return;
                   session.sendRealtimeInput({
                       media: {
                           mimeType: "audio/pcm;rate=16000",
                           data: base64Data
                       }
                   });
-              }).catch(e => {
-                  console.warn("Failed to send audio chunk", e);
               });
             };
 
@@ -298,43 +283,25 @@ export const Assistant: React.FC = () => {
             processor.connect(ctx.destination); 
           },
           onmessage: async (msg: LiveServerMessage) => {
-            if (!mountedRef.current || !outputAudioContextRef.current) return;
-            
+            if (!mountedRef.current) return;
             const base64Audio = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-            if (base64Audio) {
-                try {
-                    const audioData = base64ToUint8Array(base64Audio);
-                    const outputCtx = outputAudioContextRef.current;
-                    
-                    if (outputCtx.state === 'suspended') {
-                        await outputCtx.resume();
-                    }
-
-                    const int16Array = new Int16Array(audioData.buffer);
-                    const float32Output = new Float32Array(int16Array.length);
-                    for(let i=0; i<int16Array.length; i++) {
-                        float32Output[i] = int16Array[i] / 32768.0;
-                    }
-
-                    const buffer = outputCtx.createBuffer(1, float32Output.length, 24000);
-                    buffer.getChannelData(0).set(float32Output);
-
-                    const source = outputCtx.createBufferSource();
-                    source.buffer = buffer;
-                    source.connect(outputCtx.destination);
-                    
-                    // Simple queueing logic
-                    const currentTime = outputCtx.currentTime;
-                    if (nextStartTimeRef.current < currentTime) {
-                        nextStartTimeRef.current = currentTime;
-                    }
-                    
-                    source.start(nextStartTimeRef.current);
-                    nextStartTimeRef.current += buffer.duration;
-
-                } catch (decodeErr) {
-                    console.error("Audio decoding error", decodeErr);
+            if (base64Audio && audioContextRef.current) {
+                const audioData = base64ToUint8Array(base64Audio);
+                const outputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+                
+                const int16Array = new Int16Array(audioData.buffer);
+                const float32Output = new Float32Array(int16Array.length);
+                for(let i=0; i<int16Array.length; i++) {
+                    float32Output[i] = int16Array[i] / 32768.0;
                 }
+
+                const buffer = outputCtx.createBuffer(1, float32Output.length, 24000);
+                buffer.getChannelData(0).set(float32Output);
+
+                const source = outputCtx.createBufferSource();
+                source.buffer = buffer;
+                source.connect(outputCtx.destination);
+                source.start(0); 
             }
           },
           onclose: () => {
@@ -378,7 +345,6 @@ export const Assistant: React.FC = () => {
     setIsLiveConnecting(false);
     setIsLiveMode(false);
     setVisualizerData(new Array(5).fill(10));
-    nextStartTimeRef.current = 0;
     
     if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
@@ -405,23 +371,12 @@ export const Assistant: React.FC = () => {
         analyserRef.current = null;
     }
     
-    // Close contexts safely
+    // Close context safely
     if (audioContextRef.current) {
-        try {
-            if(audioContextRef.current.state !== 'closed') {
-                 audioContextRef.current.close().catch(console.error);
+        if(audioContextRef.current.state !== 'closed') {
+             audioContextRef.current.close().catch(console.error);
         }
-        } catch (e) { console.warn(e); }
         audioContextRef.current = null;
-    }
-
-    if (outputAudioContextRef.current) {
-        try {
-            if(outputAudioContextRef.current.state !== 'closed') {
-                 outputAudioContextRef.current.close().catch(console.error);
-            }
-        } catch (e) { console.warn(e); }
-        outputAudioContextRef.current = null;
     }
   };
 

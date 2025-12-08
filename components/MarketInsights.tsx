@@ -595,11 +595,12 @@ export const MarketingStudio: React.FC = () => {
                   <div key={idx} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden group">
                       <div className="aspect-square relative bg-gray-100">
                           <img src={img.url} alt="Generated" className="w-full h-full object-cover" />
-                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-4">
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center justify-center space-x-4">
                               <button 
                                 onClick={() => handleDownloadImage(img.url, idx)}
                                 className="p-2 bg-white rounded-full hover:bg-gray-100 text-gray-800" 
                                 title="Download"
+                                aria-label="Download image"
                               >
                                   <Download size={20}/>
                               </button>
@@ -610,6 +611,7 @@ export const MarketingStudio: React.FC = () => {
                                 }}
                                 className="p-2 bg-white rounded-full hover:bg-gray-100 text-gray-800" 
                                 title="Use as prompt"
+                                aria-label="Use as prompt"
                               >
                                   <RefreshCw size={20}/>
                               </button>

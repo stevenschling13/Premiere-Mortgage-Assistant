@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useEffect, ReactNode, Component } from 'react';
+import './polyfill';
+import React, { useState, useCallback, useEffect, ReactNode } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Calculator } from './components/Calculator';
 import { ClientManager } from './components/ClientManager';
@@ -22,7 +23,9 @@ interface ErrorBoundaryState {
 
 // Error Boundary Implementation
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  readonly props: Readonly<ErrorBoundaryProps>;
+  public state: ErrorBoundaryState = { hasError: false };
+  // Explicitly defining props to satisfy strict type checking if React types are failing inference
+  public readonly props: Readonly<ErrorBoundaryProps>;
 
   constructor(props: ErrorBoundaryProps) {
     super(props);
@@ -30,14 +33,15 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     this.state = { hasError: false };
   }
 
-  public state: ErrorBoundaryState = { hasError: false };
-
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("Uncaught error:", error, errorInfo);
+    console.group("ErrorBoundary Caught Error");
+    console.error("Error Message:", error.message);
+    console.error("Component Stack Trace:\n", errorInfo.componentStack);
+    console.groupEnd();
   }
 
   handleReset = () => {
@@ -59,16 +63,21 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
             <p className="text-gray-500 mb-6 text-sm">
                 We encountered an unexpected issue. Please try reloading or resetting your local data.
             </p>
+            {this.state.error && (
+                <div className="bg-gray-100 p-3 rounded text-xs text-left mb-6 font-mono overflow-auto max-h-32 text-red-700">
+                    {this.state.error.toString()}
+                </div>
+            )}
             <div className="flex flex-col gap-3">
                 <button 
                 onClick={() => window.location.reload()}
-                className="w-full px-4 py-3 bg-brand-dark text-white rounded-lg hover:bg-gray-800 transition-colors font-medium flex items-center justify-center"
+                className="w-full px-4 py-3 bg-brand-dark text-white rounded-lg hover:bg-gray-800 transition-colors font-medium flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-brand-dark"
                 >
                 <RefreshCcw size={16} className="mr-2"/> Reload Application
                 </button>
                 <button 
                 onClick={this.handleReset}
-                className="w-full px-4 py-3 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+                className="w-full px-4 py-3 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gray-300"
                 >
                 Reset & Clear Data
                 </button>
@@ -108,16 +117,12 @@ const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     try {
         if ((window as any).aistudio?.openSelectKey) {
             await (window as any).aistudio.openSelectKey();
-            // Per instructions: Assume success after triggering and proceed
             setHasKey(true); 
         } else {
-            // Fallback if method missing
             setHasKey(true);
         }
     } catch (e) {
         console.error("Error selecting key", e);
-        // Reset state or allow retry if needed, but per instructions we proceed or retry
-        // Here we stay on the screen if it failed, user can click again.
     }
   };
 
@@ -142,7 +147,7 @@ const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </p>
           <button 
             onClick={handleSelectKey}
-            className="bg-brand-red hover:bg-red-700 text-white font-bold py-3.5 px-8 rounded-full shadow-lg transition-transform active:scale-95 flex items-center mx-auto"
+            className="bg-brand-red hover:bg-red-700 text-white font-bold py-3.5 px-8 rounded-full shadow-lg transition-transform active:scale-95 flex items-center mx-auto focus:outline-none focus:ring-4 focus:ring-red-500/50"
           >
             Connect API Key
           </button>
@@ -151,7 +156,7 @@ const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               href="https://ai.google.dev/gemini-api/docs/billing" 
               target="_blank" 
               rel="noreferrer"
-              className="text-xs text-gray-500 hover:text-white transition-colors flex items-center justify-center hover:underline"
+              className="text-xs text-gray-500 hover:text-white transition-colors flex items-center justify-center hover:underline focus:text-white focus:outline-none"
             >
               View Billing Documentation
             </a>
@@ -202,10 +207,15 @@ const AppContent: React.FC = () => {
   return (
     <ToastContext.Provider value={{ showToast }}>
       <div className="flex h-[100dvh] bg-slate-50 font-sans text-gray-900 overflow-hidden">
-        {/* Toast Container */}
+        <a 
+          href="#main-content" 
+          className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-brand-red focus:text-white focus:rounded-md focus:shadow-lg focus:outline-none"
+        >
+          Skip to main content
+        </a>
+
         <ToastContainer toasts={toasts} removeToast={removeToast} />
 
-        {/* Mobile Sidebar Overlay */}
         {isSidebarOpen && (
           <div 
             className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm animate-fade-in"
@@ -213,7 +223,6 @@ const AppContent: React.FC = () => {
           />
         )}
 
-        {/* Sidebar Navigation */}
         <Sidebar 
           currentView={currentView} 
           onChangeView={(view) => {
@@ -224,10 +233,8 @@ const AppContent: React.FC = () => {
           onClose={() => setIsSidebarOpen(false)}
         />
 
-        {/* Main Content Area */}
         <div className="flex-1 flex flex-col md:ml-64 h-full transition-all duration-300 w-full relative bg-gray-50/50">
           
-          {/* Mobile Header */}
           <div className="md:hidden bg-brand-dark text-white p-4 flex items-center justify-between shadow-md shrink-0 z-30 safe-top">
             <div className="flex items-center space-x-2">
               <Building2 className="w-6 h-6 text-brand-red" />
@@ -238,14 +245,18 @@ const AppContent: React.FC = () => {
             </div>
             <button 
               onClick={() => setIsSidebarOpen(true)}
-              className="p-2 text-gray-300 hover:text-white focus:outline-none"
+              className="p-2 text-gray-300 hover:text-white focus:outline-none focus:ring-2 focus:ring-white rounded-md"
+              aria-label="Open menu"
             >
               <Menu className="w-6 h-6" />
             </button>
           </div>
 
-          {/* Scrollable Main Content */}
-          <main className="flex-1 overflow-y-auto w-full relative scroll-smooth">
+          <main 
+            id="main-content"
+            className="flex-1 overflow-y-auto w-full relative scroll-smooth focus:outline-none"
+            tabIndex={-1}
+          >
             <ErrorBoundary>
               {renderContent()}
             </ErrorBoundary>

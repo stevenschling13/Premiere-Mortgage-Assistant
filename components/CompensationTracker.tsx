@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { DollarSign, TrendingUp, ShieldCheck, Briefcase, CheckCircle2, PlusCircle, Sparkles, Loader2, ArrowUpRight, Settings, Calculator, BarChart3, PieChart, History, X, Save } from 'lucide-react';
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
@@ -219,36 +218,43 @@ export const CompensationTracker: React.FC = () => {
                 
                 <div className="flex flex-col md:flex-row items-end md:items-center gap-4 w-full md:w-auto relative">
                      {/* Settings Toggle */}
-                    <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} className="p-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
+                    <button 
+                        onClick={() => setIsSettingsOpen(!isSettingsOpen)} 
+                        className="p-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-dark"
+                        aria-label="Configuration Settings"
+                    >
                         <Settings size={20} className="text-gray-600"/>
                     </button>
                     
                     {/* Settings Modal (Inline) */}
                     {isSettingsOpen && (
-                        <div className="absolute top-full right-0 mt-2 bg-white p-6 rounded-xl shadow-xl border border-gray-200 z-50 w-72 animate-fade-in">
-                            <h3 className="font-bold text-gray-800 mb-4 flex items-center text-sm uppercase tracking-wide"><Settings size={14} className="mr-2"/> Configuration</h3>
-                            <div className="space-y-3">
-                                <div>
-                                    <label className="text-xs font-bold text-gray-500">Target Annual Income</label>
-                                    <div className="relative">
-                                        <span className="absolute left-3 top-2 text-gray-400">$</span>
-                                        <input type="number" value={settings.targetIncome} onChange={(e) => setSettings({...settings, targetIncome: parseFloat(e.target.value)})} className="w-full pl-6 p-2 border rounded text-sm outline-none focus:border-brand-dark"/>
+                        <>
+                            <div className="fixed inset-0 z-40" onClick={() => setIsSettingsOpen(false)}></div>
+                            <div className="absolute top-full right-0 mt-2 bg-white p-6 rounded-xl shadow-xl border border-gray-200 z-50 w-72 animate-fade-in">
+                                <h3 className="font-bold text-gray-800 mb-4 flex items-center text-sm uppercase tracking-wide"><Settings size={14} className="mr-2"/> Configuration</h3>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500">Target Annual Income</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-2 text-gray-400">$</span>
+                                            <input type="number" value={settings.targetIncome} onChange={(e) => setSettings({...settings, targetIncome: parseFloat(e.target.value)})} className="w-full pl-6 p-2 border rounded text-sm outline-none focus:border-brand-dark"/>
+                                        </div>
                                     </div>
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-gray-500">Base Salary</label>
-                                    <div className="relative">
-                                        <span className="absolute left-3 top-2 text-gray-400">$</span>
-                                        <input type="number" value={settings.baseSalary} onChange={(e) => setSettings({...settings, baseSalary: parseFloat(e.target.value)})} className="w-full pl-6 p-2 border rounded text-sm outline-none focus:border-brand-dark"/>
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500">Base Salary</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-2 text-gray-400">$</span>
+                                            <input type="number" value={settings.baseSalary} onChange={(e) => setSettings({...settings, baseSalary: parseFloat(e.target.value)})} className="w-full pl-6 p-2 border rounded text-sm outline-none focus:border-brand-dark"/>
+                                        </div>
                                     </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500">Commission Split (Decimal)</label>
+                                        <input type="number" step="0.01" value={settings.commissionSplit} onChange={(e) => setSettings({...settings, commissionSplit: parseFloat(e.target.value)})} className="w-full p-2 border rounded text-sm outline-none focus:border-brand-dark"/>
+                                    </div>
+                                    <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-brand-dark text-white py-2 rounded text-sm font-bold mt-2 hover:bg-gray-800">Save & Close</button>
                                 </div>
-                                <div>
-                                    <label className="text-xs font-bold text-gray-500">Commission Split (Decimal)</label>
-                                    <input type="number" step="0.01" value={settings.commissionSplit} onChange={(e) => setSettings({...settings, commissionSplit: parseFloat(e.target.value)})} className="w-full p-2 border rounded text-sm outline-none focus:border-brand-dark"/>
-                                </div>
-                                <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-brand-dark text-white py-2 rounded text-sm font-bold mt-2 hover:bg-gray-800">Save & Close</button>
                             </div>
-                        </div>
+                        </>
                     )}
                     
                     {/* Add Past Deal Button */}

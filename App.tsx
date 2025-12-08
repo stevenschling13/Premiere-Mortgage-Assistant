@@ -62,13 +62,13 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
             <div className="flex flex-col gap-3">
                 <button 
                 onClick={() => window.location.reload()}
-                className="w-full px-4 py-3 bg-brand-dark text-white rounded-lg hover:bg-gray-800 transition-colors font-medium flex items-center justify-center"
+                className="w-full px-4 py-3 bg-brand-dark text-white rounded-lg hover:bg-gray-800 transition-colors font-medium flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-brand-dark"
                 >
                 <RefreshCcw size={16} className="mr-2"/> Reload Application
                 </button>
                 <button 
                 onClick={this.handleReset}
-                className="w-full px-4 py-3 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+                className="w-full px-4 py-3 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gray-300"
                 >
                 Reset & Clear Data
                 </button>
@@ -142,7 +142,7 @@ const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </p>
           <button 
             onClick={handleSelectKey}
-            className="bg-brand-red hover:bg-red-700 text-white font-bold py-3.5 px-8 rounded-full shadow-lg transition-transform active:scale-95 flex items-center mx-auto"
+            className="bg-brand-red hover:bg-red-700 text-white font-bold py-3.5 px-8 rounded-full shadow-lg transition-transform active:scale-95 flex items-center mx-auto focus:outline-none focus:ring-4 focus:ring-red-500/50"
           >
             Connect API Key
           </button>
@@ -151,7 +151,7 @@ const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               href="https://ai.google.dev/gemini-api/docs/billing" 
               target="_blank" 
               rel="noreferrer"
-              className="text-xs text-gray-500 hover:text-white transition-colors flex items-center justify-center hover:underline"
+              className="text-xs text-gray-500 hover:text-white transition-colors flex items-center justify-center hover:underline focus:text-white focus:outline-none"
             >
               View Billing Documentation
             </a>
@@ -202,6 +202,14 @@ const AppContent: React.FC = () => {
   return (
     <ToastContext.Provider value={{ showToast }}>
       <div className="flex h-[100dvh] bg-slate-50 font-sans text-gray-900 overflow-hidden">
+        {/* Skip to Content Link for Accessibility */}
+        <a 
+          href="#main-content" 
+          className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-brand-red focus:text-white focus:rounded-md focus:shadow-lg focus:outline-none"
+        >
+          Skip to main content
+        </a>
+
         {/* Toast Container */}
         <ToastContainer toasts={toasts} removeToast={removeToast} />
 
@@ -238,14 +246,19 @@ const AppContent: React.FC = () => {
             </div>
             <button 
               onClick={() => setIsSidebarOpen(true)}
-              className="p-2 text-gray-300 hover:text-white focus:outline-none"
+              className="p-2 text-gray-300 hover:text-white focus:outline-none focus:ring-2 focus:ring-white rounded-md"
+              aria-label="Open menu"
             >
               <Menu className="w-6 h-6" />
             </button>
           </div>
 
           {/* Scrollable Main Content */}
-          <main className="flex-1 overflow-y-auto w-full relative scroll-smooth">
+          <main 
+            id="main-content"
+            className="flex-1 overflow-y-auto w-full relative scroll-smooth focus:outline-none"
+            tabIndex={-1}
+          >
             <ErrorBoundary>
               {renderContent()}
             </ErrorBoundary>

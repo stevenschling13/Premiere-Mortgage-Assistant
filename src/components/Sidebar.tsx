@@ -57,7 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isO
             key={item.id}
             onClick={() => onChangeView(item.id)}
             title={item.label}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 group focus:outline-none focus:ring-2 focus:ring-brand-red focus:ring-offset-2 focus:ring-offset-brand-dark ${
+            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 group ${
               currentView === item.id 
                 ? 'bg-brand-red text-white shadow-lg' 
                 : 'text-gray-300 hover:bg-gray-800 hover:text-white'
@@ -76,7 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isO
              </div>
              <button 
                 onClick={() => onChangeView(AppView.MARKETING)}
-                className="w-full bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white text-xs py-2 px-3 rounded border border-white/10 flex items-center justify-between transition-colors group focus:outline-none focus:ring-2 focus:ring-brand-red focus:ring-offset-2 focus:ring-offset-brand-dark"
+                className="w-full bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white text-xs py-2 px-3 rounded border border-white/10 flex items-center justify-between transition-colors group"
              >
                 <span>View Live Data</span>
                 <span className="flex h-2 w-2 relative">
@@ -87,7 +87,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isO
         </div>
         <button 
             onClick={handleSignOut}
-            className="flex items-center space-x-3 text-gray-400 hover:text-white transition-colors px-4 py-2 w-full hover:bg-gray-800 rounded-lg group focus:outline-none focus:ring-2 focus:ring-brand-red focus:ring-offset-2 focus:ring-offset-brand-dark"
+            className="flex items-center space-x-3 text-gray-400 hover:text-white transition-colors px-4 py-2 w-full hover:bg-gray-800 rounded-lg group"
         >
           <LogOut className="w-5 h-5 shrink-0 group-hover:text-red-400 transition-colors" />
           <span className="text-sm">Sign Out</span>

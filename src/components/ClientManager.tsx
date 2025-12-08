@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useDeferredValue } from 'react';
 import { 
     Users, Search, Plus, Calendar, 
     Filter, History, CheckSquare, 
@@ -55,7 +55,11 @@ export const ClientManager: React.FC = () => {
         const saved = loadFromStorage(StorageKeys.CLIENTS, INITIAL_CLIENTS);
         return Array.isArray(saved) ? saved : INITIAL_CLIENTS;
     });
+    
     const [searchQuery, setSearchQuery] = useState('');
+    // Defer the search query to keep typing responsive
+    const deferredSearchQuery = useDeferredValue(searchQuery);
+
     const [selectedClient, setSelectedClient] = useState<Client | null>(null);
     const [recentClientIds, setRecentClientIds] = useState<string[]>(() => {
         const saved = loadFromStorage(StorageKeys.RECENT_IDS, []);
@@ -184,7 +188,7 @@ export const ClientManager: React.FC = () => {
     };
 
     const filteredClients = useMemo(() => {
-        const query = searchQuery.trim();
+        const query = deferredSearchQuery.trim();
         
         let results = clients.filter(c => {
             if (statusFilter !== 'All' && c.status !== statusFilter) return false;
@@ -218,7 +222,7 @@ export const ClientManager: React.FC = () => {
         }
 
         return results;
-    }, [clients, searchQuery, statusFilter, loanAmountFilter, dateFilter]);
+    }, [clients, deferredSearchQuery, statusFilter, loanAmountFilter, dateFilter]);
 
     // -- Handlers --
 
@@ -242,7 +246,7 @@ export const ClientManager: React.FC = () => {
         saveToStorage(StorageKeys.RECENT_IDS, newRecents);
     };
 
-    const toggleSelection = (id: string, e?: React.MouseEvent) => {
+    const toggleSelection = (id: string, e?: React.MouseEvent | React.KeyboardEvent) => {
         if (e) {
             e.stopPropagation();
         }
@@ -760,22 +764,33 @@ export const ClientManager: React.FC = () => {
                         <div className="flex justify-between items-center mb-4">
                             <h2 className="text-xl font-bold text-brand-dark">Clients</h2>
                             <div className="flex space-x-2">
-                                <button onClick={handleVoiceCommand} disabled={isProcessingVoice} className={`p-2 rounded-full transition-all border shadow-sm ${isRecording ? 'bg-red-500 text-white' : 'bg-white text-gray-600'}`} aria-label="Voice Command">
+                                <button 
+                                    onClick={handleVoiceCommand} 
+                                    disabled={isProcessingVoice} 
+                                    className={`p-2 rounded-full transition-all border shadow-sm ${isRecording ? 'bg-red-500 text-white' : 'bg-white text-gray-600'}`} 
+                                    aria-label="Voice Command"
+                                >
                                     {isProcessingVoice ? <Loader2 size={18} className="animate-spin" /> : isRecording ? <Square size={18} fill="currentColor" /> : <Mic size={18} />}
                                 </button>
-                                <button onClick={() => setIsManageStagesOpen(true)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-full" aria-label="Settings" title="Manage Deal Stages"><Settings size={18} /></button>
+                                <button onClick={() => setIsManageStagesOpen(true)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-full" aria-label="Manage Deal Stages" title="Manage Deal Stages"><Settings size={18} /></button>
                                 <button onClick={handleCreateClient} className="p-2 bg-brand-red text-white rounded-full hover:bg-red-700 shadow-sm" aria-label="Add Client"><Plus size={20} /></button>
                             </div>
                         </div>
                         <div className="relative flex space-x-2">
                             <div className="relative flex-1">
                                 <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
-                                <input type="text" placeholder="Search name, address..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-red outline-none" />
+                                <input 
+                                    type="text" 
+                                    placeholder="Search name, address..." 
+                                    value={searchQuery} 
+                                    onChange={(e) => setSearchQuery(e.target.value)} 
+                                    className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-red outline-none" 
+                                />
                             </div>
                             <button 
                                 onClick={() => setIsFilterOpen(!isFilterOpen)} 
                                 className={`p-2 rounded-lg border transition-all ${isFilterOpen ? 'bg-brand-dark text-brand-gold border-brand-dark' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`} 
-                                aria-label="Filter"
+                                aria-label="Filter Clients"
                             >
                                 <Filter size={18} />
                             </button>
@@ -902,7 +917,15 @@ export const ClientManager: React.FC = () => {
                         filteredClients.map(client => (
                             <div 
                                 key={client.id}
+                                role="button"
+                                tabIndex={0}
                                 onClick={(e) => handleSelectClient(client)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        handleSelectClient(client);
+                                    }
+                                }}
                                 className={`p-4 border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors group ${selectedClient?.id === client.id ? 'bg-red-50 border-l-4 border-l-brand-red' : 'border-l-4 border-l-transparent'}`}
                             >
                                 <div className="flex justify-between items-start mb-1">
@@ -927,15 +950,21 @@ export const ClientManager: React.FC = () => {
                                             <Calendar size={10} className="mr-1"/> {new Date(client.nextActionDate).toLocaleDateString()}
                                         </p>
                                     </div>
-                                    <div 
-                                        onClick={(e) => toggleSelection(client.id, e)} 
-                                        className="p-2 -mr-2 cursor-pointer z-10"
+                                    <button 
+                                        onClick={(e) => toggleSelection(client.id, e)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.stopPropagation();
+                                                // Default button behavior handles click logic
+                                            }
+                                        }}
+                                        className="p-2 -mr-2 cursor-pointer z-10 hover:bg-black/5 rounded-full"
                                         role="checkbox"
                                         aria-checked={selectedIds.has(client.id)}
                                         aria-label={`Select ${client.name}`}
                                     >
                                         {selectedIds.has(client.id) ? <CheckSquare size={16} className="text-brand-red" /> : <Square size={16} className="text-gray-300" />}
-                                    </div>
+                                    </button>
                                 </div>
                             </div>
                         ))
@@ -1018,11 +1047,11 @@ export const ClientManager: React.FC = () => {
                                             <Mic size={18} />
                                         )}
                                     </button>
-                                    <button onClick={() => setIsEditing(!isEditing)} className={`p-2 rounded-full ${isEditing ? 'bg-brand-red text-white' : 'text-gray-400 hover:bg-gray-100'}`} aria-label="Edit"><Edit2 size={18}/></button>
+                                    <button onClick={() => setIsEditing(!isEditing)} className={`p-2 rounded-full ${isEditing ? 'bg-brand-red text-white' : 'text-gray-400 hover:bg-gray-100'}`} aria-label="Edit Client"><Edit2 size={18}/></button>
                                     <button 
                                         onClick={() => handleDeleteClient(selectedClient.id)} 
                                         className="p-3 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors" 
-                                        aria-label="Delete"
+                                        aria-label="Delete Client"
                                     >
                                         <Trash2 size={20}/>
                                     </button>
@@ -1078,6 +1107,7 @@ export const ClientManager: React.FC = () => {
                                                 disabled={isEstimatingValue || !selectedClient.propertyAddress}
                                                 className="bg-brand-gold text-brand-dark p-2 rounded hover:bg-yellow-500 disabled:opacity-50 transition-colors shadow-sm"
                                                 title="Get AI Valuation Estimate"
+                                                aria-label="Estimate Property Value"
                                             >
                                                 {isEstimatingValue ? <Loader2 size={16} className="animate-spin"/> : <Wand2 size={16}/>}
                                             </button>
@@ -1250,7 +1280,7 @@ export const ClientManager: React.FC = () => {
                                             <button 
                                                 onClick={handleGenerateEmail}
                                                 disabled={isDrafting || !emailDraftTopic}
-                                                className="bg-brand-dark text-white px-4 py-2 rounded text-sm hover:bg-gray-800 disabled:opacity-50 transition-colors flex items-center shadow-sm"
+                                                className="bg-brand-dark text-white px-4 py-2 rounded text-sm hover:bg-gray-800 disabled:opacity-50 transition-colors flex items-center"
                                             >
                                                 {isDrafting ? <Loader2 size={16} className="animate-spin"/> : <Zap size={16}/>}
                                             </button>
@@ -1265,13 +1295,7 @@ export const ClientManager: React.FC = () => {
                                                         {isGeneratingSubjects ? (
                                                             <Loader2 size={14} className="animate-spin text-gray-400"/>
                                                         ) : (
-                                                            <button 
-                                                                onClick={handleGenerateSubjects} 
-                                                                className="text-[10px] text-blue-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
-                                                                disabled={!emailDraftTopic}
-                                                            >
-                                                                Suggest Subjects
-                                                            </button>
+                                                            <button onClick={handleGenerateSubjects} className="text-[10px] text-blue-600 hover:underline">Suggest Subjects</button>
                                                         )}
                                                     </div>
                                                     <button onClick={() => {navigator.clipboard.writeText(currentDraft); showToast('Copied draft', 'info')}} className="text-gray-400 hover:text-brand-dark"><Copy size={14}/></button>

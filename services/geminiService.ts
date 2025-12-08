@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { Client, CommandIntent, EmailLog, MarketIndex, NewsItem, MarketingCampaign, VerificationResult } from "../types";
+import { loadFromStorage, saveToStorage, StorageKeys } from "./storageService";
 
 const SYSTEM_INSTRUCTION = `You are the "Premiere Private Banking Assistant", an elite AI designed for high-net-worth mortgage banking. 
 Your demeanor is sophisticated, precise, and anticipatory.
@@ -30,88 +31,280 @@ Your demeanor is sophisticated, precise, and anticipatory.
 3.  **High-Touch Communication**: Drafting white-glove emails.
 `;
 
-// Helper for defensive JSON parsing
-const parseJson = <T>(text: string, fallback: T): T => {
-  try {
-    if (!text) return fallback;
-    // Strip markdown code blocks if present
-    const match = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    const cleanText = match ? match[1] : text;
-    return JSON.parse(cleanText) as T;
-  } catch (e) {
-    console.error("JSON Parse Error:", e);
-    // Attempt to salvage if it's just a raw object wrapped in text
-    try {
-        const firstBrace = text.indexOf('{');
-        const lastBrace = text.lastIndexOf('}');
-        if (firstBrace !== -1 && lastBrace !== -1) {
-            const salvage = text.substring(firstBrace, lastBrace + 1);
-            return JSON.parse(salvage) as T;
+// --- Cache State ---
+const CACHE_TTL = 1000 * 60 * 15; // 15 minutes
+const marketDataCache: { timestamp: number; data: any } = loadFromStorage(StorageKeys.MARKET_DATA, { timestamp: 0, data: null });
+
+// Valuation Cache: Address -> { value, source, timestamp }
+const valuationCache: Record<string, { estimatedValue: number; source: string; timestamp: number }> = loadFromStorage(StorageKeys.VALUATIONS, {});
+
+// PERFORMANCE: Prune expired valuations immediately to free memory/storage
+const VALUATION_TTL = 1000 * 60 * 60 * 24 * 7; // 7 Days
+(() => {
+    const now = Date.now();
+    let dirty = false;
+    for (const key in valuationCache) {
+        if (now - valuationCache[key].timestamp > VALUATION_TTL) {
+            delete valuationCache[key];
+            dirty = true;
         }
-    } catch (e2) {
-        // ignore secondary failure
     }
-    return fallback;
+    if (dirty) saveToStorage(StorageKeys.VALUATIONS, valuationCache);
+})();
+
+// In-flight promise tracking
+let activeMarketPulsePromise: Promise<{ indices: MarketIndex[], news: NewsItem[], sources?: any[] }> | null = null;
+const activeValuationPromises = new Map<string, Promise<{ estimatedValue: number, source: string }>>();
+
+// --- Reliability Utilities ---
+
+// Standardized Error Codes
+export const AIErrorCodes = {
+  INVALID_API_KEY: 'INVALID_API_KEY',
+  PLAN_LIMIT_EXCEEDED: 'PLAN_LIMIT_EXCEEDED',
+  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
+  TIMEOUT: 'TIMEOUT',
+  UNEXPECTED_ERROR: 'UNEXPECTED_ERROR',
+  NETWORK_ERROR: 'NETWORK_ERROR',
+  SCHEMA_MISMATCH: 'SCHEMA_MISMATCH',
+} as const;
+
+export class AIError extends Error {
+  constructor(public code: string, message: string, public originalError?: any) {
+    super(message);
+    this.name = 'AIError';
   }
+}
+
+const normalizeError = (error: any): AIError => {
+  const msg = error.message?.toLowerCase() || '';
+  const status = error.status || 0;
+
+  // Auth / Permissions
+  if (msg.includes('api key') || status === 403 || msg.includes('403') || msg.includes('permission denied')) {
+    return new AIError(AIErrorCodes.INVALID_API_KEY, 'Invalid or expired API Key. Please check your billing settings.', error);
+  }
+
+  // Quotas / Limits
+  if (status === 429 || msg.includes('429') || msg.includes('quota') || msg.includes('limit')) {
+    return new AIError(AIErrorCodes.PLAN_LIMIT_EXCEEDED, 'AI Request limit exceeded. Please try again in a moment.', error);
+  }
+
+  // Availability
+  if (status === 503 || status === 500 || msg.includes('overloaded') || msg.includes('temporarily unavailable')) {
+    return new AIError(AIErrorCodes.SERVICE_UNAVAILABLE, 'AI Service is temporarily unavailable.', error);
+  }
+
+  // Network / Timeout
+  if (msg.includes('timeout') || error.name === 'TimeoutError') {
+      return new AIError(AIErrorCodes.TIMEOUT, 'The request timed out. Please check your connection.', error);
+  }
+  
+  if (msg.includes('fetch') || msg.includes('network') || msg.includes('failed to fetch') || msg.includes('connection') || error.name === 'TypeError') {
+     if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        return new AIError(AIErrorCodes.NETWORK_ERROR, 'You appear to be offline. Please check your internet connection.', error);
+     }
+    return new AIError(AIErrorCodes.NETWORK_ERROR, 'Unable to connect to AI service. Please check your internet or firewall.', error);
+  }
+
+  // Schema Mismatch
+  if (msg.includes('schema mismatch') || msg.includes('json') || msg.includes('parse') || msg.includes('syntax error') || msg.includes('unexpected token')) {
+      return new AIError(AIErrorCodes.SCHEMA_MISMATCH, 'Received malformed data from AI. Retrying...', error);
+  }
+
+  // Fallback
+  return new AIError(AIErrorCodes.UNEXPECTED_ERROR, 'An unexpected AI service error occurred.', error);
+};
+
+const getAiClient = () => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new AIError(AIErrorCodes.INVALID_API_KEY, "API Key is missing. Please connect a billing-enabled key.");
+  }
+  return new GoogleGenAI({ apiKey });
+};
+
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function withRetry<T>(operation: () => Promise<T>, retries = 5, baseDelay = 1000): Promise<T> {
+  let lastError: AIError | undefined;
+  
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await operation();
+    } catch (rawError: any) {
+      const normalized = normalizeError(rawError);
+      lastError = normalized;
+
+      // Fail Fast conditions:
+      // 1. Invalid API Key (Retrying won't fix it)
+      // 2. Client Errors (400-499) except 429 (Rate Limit)
+      if (normalized.code === AIErrorCodes.INVALID_API_KEY) throw normalized;
+      
+      const status = rawError.status;
+      if (status && status >= 400 && status < 500 && status !== 429) {
+          throw normalized;
+      }
+
+      // If we've exhausted retries, throw
+      if (i === retries - 1) {
+          if (normalized.code === AIErrorCodes.SCHEMA_MISMATCH) {
+              normalized.message = "The AI response could not be processed after multiple attempts. Please try again.";
+          } else if (normalized.code === AIErrorCodes.NETWORK_ERROR) {
+              normalized.message = normalized.message + " (Retries exhausted)";
+          }
+          break;
+      }
+      
+      // Exponential Backoff with Jitter
+      // Formula: base * 2^i + random_jitter
+      const exponential = baseDelay * Math.pow(2, i);
+      const jitter = Math.random() * 500; 
+      const delay = Math.min(exponential + jitter, 15000); // Cap at 15s
+
+      console.warn(`AI Attempt ${i + 1} failed (${normalized.code}). Retrying in ${Math.round(delay)}ms...`);
+      await wait(delay);
+    }
+  }
+  
+  throw lastError || new AIError(AIErrorCodes.UNEXPECTED_ERROR, 'Operation failed after retries.');
+}
+
+// Helper for defensive JSON parsing with stack balancing
+const parseJson = <T>(text: string, fallback: T): T => {
+  if (!text) return fallback;
+
+  // 1. FAST PATH: Try direct parse first (O(1) setup vs Regex O(N))
+  // This optimizes for the "Happy Path" where the model returns clean JSON.
+  try { return JSON.parse(text) as T; } catch (e) { /* continue */ }
+
+  // 2. Try extracting from markdown blocks
+  const match = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (match) {
+      try { return JSON.parse(match[1]) as T; } catch (e) { /* continue to other methods */ }
+  }
+    
+  // 3. Robust Stack-Based Extractor (Heavy, use as last resort)
+  try {
+        // Safety guard: Don't scan massive hallucinations which could freeze the main thread
+        if (text.length > 100000) throw new Error("Output too large for stack parser");
+
+        const firstCurly = text.indexOf('{');
+        const firstSquare = text.indexOf('[');
+        
+        let start = -1;
+        let mode: 'object' | 'array' | null = null;
+
+        // Determine starting point
+        if (firstCurly !== -1 && (firstSquare === -1 || firstCurly < firstSquare)) {
+            start = firstCurly;
+            mode = 'object';
+        } else if (firstSquare !== -1) {
+            start = firstSquare;
+            mode = 'array';
+        }
+
+        if (start !== -1 && mode) {
+            let balance = 0;
+            let inString = false;
+            let escape = false;
+            
+            for (let i = start; i < text.length; i++) {
+                const char = text[i];
+                
+                if (escape) {
+                    escape = false;
+                    continue;
+                }
+                
+                if (char === '\\') {
+                    escape = true;
+                    continue;
+                }
+                
+                if (char === '"') {
+                    inString = !inString;
+                    continue;
+                }
+                
+                if (!inString) {
+                    if (mode === 'object') {
+                        if (char === '{') balance++;
+                        if (char === '}') balance--;
+                    } else {
+                        if (char === '[') balance++;
+                        if (char === ']') balance--;
+                    }
+                    
+                    if (balance === 0) {
+                        // Found valid balanced end
+                        const candidate = text.substring(start, i + 1);
+                        return JSON.parse(candidate) as T;
+                    }
+                }
+            }
+        }
+  } catch (e3) {
+      console.warn("JSON Parse Exhausted", e3);
+  }
+    
+  return fallback;
 };
 
 // --- Text Generation & Chat ---
 
 export const generateClientSummary = async (client: Client) => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    
-    // Construct a context-rich prompt
-    const context = `
-      **Client Profile**:
-      - Name: ${client.name}
-      - Loan Amount: $${client.loanAmount.toLocaleString()}
-      - Status: ${client.status}
-      - Next Action Date: ${client.nextActionDate}
-      - Property Address: ${client.propertyAddress || 'Not listed'}
+  return withRetry(async () => {
+      const ai = getAiClient();
       
-      **Notes Log**:
-      ${client.notes || 'No notes available.'}
-      
-      **Pending Tasks**:
-      ${client.checklist.filter(i => !i.checked).map(i => `- ${i.label}`).join('\n') || 'No pending tasks.'}
-    `;
+      // Construct a context-rich prompt
+      const context = `
+        **Client Profile**:
+        - Name: ${client.name}
+        - Loan Amount: $${client.loanAmount.toLocaleString()}
+        - Status: ${client.status}
+        - Next Action Date: ${client.nextActionDate}
+        - Property Address: ${client.propertyAddress || 'Not listed'}
+        
+        **Notes Log**:
+        ${client.notes || 'No notes available.'}
+        
+        **Pending Tasks**:
+        ${client.checklist.filter(i => !i.checked).map(i => `- ${i.label}`).join('\n') || 'No pending tasks.'}
+      `;
 
-    const prompt = `
-      Act as a Chief of Staff for a Private Banker.
-      Review this client file and write a strategic **Executive Brief**.
-      
-      **Client Data**:
-      ${context}
-      
-      **Analysis Requirements**:
-      1. **Deal Velocity**: Is the deal moving or stalled? (Check dates vs status).
-      2. **Risk Radar**: Identify hidden risks in notes, missing items, or staleness.
-      3. **Next Best Action**: The single most high-impact move to close this deal.
+      const prompt = `
+        Act as a Chief of Staff for a Private Banker.
+        Review this client file and write a strategic **Executive Brief**.
+        
+        **Client Data**:
+        ${context}
+        
+        **Analysis Requirements**:
+        1. **Deal Velocity**: Is the deal moving or stalled? (Check dates vs status).
+        2. **Risk Radar**: Identify hidden risks in notes, missing items, or staleness.
+        3. **Next Best Action**: The single most high-impact move to close this deal.
 
-      **Format**:
-      - 3 concise bullet points.
-      - Use **bold** for key insights.
-      - Tone: "Wall Street Journal" style - terse, professional, high-value.
-    `;
+        **Format**:
+        - 3 concise bullet points.
+        - Use **bold** for key insights.
+        - Tone: "Wall Street Journal" style - terse, professional, high-value.
+      `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: prompt,
-      config: {
-        thinkingConfig: { thinkingBudget: 2048 } // Deep thinking for risk analysis
-      }
-    });
-    return response.text;
-  } catch (error) {
-    console.error("Error generating summary:", error);
-    throw new Error("Unable to generate summary.");
-  }
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: prompt,
+        config: {
+          thinkingConfig: { thinkingBudget: 2048 } // Deep thinking for risk analysis
+        }
+      });
+      return response.text;
+  });
 };
 
 export const generateEmailDraft = async (client: Client, topic: string, specificDetails: string) => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  return withRetry(async () => {
+    const ai = getAiClient();
     const prompt = `Draft a high-touch email for private banking client: ${client.name}.
     
     **Client Context**:
@@ -133,42 +326,42 @@ export const generateEmailDraft = async (client: Client, topic: string, specific
       }
     });
     return response.text;
-  } catch (error) {
-    console.error("Error generating email:", error);
-    throw new Error("Unable to draft email at this time.");
-  }
+  });
 };
 
 export const generateSubjectLines = async (client: Client, topic: string): Promise<string[]> => {
+  // Note: We handle error inside to return empty array for non-critical UI features
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const prompt = `Generate 3 high-performing email subject lines for a private banking client named ${client.name}.
-    
-    **Topic**: ${topic}
-    **Context**:
-    - Loan Amount: $${client.loanAmount.toLocaleString()}
-    - Status: ${client.status}
-    
-    **Requirements**:
-    - Professional yet compelling.
-    - High open rate potential.
-    - Concise.
-    
-    Return ONLY the 3 subject lines as a JSON array of strings.`;
+      return await withRetry(async () => {
+        const ai = getAiClient();
+        const prompt = `Generate 3 high-performing email subject lines for a private banking client named ${client.name}.
+        
+        **Topic**: ${topic}
+        **Context**:
+        - Loan Amount: $${client.loanAmount.toLocaleString()}
+        - Status: ${client.status}
+        
+        **Requirements**:
+        - Professional yet compelling.
+        - High open rate potential.
+        - Concise.
+        
+        Return ONLY the 3 subject lines as a JSON array of strings.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING }
+        const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+            }
         }
-      }
-    });
+        });
 
-    return parseJson<string[]>(response.text || "[]", []);
+        return parseJson<string[]>(response.text || "[]", []);
+      });
   } catch (error) {
     console.error("Error generating subject lines:", error);
     return [];
@@ -178,8 +371,8 @@ export const generateSubjectLines = async (client: Client, topic: string): Promi
 // --- Marketing Studio ---
 
 export const generateMarketingCampaign = async (topic: string, tone: string): Promise<MarketingCampaign> => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  return withRetry(async () => {
+    const ai = getAiClient();
     const prompt = `Act as a Luxury Mortgage Marketing Director. Create a cohesive 3-channel marketing campaign based on the following topic.
     
     **Topic**: ${topic}
@@ -223,16 +416,12 @@ export const generateMarketingCampaign = async (topic: string, tone: string): Pr
       emailBody: "",
       smsTeaser: ""
     });
-
-  } catch (error) {
-    console.error("Error generating campaign:", error);
-    throw error;
-  }
+  });
 };
 
 export const generateSocialImage = async (promptText: string): Promise<string> => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  return withRetry(async () => {
+    const ai = getAiClient();
     
     const refinedPrompt = `A high-end, photorealistic, luxury real estate or finance aesthetic image representing: ${promptText}. 
     Cinematic lighting, 8k resolution, professional photography style, architectural digest quality. No text overlay.`;
@@ -259,18 +448,14 @@ export const generateSocialImage = async (promptText: string): Promise<string> =
         return `data:image/png;base64,${part.inlineData.data}`;
       }
     }
-    throw new Error("No image generated");
-
-  } catch (error) {
-    console.error("Error generating image:", error);
-    throw error;
-  }
+    throw new AIError(AIErrorCodes.UNEXPECTED_ERROR, "No image generated by model.");
+  });
 };
 
 
 export const generateMarketingContent = async (channel: string, topic: string, tone: string, context?: string) => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  return withRetry(async () => {
+    const ai = getAiClient();
     const prompt = `Act as a Senior Marketing Director for a Luxury Mortgage Division.
     Create content for: ${channel}.
     Topic: ${topic}.
@@ -286,15 +471,12 @@ export const generateMarketingContent = async (channel: string, topic: string, t
         config: { systemInstruction: SYSTEM_INSTRUCTION }
     });
     return response.text;
-  } catch (error) {
-    console.error("Error generating marketing content:", error);
-    throw error;
-  }
+  });
 };
 
 export const analyzeCommunicationHistory = async (clientName: string, history: EmailLog[]) => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  return withRetry(async () => {
+    const ai = getAiClient();
     // Sort chronologically for analysis context to understand the arc
     const sortedHistory = [...history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const historyText = sortedHistory.map(h => `[${new Date(h.date).toLocaleDateString()}] ${h.subject}: ${h.body.substring(0, 200)}...`).join('\n');
@@ -315,18 +497,20 @@ export const analyzeCommunicationHistory = async (clientName: string, history: E
         config: { systemInstruction: SYSTEM_INSTRUCTION }
     });
     return response.text;
-  } catch (error) {
-    console.error("Error analyzing communication:", error);
-    throw error;
-  }
+  });
 }
 
 export const chatWithAssistant = async (history: Array<{role: string, parts: Array<{text: string}>}>, message: string) => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  return withRetry(async () => {
+    const ai = getAiClient();
+    
+    // PERFORMANCE: Truncate history to last 30 turns to maintain context window efficiency
+    // while preserving the most relevant recent conversation.
+    const optimizedHistory = history.length > 30 ? history.slice(history.length - 30) : history;
+
     const chat = ai.chats.create({
       model: 'gemini-3-pro-preview', // Upgraded to Gemini 3 Pro
-      history: history,
+      history: optimizedHistory,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
         tools: [{googleSearch: {}}] 
@@ -349,18 +533,14 @@ export const chatWithAssistant = async (history: Array<{role: string, parts: Arr
       searchEntryPoint: groundingMetadata?.searchEntryPoint?.renderedContent,
       searchQueries: groundingMetadata?.webSearchQueries
     };
-
-  } catch (error) {
-    console.error("Error in chat:", error);
-    throw error; // Re-throw so UI can handle specific error codes
-  }
+  });
 };
 
 // --- Thinking Mode (Gemini 3 Pro) ---
 
 export const analyzeLoanScenario = async (scenarioData: string) => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  return withRetry(async () => {
+    const ai = getAiClient();
     // Using Gemini 3 Pro with Thinking Budget for complex risk assessment
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
@@ -382,73 +562,111 @@ export const analyzeLoanScenario = async (scenarioData: string) => {
       }
     });
     return response.text;
-  } catch (error) {
-    console.error("Error in thinking analysis:", error);
-    throw error;
-  }
+  });
 }
 
 // --- Market Pulse & Deep Thinking ---
 
 export const fetchDailyMarketPulse = async (): Promise<{ indices: MarketIndex[], news: NewsItem[], sources?: any[] }> => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const today = new Date().toLocaleDateString();
-    
-    // We utilize Google Search to get REAL data
-    const prompt = `
-      Find current market data for today, ${today}.
-      
-      **STRICT SOURCE CONSTRAINT**: Use ONLY the following credible sources: Bloomberg, CNBC, Mortgage News Daily, Federal Reserve, WSJ, HousingWire.
-      Do not use unverified blogs.
-
-      1. 10-Year Treasury Yield (Value and daily change).
-      2. S&P 500 Index (Value and daily change).
-      3. Average 30-Year Fixed Mortgage Rate (Source: Mortgage News Daily or Freddie Mac).
-      4. Brent Crude Oil Price.
-
-      Also find 3 top news headlines from today or yesterday specifically impacting Mortgage Rates, Housing Inventory, or The Fed.
-
-      Output strictly valid JSON with this schema (no markdown, just the JSON):
-      {
-        "indices": [
-           { "label": "10-Yr Treasury", "value": "4.xx%", "change": "+0.xx", "isUp": true/false },
-           { "label": "S&P 500", "value": "5,xxx", "change": "-xx", "isUp": true/false },
-           ...
-        ],
-        "news": [
-           { "id": "1", "source": "Source", "date": "Today", "title": "Headline", "summary": "1 sentence summary", "category": "Rates" | "Economy" | "Housing" }
-        ]
+  const now = Date.now();
+  if (marketDataCache.data && (now - marketDataCache.timestamp < CACHE_TTL)) {
+      // Validate cached data structure before returning
+      // This prevents UI crashes if localStorage has stale/malformed schema
+      const cache = marketDataCache.data;
+      if (cache && Array.isArray(cache.indices) && Array.isArray(cache.news)) {
+          console.log("Serving Market Pulse from Cache");
+          return cache;
       }
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview', // Upgraded to Pro for better adherence to source constraints
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }]
-        // responseMimeType is not allowed when using the googleSearch tool
-      }
-    });
-
-    const data = parseJson(response.text || "{}", { indices: [], news: [] });
-    
-    // Extract grounding chunks required by policy when using Google Search
-    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-    const sources = groundingChunks
-      .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
-      .filter((link: any) => link !== null);
-
-    return { ...data, sources };
-  } catch (error) {
-    console.error("Error fetching daily pulse:", error);
-    throw error;
+      console.warn("Cached market data malformed, refetching.");
   }
+
+  // Deduplication: Return existing in-flight request if active
+  if (activeMarketPulsePromise) {
+      console.log("Joining active Market Pulse request");
+      return activeMarketPulsePromise;
+  }
+
+  // Start new request
+  activeMarketPulsePromise = withRetry(async () => {
+      try {
+        const ai = getAiClient();
+        const today = new Date().toLocaleDateString();
+        
+        // We utilize Google Search to get REAL data
+        const prompt = `
+          Find current market data for today, ${today}.
+          
+          **STRICT SOURCE CONSTRAINT**: Use ONLY the following credible sources: Bloomberg, CNBC, Mortgage News Daily, Federal Reserve, WSJ, HousingWire.
+          Do not use unverified blogs.
+
+          1. 10-Year Treasury Yield (Value and daily change).
+          2. S&P 500 Index (Value and daily change).
+          3. Average 30-Year Fixed Mortgage Rate (Source: Mortgage News Daily or Freddie Mac).
+          4. Brent Crude Oil Price.
+
+          Also find 3 top news headlines from today or yesterday specifically impacting Mortgage Rates, Housing Inventory, or The Fed.
+
+          Output strictly valid JSON with this schema (no markdown, just the JSON):
+          {
+            "indices": [
+               { "label": "10-Yr Treasury", "value": "4.xx%", "change": "+0.xx", "isUp": true/false },
+               { "label": "S&P 500", "value": "5,xxx", "change": "-xx", "isUp": true/false },
+               ...
+            ],
+            "news": [
+               { "id": "1", "source": "Source", "date": "Today", "title": "Headline", "summary": "1 sentence summary", "category": "Rates" | "Economy" | "Housing" }
+            ]
+          }
+        `;
+
+        const response = await ai.models.generateContent({
+          model: 'gemini-3-pro-preview', // Upgraded to Pro for better adherence to source constraints
+          contents: prompt,
+          config: {
+            tools: [{ googleSearch: {} }]
+            // responseMimeType is not allowed when using the googleSearch tool
+          }
+        });
+
+        const rawData = parseJson<any>(response.text || "{}", null);
+        
+        // Strict Schema Validation to ensure we have expected arrays
+        if (!rawData || !Array.isArray(rawData.indices) || !Array.isArray(rawData.news)) {
+             throw new Error("Schema mismatch: Expected 'indices' and 'news' arrays in Market Pulse response.");
+        }
+        
+        const safeData = {
+            indices: rawData.indices,
+            news: rawData.news
+        };
+        
+        // Extract grounding chunks required by policy when using Google Search
+        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+        const sources = groundingChunks
+          .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
+          .filter((link: any) => link !== null);
+
+        const result = { ...safeData, sources };
+
+        // Update Cache
+        marketDataCache.timestamp = Date.now();
+        marketDataCache.data = result;
+        
+        // Persist to storage to survive reloads
+        saveToStorage(StorageKeys.MARKET_DATA, marketDataCache);
+
+        return result;
+      } finally {
+          activeMarketPulsePromise = null; // Clear promise on completion
+      }
+  });
+
+  return activeMarketPulsePromise;
 };
 
 export const generateClientFriendlyAnalysis = async (marketData: any) => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  return withRetry(async () => {
+    const ai = getAiClient();
     
     const prompt = `
       You are a Mortgage Translator.
@@ -475,15 +693,12 @@ export const generateClientFriendlyAnalysis = async (marketData: any) => {
       }
     });
     return response.text;
-  } catch (error) {
-    console.error("Error generating client analysis:", error);
-    throw error;
-  }
+  });
 }
 
 export const generateBuyerSpecificAnalysis = async (marketData: any) => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  return withRetry(async () => {
+    const ai = getAiClient();
     
     const prompt = `
       You are a Mortgage Advisor analyzing today's market for a homebuyer.
@@ -510,15 +725,12 @@ export const generateBuyerSpecificAnalysis = async (marketData: any) => {
       }
     });
     return response.text;
-  } catch (error) {
-    console.error("Error generating buyer analysis:", error);
-    throw error;
-  }
+  });
 }
 
 export const analyzeRateTrends = async (rates: any) => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  return withRetry(async () => {
+    const ai = getAiClient();
     const prompt = `Analyze these daily par rates for a Morning Rate Sheet header:
     - 30-Yr Conforming: ${rates.conforming30}%
     - 30-Yr Jumbo: ${rates.jumbo30}%
@@ -533,15 +745,12 @@ export const analyzeRateTrends = async (rates: any) => {
         config: { systemInstruction: SYSTEM_INSTRUCTION }
     });
     return response.text;
-  } catch (error) {
-    console.error("Error analyzing rates", error);
-    throw error;
-  }
+  });
 }
 
 export const synthesizeMarketNews = async (newsItems: any[]) => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  return withRetry(async () => {
+    const ai = getAiClient();
     const headlines = newsItems.map(n => `- ${n.title}: ${n.summary}`).join('\n');
     const prompt = `Synthesize these headlines into a concise "Market Flash" paragraph for high-net-worth clients.
     Use **bold** for key impacts.
@@ -553,17 +762,14 @@ export const synthesizeMarketNews = async (newsItems: any[]) => {
         config: { systemInstruction: SYSTEM_INSTRUCTION }
     });
     return response.text;
-  } catch (error) {
-    console.error("Error synthesizing news", error);
-    throw error;
-  }
+  });
 }
 
 // --- Verification Service ---
 
 export const verifyFactualClaims = async (text: string): Promise<VerificationResult> => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  return withRetry(async () => {
+    const ai = getAiClient();
     const prompt = `
       Act as a strict Compliance & Data Auditor for a financial institution.
       
@@ -619,14 +825,7 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
       text: response.text || "Verification complete.",
       sources: sources
     };
-  } catch (error) {
-    console.error("Verification failed:", error);
-    return {
-        status: 'UNVERIFIABLE',
-        text: "System Error: Unable to verify claims at this time. Please manually check sources.",
-        sources: []
-    };
-  }
+  });
 };
 
 export const verifyCampaignContent = async (campaign: MarketingCampaign): Promise<VerificationResult> => {
@@ -642,45 +841,75 @@ export const verifyCampaignContent = async (campaign: MarketingCampaign): Promis
 // --- Property Valuation Service ---
 
 export const estimatePropertyDetails = async (address: string): Promise<{ estimatedValue: number, source: string }> => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const prompt = `
-      Search for the current estimated property value (Zestimate, Redfin Estimate, or similar) for the following address:
-      "${address}"
-
-      **Requirements**:
-      - Use Google Search to find the most recent listing or estimate from Zillow, Redfin, or Realtor.com.
-      - If an exact match isn't found, estimate based on recent sales in that specific neighborhood for similar luxury properties.
-      
-      **Output Format**:
-      Return strictly JSON:
-      {
-        "estimatedValue": number (e.g., 1250000),
-        "source": string (e.g., "Zillow Estimate")
-      }
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }]
-      }
-    });
-
-    const data = parseJson(response.text || "{}", { estimatedValue: 0, source: "Unknown" });
-    return data;
-  } catch (error) {
-    console.error("Error estimating property value:", error);
-    return { estimatedValue: 0, source: "Error" };
+  const normalizedAddress = address.trim().toLowerCase();
+  
+  // Check Cache (Valid for 7 days for valuations)
+  const cached = valuationCache[normalizedAddress];
+  const VALUATION_TTL = 1000 * 60 * 60 * 24 * 7; 
+  if (cached && (Date.now() - cached.timestamp < VALUATION_TTL)) {
+      console.log("Serving Valuation from Cache");
+      return { estimatedValue: cached.estimatedValue, source: cached.source };
   }
+
+  // Deduplication: Check in-flight requests
+  if (activeValuationPromises.has(normalizedAddress)) {
+      console.log("Joining active Valuation request");
+      return activeValuationPromises.get(normalizedAddress)!;
+  }
+
+  const promise = withRetry(async () => {
+    try {
+        const ai = getAiClient();
+        const prompt = `
+        Search for the current estimated property value (Zestimate, Redfin Estimate, or similar) for the following address:
+        "${address}"
+
+        **Requirements**:
+        - Use Google Search to find the most recent listing or estimate from Zillow, Redfin, or Realtor.com.
+        - If an exact match isn't found, estimate based on recent sales in that specific neighborhood for similar luxury properties.
+        
+        **Output Format**:
+        Return strictly JSON:
+        {
+            "estimatedValue": number (e.g., 1250000),
+            "source": string (e.g., "Zillow Estimate")
+        }
+        `;
+
+        const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: prompt,
+        config: {
+            tools: [{ googleSearch: {} }]
+        }
+        });
+
+        const data = parseJson(response.text || "{}", { estimatedValue: 0, source: "Unknown" });
+        
+        // Update Cache
+        if (data.estimatedValue > 0) {
+            valuationCache[normalizedAddress] = {
+                ...data,
+                timestamp: Date.now()
+            };
+            saveToStorage(StorageKeys.VALUATIONS, valuationCache);
+        }
+        
+        return data;
+    } finally {
+        activeValuationPromises.delete(normalizedAddress);
+    }
+  });
+
+  activeValuationPromises.set(normalizedAddress, promise);
+  return promise;
 };
 
 // --- Compensation Analysis ---
 
 export const analyzeIncomeProjection = async (clients: any[], currentCommission: number) => {
-    try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    return withRetry(async () => {
+        const ai = getAiClient();
         
         // Performance: Truncate list if too large
         const dealsToAnalyze = clients.slice(0, 25);
@@ -714,17 +943,14 @@ export const analyzeIncomeProjection = async (clients: any[], currentCommission:
             config: { systemInstruction: SYSTEM_INSTRUCTION }
         });
         return response.text;
-    } catch (error) {
-        console.error("Error analyzing compensation:", error);
-        throw error;
-    }
+    });
 };
 
 // --- Audio Services (Transcription & TTS) ---
 
 export const transcribeAudio = async (base64Audio: string, mimeType: string = 'audio/webm'): Promise<string> => {
-    try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    return withRetry(async () => {
+        const ai = getAiClient();
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: {
@@ -735,15 +961,12 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string = 'a
             }
         });
         return response.text || "";
-    } catch (error) {
-        console.error("Error transcribing audio:", error);
-        throw new Error("Audio transcription failed.");
-    }
+    });
 };
 
 export const generateSpeech = async (text: string): Promise<string> => {
-    try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    return withRetry(async () => {
+        const ai = getAiClient();
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
             contents: { parts: [{ text: text }] },
@@ -758,20 +981,17 @@ export const generateSpeech = async (text: string): Promise<string> => {
         });
         
         const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (!base64Audio) throw new Error("No audio generated");
+        if (!base64Audio) throw new AIError(AIErrorCodes.UNEXPECTED_ERROR, "No audio generated by model.");
         return base64Audio;
-    } catch (error) {
-        console.error("Error generating speech:", error);
-        throw error;
-    }
+    });
 };
 
 // --- Voice Command Parser ---
 export const parseNaturalLanguageCommand = async (transcript: string, validStatuses?: string[]): Promise<CommandIntent> => {
-  try {
+  return withRetry(async () => {
     const statusList = validStatuses ? validStatuses.join("', '") : "Lead', 'Pre-Approval', 'Underwriting', 'Clear to Close', 'Closed";
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = getAiClient();
     const prompt = `
       You are a command parser for a Mortgage CRM. Convert the user's natural language request into a specific JSON Action.
       
@@ -822,9 +1042,17 @@ export const parseNaturalLanguageCommand = async (transcript: string, validStatu
       }
     });
 
-    return parseJson<CommandIntent>(response.text || "{}", { action: 'UNKNOWN', payload: {} });
-  } catch (error) {
-    console.error("Error parsing command", error);
-    return { action: 'UNKNOWN', payload: {} };
-  }
+    const result = parseJson<CommandIntent | null>(response.text || "{}", null);
+    
+    // Strict schema check
+    if (!result || !result.action) {
+        throw new Error("Schema mismatch: Invalid command structure.");
+    }
+
+    if (!result.payload) {
+        result.payload = {};
+    }
+    
+    return result;
+  });
 };
