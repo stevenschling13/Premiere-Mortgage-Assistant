@@ -19,6 +19,18 @@ View your app in AI Studio: https://ai.studio/apps/drive/186_Uuec2HzFHN-DoXsysBS
 3. Run the app:
    `npm run dev`
 
+### Gemini CLI agent
+
+Run an advanced Gemini-powered CLI to draft analyses or playbooks from your terminal. It uses the same API key environment variables as the app (`GEMINI_API_KEY`, `VITE_API_KEY`, or `API_KEY`).
+
+```
+npm run ai:cli -- --prompt "Build a Monday morning prep plan" --session discovery --context ./notes/planner.md
+```
+
+- `--session <name>` persists your conversation thread to `.cli-sessions/<name>.json` so you can resume later; add `--reset` to clear it first.
+- `--context <path>` can be provided multiple times to mount read-only files as grounding context.
+- `--json` returns structured output (text, finish reason, and grounded links) for piping into other tools.
+
 ### Test on your local network
 
 The Vite dev server is configured to bind to all interfaces on port 5173 so you can reach it from other devices on the same network. Start it with the usual command (or explicitly pass `--host` if desired):
