@@ -1,5 +1,4 @@
-
-import { Client, DealStage, SalesScript, MortgageTerm } from './types';
+import { Client, DealStage, SalesScript, MortgageTerm, SimulationScenario } from './types';
 
 export const INITIAL_CLIENTS: Client[] = [
     {
@@ -138,4 +137,44 @@ export const MORTGAGE_TERMS: MortgageTerm[] = [
         definition: 'The difference between the 30-Year Mortgage rate and the 10-Year Treasury yield. This spread represents the risk premium investors demand for holding mortgages.',
         category: 'Market'
     }
+];
+
+export const SIMULATION_SCENARIOS: SimulationScenario[] = [
+    {
+        id: 'rate_shopper',
+        title: 'Competitive Rebuttal',
+        description: 'Client has a quote from a major bank (5.875%). Articulate the value proposition of your 6.00% offer beyond just rate.',
+        difficulty: 'VETERAN',
+        systemInstruction: `You are John, a skeptical client. You have a quote from Chase for 5.875% and the user is offering 6.00%. 
+        You are purely focused on monthly payment. 
+        Challenge the user on "why should I pay more?". Be blunt but professional.
+        If the user mentions "service", "speed", or "custom structure", act unimpressed unless they give a concrete example.`
+    },
+    {
+        id: 'nervous_first_timer',
+        title: 'Market Anxiety',
+        description: 'A tech employee buying their first $1.5M home. Address their concerns about a potential market correction.',
+        difficulty: 'ROOKIE',
+        systemInstruction: `You are Sarah, a nervous first-time buyer. You work at Google. 
+        You are worried that buying now is a mistake because "prices might drop". 
+        Ask for reassurance. Be emotional but receptive to logic.`
+    },
+    {
+        id: 'wealth_manager',
+        title: 'Partner Interview',
+        description: 'A Wealth Manager (CPA) is vetting your technical expertise on complex income structures before referring clients.',
+        difficulty: 'LEGEND',
+        systemInstruction: `You are Michael, a high-net-worth Wealth Manager. 
+        You are interviewing the user to see if they can handle your complex clients (RSUs, Trusts, LLCs).
+        Ask technical questions about "Asset Depletion" and "Cross-Collateralization". 
+        Be sophisticated and critical.`
+    }
+];
+
+export const SUGGESTED_PROMPTS = [
+  "What are today's 30-year Jumbo rates?",
+  "Latest 10-Year Treasury yield?",
+  "Scenario: $2.5M Purchase, 20% down, 760 FICO",
+  "Summarize Fed Chair Powell's recent comments",
+  "How is my commission tracking vs target?"
 ];

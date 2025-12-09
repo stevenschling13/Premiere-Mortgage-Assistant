@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { DollarSign, AlertCircle, CheckCircle2, TrendingUp, Calculator, Stethoscope, Loader2, RefreshCcw, Briefcase, Coins, X, Save, Upload, BookOpen } from 'lucide-react';
 import { loadFromStorage, saveToStorage, StorageKeys, solveDtiScenario } from '../services';
@@ -49,7 +48,17 @@ export const DtiAnalysis: React.FC = () => {
     // Guideline Checking
     const guidelines = AGENCY_GUIDELINES[selectedLoanType];
     const isOverStandard = backEndRatio > guidelines.standardDTI;
-    const isHardStop = backEndRatio > guidelines.maxDTI;
+    
+    // Determine effective max DTI based on AUS toggle or loan type logic
+    let effectiveMaxDti = guidelines.maxDTI;
+    // We check if it is FHA to handle manual underwrite logic or just check for manualDTI prop
+    if (selectedLoanType === 'FHA') {
+        // Just for display logic in this component, we use standard maxDTI unless manual override is relevant
+        // But for error calculation:
+        effectiveMaxDti = (guidelines as any).manualDTI || guidelines.maxDTI; 
+    }
+    
+    const isHardStop = backEndRatio > effectiveMaxDti;
 
     // Purchasing Power Calculation (Reverse DTI based on Selected Guideline Max)
     const maxAllowedBackEnd = totalMonthlyIncome * (guidelines.standardDTI / 100);
@@ -428,6 +437,7 @@ export const DtiAnalysis: React.FC = () => {
                         <div className="grid grid-cols-2 gap-y-2">
                             <div>Standard DTI: <span className="font-mono font-bold text-gray-800">{guidelines.standardDTI}%</span></div>
                             <div>Max DTI (AUS): <span className="font-mono font-bold text-gray-800">{guidelines.maxDTI}%</span></div>
+                            {'manualDTI' in guidelines && <div>Max DTI (Manual): <span className="font-mono font-bold text-gray-800">{(guidelines as any).manualDTI}%</span></div>}
                             <div>Max LTV: <span className="font-mono font-bold text-gray-800">{guidelines.maxLTV}%</span></div>
                             <div>Reserves: <span className="font-mono font-bold text-gray-800">{guidelines.reserves}</span></div>
                         </div>

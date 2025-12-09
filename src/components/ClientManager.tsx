@@ -58,10 +58,9 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
     const deferredSearchQuery = useDeferredValue(searchQuery);
     const [viewMode, setViewMode] = useState<'LIST' | 'BOARD'>('LIST');
     
-    // Handle external selection (e.g. from Command Palette)
+    // Handle external selection
     useEffect(() => {
         if (initialSelectedClient) {
-            // Ensure we select the latest version of the client from our state
             const freshClient = clients.find(c => c.id === initialSelectedClient.id) || initialSelectedClient;
             setSelectedClient(freshClient);
         }
