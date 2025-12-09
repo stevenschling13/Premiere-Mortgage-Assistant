@@ -176,13 +176,34 @@ export interface SavedClientView {
 }
 
 // Error Logging Types
+export type ErrorSeverity = 'info' | 'warning' | 'error';
+
+export interface ErrorContext {
+  componentStack?: string;
+  correlationId?: string;
+  sessionId?: string;
+  appVersion?: string;
+  tags?: string[];
+  userAction?: string;
+  extra?: Record<string, unknown>;
+}
+
+export interface ErrorBreadcrumb {
+  message: string;
+  timestamp: number;
+  context?: Partial<ErrorContext>;
+}
+
 export interface ErrorLog {
   id: string;
   timestamp: number;
   message: string;
   stack?: string;
-  type: 'ERROR' | 'API_FAIL' | 'USER_ACTION';
+  type: 'ERROR' | 'API_FAIL' | 'USER_ACTION' | 'DIAGNOSTIC';
+  severity: ErrorSeverity;
   metadata?: any;
+  context?: Partial<ErrorContext>;
+  breadcrumbs?: ErrorBreadcrumb[];
 }
 
 // Simulation Types
