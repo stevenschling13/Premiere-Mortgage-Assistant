@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect, useRef, useDeferredValue } from 'r
 import { 
     Users, Search, Plus, Filter, Edit2, Trash2, X, Sparkles, Loader2, 
     Settings, CheckSquare, Square, Check, Clock, Crown, Radar, XCircle, 
-    Briefcase, Headphones, Pause, Command, LayoutGrid, List
+    Briefcase, Headphones, Pause
 } from 'lucide-react';
 import { Client, ChecklistItem, DealStage, CommandIntent, SavedClientView, Opportunity } from '../types';
 import { 
@@ -16,7 +16,7 @@ import { MarkdownRenderer } from './MarkdownRenderer';
 import { ClientDetailView } from './ClientDetailView';
 import { INITIAL_CLIENTS, DEFAULT_DEAL_STAGES, COLOR_PALETTE } from '../constants';
 
-// Lead Scoring Logic
+// Lead Scoring Logic (Keep local for now, could be moved to service)
 const calculateLeadScore = (client: Client, stageWeight: number) => {
     let score = 0;
     score += Math.min(40, (client.loanAmount / 3000000) * 40);
@@ -33,12 +33,7 @@ const calculateLeadScore = (client: Client, stageWeight: number) => {
     return Math.min(100, Math.round(score));
 };
 
-interface ClientManagerProps {
-    initialSelectedClient?: Client | null;
-    onSelectionCleared?: () => void;
-}
-
-export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedClient, onSelectionCleared }) => {
+export const ClientManager: React.FC = () => {
     const { showToast } = useToast();
     
     // -- Data State --
@@ -53,19 +48,10 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
     });
 
     // -- UI State --
-    const [selectedClient, setSelectedClient] = useState<Client | null>(initialSelectedClient || null);
+    const [selectedClient, setSelectedClient] = useState<Client | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const deferredSearchQuery = useDeferredValue(searchQuery);
-    const [viewMode, setViewMode] = useState<'LIST' | 'BOARD'>('LIST');
     
-    // Handle external selection
-    useEffect(() => {
-        if (initialSelectedClient) {
-            const freshClient = clients.find(c => c.id === initialSelectedClient.id) || initialSelectedClient;
-            setSelectedClient(freshClient);
-        }
-    }, [initialSelectedClient, clients]);
-
     // -- Dashboard Widgets State --
     const todayStr = new Date().toISOString().split('T')[0];
     const memoKey = `morning_memo_${todayStr}`;
@@ -91,7 +77,11 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
 
     // -- Bulk Actions State --
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-    const [draggedClientId, setDraggedClientId] = useState<string | null>(null);
+    const [showBulkStatusModal, setShowBulkStatusModal] = useState(false);
+    const [showBulkTaskModal, setShowBulkTaskModal] = useState(false);
+    const [bulkTargetStatus, setBulkTargetStatus] = useState('');
+    const [bulkTaskLabel, setBulkTaskLabel] = useState('');
+    const [bulkTaskDate, setBulkTaskDate] = useState('');
 
     // -- Effects --
     useEffect(() => {
@@ -155,7 +145,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
     // -- Handlers --
 
     const handleSelectClient = (client: Client) => {
-        if (selectedIds.size > 0 && viewMode === 'LIST') {
+        if (selectedIds.size > 0) {
             toggleSelection(client.id);
             return;
         }
@@ -188,10 +178,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
     const handleDeleteClient = (id: string) => {
         if (confirm('Are you sure you want to delete this client?')) {
             setClients(prev => prev.filter(c => c.id !== id));
-            if (selectedClient?.id === id) {
-                setSelectedClient(null);
-                if (onSelectionCleared) onSelectionCleared();
-            }
+            if (selectedClient?.id === id) setSelectedClient(null);
             showToast('Client deleted', 'info');
         }
     };
@@ -268,47 +255,17 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
         }
     };
 
-    // --- Drag and Drop Handlers ---
-    const handleDragStart = (e: React.DragEvent, clientId: string) => {
-        setDraggedClientId(clientId);
-        e.dataTransfer.effectAllowed = 'move';
-        // Transparent drag image or default
-    };
-
-    const handleDragOver = (e: React.DragEvent) => {
-        e.preventDefault(); // Necessary to allow dropping
-        e.dataTransfer.dropEffect = 'move';
-    };
-
-    const handleDrop = (e: React.DragEvent, targetStageName: string) => {
-        e.preventDefault();
-        if (draggedClientId) {
-            const client = clients.find(c => c.id === draggedClientId);
-            if (client && client.status !== targetStageName) {
-                const updatedClient = { ...client, status: targetStageName };
-                handleUpdateClient(updatedClient);
-                showToast(`Moved to ${targetStageName}`, 'success');
-            }
-            setDraggedClientId(null);
-        }
-    };
-
     return (
         <div className="flex h-full bg-white relative">
             <audio ref={audioRef} onEnded={() => setIsPlayingAudio(false)} className="hidden" />
 
-            {/* Left Panel: List/Board */}
-            <div className={`flex-col border-r border-gray-200 w-full ${selectedClient ? 'hidden md:flex md:w-[400px]' : 'flex'} shrink-0 transition-all duration-300`}>
+            {/* Left Panel: List */}
+            <div className={`flex-col border-r border-gray-200 w-full md:w-[400px] shrink-0 transition-all duration-300 ${selectedClient ? 'hidden md:flex' : 'flex'}`}>
                 
                 {/* Dashboard Widget Header */}
                 <div className="flex flex-col bg-white sticky top-0 z-10 shadow-sm">
                     {/* Widget Content */}
-                    <div className="p-4 bg-brand-dark text-white safe-top relative">
-                        {/* Quick Command Hint */}
-                        <div className="absolute top-2 right-2 text-[10px] text-white/30 hidden md:flex items-center gap-1">
-                            <Command size={10} /> + K
-                        </div>
-
+                    <div className="p-4 bg-brand-dark text-white safe-top">
                         <div className="flex justify-between items-start">
                             <div>
                                 <h2 className="text-lg font-bold flex items-center gap-2"><Briefcase size={18} className="text-brand-gold" /> Dashboard</h2>
@@ -353,22 +310,18 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
                         )}
                     </div>
 
-                    {/* Filter Bar & View Toggle */}
+                    {/* Filter Bar */}
                     <div className="p-3 border-b border-gray-200 bg-gray-50 flex space-x-2">
                         <div className="relative flex-1">
                             <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
                             <input type="text" placeholder="Search..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-red outline-none" />
-                        </div>
-                        <div className="flex space-x-1 bg-gray-200 p-1 rounded-lg">
-                            <button onClick={() => setViewMode('LIST')} className={`p-1.5 rounded transition-all ${viewMode === 'LIST' ? 'bg-white shadow' : 'text-gray-500'}`} title="List View"><List size={16}/></button>
-                            <button onClick={() => setViewMode('BOARD')} className={`p-1.5 rounded transition-all ${viewMode === 'BOARD' ? 'bg-white shadow' : 'text-gray-500'}`} title="Board View"><LayoutGrid size={16}/></button>
                         </div>
                         <div className="flex space-x-1">
                             <button onClick={handleCreateClient} className="p-2 bg-brand-red text-white rounded-lg hover:bg-red-700 shadow-sm transition-colors"><Plus size={20} /></button>
                             <button onClick={() => setIsFilterOpen(!isFilterOpen)} className={`p-2 rounded-lg border transition-all ${isFilterOpen ? 'bg-brand-dark text-brand-gold border-brand-dark' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-100'}`}><Filter size={18} /></button>
                         </div>
                     </div>
-                    {/* Expandable Filter Panel */}
+                    {/* Expandable Filter Panel (Simplified for brevity) */}
                     {isFilterOpen && (
                         <div className="p-4 bg-gray-50 border-b border-gray-200 text-sm space-y-4 animate-fade-in relative z-20">
                             <div className="grid grid-cols-2 gap-3">
@@ -383,101 +336,43 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
                     )}
                 </div>
 
-                {/* Client List / Board */}
-                <div className="flex-1 overflow-y-auto bg-gray-50 h-full">
-                    {filteredClients.length === 0 ? <div className="p-8 text-center text-gray-500 text-sm">No clients found.</div> : (
-                        viewMode === 'LIST' ? (
-                            // List View
-                            <div>
-                                {filteredClients.map(client => {
-                                    const stageProgress = getStageProgress(client.status);
-                                    const leadScore = calculateLeadScore(client, stageProgress);
-                                    // Temperature visual
-                                    let tempColor = 'text-blue-400'; 
-                                    let tempIcon = <span className="text-blue-200">❄️</span>;
-                                    if (leadScore > 75) { tempColor = 'text-red-500'; tempIcon = <span className="text-red-500 animate-pulse">🔥</span>; }
-                                    else if (leadScore > 40) { tempColor = 'text-orange-400'; tempIcon = <span className="text-orange-400">🌤️</span>; }
+                {/* Client List */}
+                <div className="flex-1 overflow-y-auto bg-gray-50">
+                    {filteredClients.length === 0 ? <div className="p-8 text-center text-gray-500 text-sm">No clients found.</div> : filteredClients.map(client => {
+                        const stageProgress = getStageProgress(client.status);
+                        const leadScore = calculateLeadScore(client, stageProgress);
+                        // Temperature visual
+                        let tempColor = 'text-blue-400'; 
+                        let tempIcon = <span className="text-blue-200">❄️</span>;
+                        if (leadScore > 75) { tempColor = 'text-red-500'; tempIcon = <span className="text-red-500 animate-pulse">🔥</span>; }
+                        else if (leadScore > 40) { tempColor = 'text-orange-400'; tempIcon = <span className="text-orange-400">🌤️</span>; }
 
-                                    return (
-                                        <div key={client.id} role="button" tabIndex={0} onClick={() => handleSelectClient(client)} className={`relative bg-white border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-all group ${selectedClient?.id === client.id ? 'bg-red-50/50 border-l-4 border-l-brand-red' : 'border-l-4 border-l-transparent'}`}>
-                                            <div className="p-4 pb-6">
-                                                <div className="flex justify-between items-start mb-2">
-                                                    <div className="flex items-center gap-2">
-                                                        <h3 className={`font-bold text-sm ${selectedClient?.id === client.id ? 'text-brand-red' : 'text-gray-800'}`}>{client.name}</h3>
-                                                        {client.loanAmount > 2500000 && <Crown size={12} className="text-brand-gold fill-brand-gold" />}
-                                                        <div className="flex items-center text-[10px] bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200" title={`Opportunity Score: ${leadScore}/100`}>
-                                                            {tempIcon} <span className={`ml-1 font-bold ${tempColor}`}>{leadScore}</span>
-                                                        </div>
-                                                    </div>
-                                                    <span className="text-[10px] text-gray-400">{new Date(client.nextActionDate).toLocaleDateString(undefined, {month:'numeric', day:'numeric'})}</span>
-                                                </div>
-                                                <div className="flex justify-between items-end">
-                                                    <div className="flex items-center gap-2 text-xs text-gray-600 mb-1 font-medium">
-                                                        <span>${(client.loanAmount/1000000).toFixed(2)}M</span><span className="w-1 h-1 bg-gray-300 rounded-full"></span><span style={{color: getStageColor(client.status)}}>{client.status}</span>
-                                                    </div>
-                                                    <button onClick={(e) => toggleSelection(client.id, e)} className="p-2 -mr-2 cursor-pointer z-10 hover:bg-black/5 rounded-full text-gray-300 hover:text-brand-dark transition-colors">
-                                                        {selectedIds.has(client.id) ? <CheckSquare size={18} className="text-brand-red" /> : <Square size={18} />}
-                                                    </button>
-                                                </div>
+                        return (
+                            <div key={client.id} role="button" tabIndex={0} onClick={() => handleSelectClient(client)} className={`relative bg-white border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-all group ${selectedClient?.id === client.id ? 'bg-red-50/50 border-l-4 border-l-brand-red' : 'border-l-4 border-l-transparent'}`}>
+                                <div className="p-4 pb-6">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div className="flex items-center gap-2">
+                                            <h3 className={`font-bold text-sm ${selectedClient?.id === client.id ? 'text-brand-red' : 'text-gray-800'}`}>{client.name}</h3>
+                                            {client.loanAmount > 2500000 && <Crown size={12} className="text-brand-gold fill-brand-gold" />}
+                                            <div className="flex items-center text-[10px] bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200" title={`Opportunity Score: ${leadScore}/100`}>
+                                                {tempIcon} <span className={`ml-1 font-bold ${tempColor}`}>{leadScore}</span>
                                             </div>
-                                            <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-100"><div className="h-full bg-gradient-to-r from-brand-dark to-brand-red transition-all duration-500 opacity-80" style={{ width: `${stageProgress}%` }}/></div>
                                         </div>
-                                    );
-                                })}
-                            </div>
-                        ) : (
-                            // Kanban Board View
-                            <div className="flex h-full overflow-x-auto p-4 space-x-4">
-                                {dealStages.map(stage => (
-                                    <div 
-                                        key={stage.name} 
-                                        className="w-64 flex-shrink-0 flex flex-col bg-gray-100/50 rounded-xl"
-                                        onDragOver={handleDragOver}
-                                        onDrop={(e) => handleDrop(e, stage.name)}
-                                    >
-                                        <div className="p-3 font-bold text-xs text-gray-500 uppercase flex justify-between items-center sticky top-0 bg-gray-100/50 backdrop-blur-sm rounded-t-xl z-10">
-                                            <div className="flex items-center">
-                                                <div className="w-2 h-2 rounded-full mr-2" style={{backgroundColor: stage.color}}></div>
-                                                {stage.name}
-                                            </div>
-                                            <span className="bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded text-[10px]">
-                                                {filteredClients.filter(c => c.status === stage.name).length}
-                                            </span>
-                                        </div>
-                                        <div className="flex-1 overflow-y-auto p-2 space-y-2">
-                                            {filteredClients.filter(c => c.status === stage.name).map(client => {
-                                                const leadScore = calculateLeadScore(client, getStageProgress(client.status));
-                                                return (
-                                                    <div 
-                                                        key={client.id}
-                                                        draggable
-                                                        onDragStart={(e) => handleDragStart(e, client.id)}
-                                                        onClick={() => handleSelectClient(client)}
-                                                        className={`bg-white p-3 rounded-lg border border-gray-200 shadow-sm cursor-grab active:cursor-grabbing hover:shadow-md transition-all ${
-                                                            selectedClient?.id === client.id ? 'ring-2 ring-brand-red border-transparent' : ''
-                                                        }`}
-                                                    >
-                                                        <div className="flex justify-between items-start mb-2">
-                                                            <h4 className="font-bold text-sm text-gray-800 truncate">{client.name}</h4>
-                                                            {leadScore > 75 && <span className="text-[10px] animate-pulse">🔥</span>}
-                                                        </div>
-                                                        <div className="flex justify-between items-end">
-                                                            <div className="text-xs font-mono text-gray-600 font-bold bg-gray-50 px-1.5 py-0.5 rounded">
-                                                                ${(client.loanAmount/1000).toFixed(0)}k
-                                                            </div>
-                                                            <div className={`text-[10px] ${new Date(client.nextActionDate) <= new Date() ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
-                                                                {new Date(client.nextActionDate).toLocaleDateString(undefined, {month:'numeric', day:'numeric'})}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
+                                        <span className="text-[10px] text-gray-400">{new Date(client.nextActionDate).toLocaleDateString(undefined, {month:'numeric', day:'numeric'})}</span>
                                     </div>
-                                ))}
+                                    <div className="flex justify-between items-end">
+                                        <div className="flex items-center gap-2 text-xs text-gray-600 mb-1 font-medium">
+                                            <span>${(client.loanAmount/1000000).toFixed(2)}M</span><span className="w-1 h-1 bg-gray-300 rounded-full"></span><span style={{color: getStageColor(client.status)}}>{client.status}</span>
+                                        </div>
+                                        <button onClick={(e) => toggleSelection(client.id, e)} className="p-2 -mr-2 cursor-pointer z-10 hover:bg-black/5 rounded-full text-gray-300 hover:text-brand-dark transition-colors">
+                                            {selectedIds.has(client.id) ? <CheckSquare size={18} className="text-brand-red" /> : <Square size={18} />}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-100"><div className="h-full bg-gradient-to-r from-brand-dark to-brand-red transition-all duration-500 opacity-80" style={{ width: `${stageProgress}%` }}/></div>
                             </div>
-                        )
-                    )}
+                        );
+                    })}
                 </div>
             </div>
 
@@ -489,18 +384,12 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
                         dealStages={dealStages}
                         onUpdate={handleUpdateClient}
                         onDelete={handleDeleteClient}
-                        onClose={() => {
-                            setSelectedClient(null);
-                            if (onSelectionCleared) onSelectionCleared();
-                        }}
+                        onClose={() => setSelectedClient(null)}
                     />
                 ) : (
                     <div className="hidden md:flex flex-col items-center justify-center h-full text-gray-400 bg-gray-50/50">
                         <div className="bg-gray-100 p-6 rounded-full mb-4"><Users size={48} className="text-gray-300"/></div>
                         <p className="text-lg font-medium text-gray-500">Select a client to view details</p>
-                        <p className="text-xs text-gray-400 mt-2 flex items-center">
-                            Press <kbd className="mx-1 px-1 bg-gray-200 rounded border border-gray-300 font-mono text-[10px]">Cmd</kbd> + <kbd className="mx-1 px-1 bg-gray-200 rounded border border-gray-300 font-mono text-[10px]">K</kbd> to search
-                        </p>
                     </div>
                 )}
             </div>
@@ -517,7 +406,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
             )}
 
             {/* Bulk Action Modals */}
-            {selectedIds.size > 0 && viewMode === 'LIST' && (
+            {selectedIds.size > 0 && (
                 <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-brand-dark text-white px-6 py-3 rounded-full shadow-2xl flex items-center space-x-4 animate-slide-up">
                     <span className="font-bold text-sm">{selectedIds.size} Selected</span>
                     <div className="h-4 w-px bg-white/20"></div>

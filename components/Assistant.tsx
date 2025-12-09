@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User as UserIcon, Loader2, Link as LinkIcon, ExternalLink, Mic, MicOff, Trash2, Search, ShieldCheck, AlertTriangle, Swords, XCircle, PlayCircle, Trophy, Beaker, X } from 'lucide-react';
+import { Send, Bot, User as UserIcon, Loader2, Link as LinkIcon, ExternalLink, Mic, MicOff, Trash2, Search, ShieldCheck, AlertTriangle, Swords, XCircle, PlayCircle, Trophy, Beaker } from 'lucide-react';
 import { ChatMessage, SimulationScenario } from '../types';
 import { chatWithAssistant, verifyFactualClaims, loadFromStorage, saveToStorage, StorageKeys } from '../services';
 import { SIMULATION_SCENARIOS, SUGGESTED_PROMPTS } from '../constants';
@@ -26,11 +26,7 @@ const base64ToUint8Array = (base64: string) => {
   return bytes;
 };
 
-interface AssistantProps {
-    onClose?: () => void;
-}
-
-export const Assistant: React.FC<AssistantProps> = ({ onClose }) => {
+export const Assistant: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     const saved = loadFromStorage<any[]>(StorageKeys.CHAT_HISTORY, []);
     if (Array.isArray(saved) && saved.length > 0) {
@@ -110,10 +106,6 @@ export const Assistant: React.FC<AssistantProps> = ({ onClose }) => {
           setMessages(resetMsg);
           saveToStorage(StorageKeys.CHAT_HISTORY, resetMsg);
       }
-  };
-
-  const deleteMessage = (id: string) => {
-      setMessages(prev => prev.filter(m => m.id !== id));
   };
 
   const startSimulation = (scenario: SimulationScenario) => {
@@ -376,8 +368,7 @@ export const Assistant: React.FC<AssistantProps> = ({ onClose }) => {
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
           },
-          systemInstruction: instruction,
-          tools: [{ googleSearch: {} }]
+          systemInstruction: instruction
         }
       });
       
@@ -442,11 +433,7 @@ export const Assistant: React.FC<AssistantProps> = ({ onClose }) => {
   };
 
   return (
-    <div className={`flex flex-col bg-white overflow-hidden w-full animate-fade-in ${
-        onClose 
-        ? 'h-full border-l border-gray-200 shadow-xl' 
-        : 'h-[calc(100dvh-64px)] md:h-[calc(100dvh-32px)] md:rounded-xl shadow-sm border-t md:border border-gray-200 mx-auto max-w-5xl md:my-4'
-    }`}>
+    <div className="h-[calc(100dvh-64px)] md:h-[calc(100dvh-32px)] flex flex-col bg-white md:rounded-xl shadow-sm border-t md:border border-gray-200 overflow-hidden mx-auto max-w-5xl md:my-4 relative w-full animate-fade-in">
       
       {/* Header */}
       <div className={`p-3 md:p-4 flex items-center justify-between z-20 relative shrink-0 safe-top transition-colors ${
@@ -471,7 +458,7 @@ export const Assistant: React.FC<AssistantProps> = ({ onClose }) => {
         </div>
         
         <div className="flex items-center space-x-2">
-            {!isSimulationMode && !onClose && (
+            {!isSimulationMode && (
                 <button 
                     onClick={() => setIsSimulationMode(true)}
                     className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/10 transition-all text-xs"
@@ -500,28 +487,17 @@ export const Assistant: React.FC<AssistantProps> = ({ onClose }) => {
             )}
             <button 
                 onClick={toggleLiveMode}
-                className={`flex items-center justify-center w-8 h-8 md:w-auto md:h-auto md:px-3 md:py-1.5 rounded-full transition-all border ${
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-full transition-all border ${
                     isLiveMode 
                     ? 'bg-red-500/20 text-red-200 border-red-500/50 hover:bg-red-500/30' 
                     : isSimulationMode 
                         ? 'bg-indigo-500 text-white border-indigo-600 hover:bg-indigo-600'
                         : 'bg-brand-gold text-brand-dark border-brand-gold hover:bg-yellow-500'
                 }`}
-                title="Voice Mode"
             >
                 {isLiveMode ? <MicOff size={16}/> : <Mic size={16}/>}
-                <span className="hidden md:inline ml-2 text-xs md:text-sm font-medium">{isLiveMode ? 'End' : 'Voice'}</span>
+                <span className="text-xs md:text-sm font-medium">{isLiveMode ? 'End Session' : 'Voice Mode'}</span>
             </button>
-            
-            {onClose && (
-                <button 
-                    onClick={onClose} 
-                    className="p-2 hover:bg-white/10 rounded-full text-gray-300 hover:text-white transition-colors ml-2 border border-transparent hover:border-white/10"
-                    title="Close Assistant"
-                >
-                    <X size={20} />
-                </button>
-            )}
         </div>
       </div>
 
@@ -531,7 +507,7 @@ export const Assistant: React.FC<AssistantProps> = ({ onClose }) => {
               <h2 className="text-2xl font-bold text-gray-800 mb-2">Select Simulation</h2>
               <p className="text-gray-500 mb-6">Choose a conversation scenario to practice.</p>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {SIMULATION_SCENARIOS.map(scenario => (
                       <div 
                         key={scenario.id}
@@ -605,7 +581,7 @@ export const Assistant: React.FC<AssistantProps> = ({ onClose }) => {
         {(isSimulationMode ? simulationMessages : messages).map((msg) => (
           <div
             key={msg.id}
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} group`}
+            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'} items-start gap-2 md:gap-3`}>
               
@@ -732,20 +708,9 @@ export const Assistant: React.FC<AssistantProps> = ({ onClose }) => {
                       </div>
                     )}
                 </div>
-                <div className="flex items-center gap-2 mt-1">
-                    <span className="text-[10px] text-gray-400 px-1">
-                        {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    {!isSimulationMode && (
-                        <button 
-                            onClick={() => deleteMessage(msg.id)}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-gray-300 hover:text-red-400"
-                            title="Delete Message"
-                        >
-                            <Trash2 size={12} />
-                        </button>
-                    )}
-                </div>
+                <span className="text-[10px] text-gray-400 mt-1 px-1">
+                    {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
               </div>
             </div>
           </div>
