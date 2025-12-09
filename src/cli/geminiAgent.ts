@@ -10,8 +10,44 @@ const SESSION_DIR = ".cli-sessions";
 const DEFAULT_SYSTEM = `You are the Premiere Private Banking Assistant CLI agent. Be concise, numerate, and explicit about risk.
 Always provide actionable next steps and cite any assumptions you are making.`;
 
+type GroundedLink = { title: string; uri: string };
+
 type Role = "user" | "model";
 type ChatHistory = Array<{ role: Role; parts: Array<{ text: string }> }>;
+type ChatResult = {
+  text: string;
+  links: GroundedLink[];
+  finishReason?: string;
+  safetyRatings?: unknown;
+};
+
+type ContextAttachment = { label: string; text: string };
+
+const sanitizeSessionName = (name: string) => {
+  const normalized = name.trim().replace(/[^a-zA-Z0-9-_]/g, "-").replace(/-{2,}/g, "-");
+  const trimmed = normalized.replace(/^-+/, "").replace(/-+$/, "");
+
+  if (!trimmed) {
+    throw new Error("Session name must include at least one letter or number.");
+  }
+
+  return trimmed.slice(0, 64);
+};
+
+const requireValue = (flag: string, value: string | undefined) => {
+  if (value === undefined) {
+    throw new Error(`${flag} requires a value.`);
+  }
+  return value;
+};
+
+const parseNumber = (flag: string, raw: string | undefined) => {
+  const value = Number(requireValue(flag, raw));
+  if (Number.isNaN(value)) {
+    throw new Error(`${flag} must be a number.`);
+  }
+  return value;
+};
 
 type CliOptions = {
   prompt: string;
@@ -72,16 +108,20 @@ const resolveApiKey = () => {
   return key;
 };
 
-const readContexts = (paths: string[]) => {
-  return paths
-    .map((contextPath) => {
-      const absolutePath = path.resolve(process.cwd(), contextPath);
-      if (!fs.existsSync(absolutePath)) {
-        throw new Error(`Context file not found: ${contextPath}`);
-      }
-      return fs.readFileSync(absolutePath, "utf8");
-    })
-    .filter(Boolean);
+const readContexts = (paths: string[]): ContextAttachment[] => {
+  return paths.map((contextPath) => {
+    const absolutePath = path.resolve(process.cwd(), contextPath);
+    const stats = fs.existsSync(absolutePath) ? fs.statSync(absolutePath) : undefined;
+
+    if (!stats || !stats.isFile()) {
+      throw new Error(`Context file not found: ${contextPath}`);
+    }
+
+    return {
+      label: path.basename(absolutePath),
+      text: fs.readFileSync(absolutePath, "utf8"),
+    };
+  });
 };
 
 class GeminiCliAgent {
@@ -98,9 +138,11 @@ class GeminiCliAgent {
     this.apiKey = resolveApiKey();
   }
 
-  private buildMessage(contexts: string[]): string {
+  private buildMessage(contexts: ContextAttachment[]): string {
     const contextBlock = contexts.length
-      ? `\n\n# Context (read-only)\n${contexts.map((ctx, idx) => `Context ${idx + 1}:\n${ctx}`).join("\n\n")}`
+      ? `\n\n# Context (read-only)\n${contexts
+          .map((ctx, idx) => `Context ${idx + 1} (${ctx.label}):\n${ctx.text}`)
+          .join("\n\n")}`
       : "";
     return `${this.options.prompt}${contextBlock}`;
   }
@@ -110,7 +152,7 @@ class GeminiCliAgent {
     this.store.save(this.history);
   }
 
-  async run() {
+  async run(): Promise<ChatResult> {
     const contexts = readContexts(this.options.contextPaths);
     const payload = this.buildMessage(contexts);
 
@@ -133,7 +175,7 @@ class GeminiCliAgent {
     const groundingMetadata = candidate?.groundingMetadata;
     const links = (groundingMetadata?.groundingChunks || [])
       .map((chunk: any) => (chunk.web ? { title: chunk.web.title, uri: chunk.web.uri } : null))
-      .filter((link): link is { title: string; uri: string } => Boolean(link));
+      .filter((link): link is GroundedLink => Boolean(link));
 
     this.appendToHistory("model", text);
 
@@ -164,29 +206,29 @@ const parseArgs = (): CliOptions => {
     switch (arg) {
       case "--prompt":
       case "-p":
-        options.prompt = args[++i] ?? "";
+        options.prompt = requireValue(arg, args[++i]);
         break;
       case "--context":
       case "-c":
-        options.contextPaths.push(args[++i]);
+        options.contextPaths.push(requireValue(arg, args[++i]));
         break;
       case "--session":
       case "-s":
-        options.session = args[++i];
+        options.session = sanitizeSessionName(requireValue(arg, args[++i]));
         break;
       case "--reset":
         options.resetSession = true;
         break;
       case "--model":
       case "-m":
-        options.model = args[++i] ?? DEFAULT_MODEL;
+        options.model = requireValue(arg, args[++i]);
         break;
       case "--temp":
       case "-t":
-        options.temperature = Number(args[++i]);
+        options.temperature = parseNumber(arg, args[++i]);
         break;
       case "--system":
-        options.systemInstruction = args[++i];
+        options.systemInstruction = requireValue(arg, args[++i]);
         break;
       case "--json":
         options.json = true;
@@ -195,8 +237,9 @@ const parseArgs = (): CliOptions => {
       case "-h":
         printHelp();
         process.exit(0);
-      default:
         break;
+      default:
+        throw new Error(`Unknown argument: ${arg}`);
     }
   }
 
@@ -204,7 +247,9 @@ const parseArgs = (): CliOptions => {
     options.prompt = fs.readFileSync(0, "utf8");
   }
 
-  if (!options.prompt.trim()) {
+  options.prompt = options.prompt.trim();
+
+  if (!options.prompt) {
     throw new Error("Prompt is required. Use --prompt or pipe text to the CLI.");
   }
 
