@@ -18,6 +18,7 @@ export const StorageKeys = {
   MANUAL_DEALS: `${STORAGE_PREFIX}manual_deals`,
   SAVED_VIEWS: `${STORAGE_PREFIX}saved_views`,
   MARKET_DATA: `${STORAGE_PREFIX}market_data`,
+  CALENDAR_EVENTS: `${STORAGE_PREFIX}calendar_events`,
   VALUATIONS: `${STORAGE_PREFIX}valuations`,
 };
 

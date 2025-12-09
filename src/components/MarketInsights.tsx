@@ -128,9 +128,9 @@ export const MarketingStudio: React.FC = () => {
           const context = { indices, news: newsFeed.slice(0, 3) };
           let analysis = '';
           if (mode === 'GENERAL') {
-              analysis = await generateClientFriendlyAnalysis(context);
+              analysis = await generateClientFriendlyAnalysis(context) ?? '';
           } else {
-              analysis = await generateBuyerSpecificAnalysis(context);
+              analysis = await generateBuyerSpecificAnalysis(context) ?? '';
           }
           setClientAnalysis(analysis || "Analysis unavailable.");
       } catch (error) {

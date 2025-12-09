@@ -1,7 +1,10 @@
-import './polyfill';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import './index.css';
+import { installGlobalErrorHandlers } from './services/runtimeMonitoring';
+
+installGlobalErrorHandlers({ appVersion: import.meta.env.VITE_APP_VERSION });
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

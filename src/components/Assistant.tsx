@@ -195,9 +195,9 @@ export const Assistant: React.FC<AssistantProps> = ({ onClose }) => {
       const aiMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        text: response.text,
+        text: response.text ?? '',
         timestamp: new Date(),
-        groundingLinks: response.links,
+        groundingLinks: response.links?.filter((link): link is { uri: string; title: string } => Boolean(link?.uri && link?.title)),
         searchEntryPoint: response.searchEntryPoint,
         searchQueries: response.searchQueries
       };
@@ -283,7 +283,12 @@ export const Assistant: React.FC<AssistantProps> = ({ onClose }) => {
 
       mediaStreamRef.current = stream;
 
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const apiKey = import.meta.env.VITE_API_KEY || (globalThis as any)?.process?.env?.API_KEY;
+      if (!apiKey) {
+          throw new Error('API Key is missing. Please configure VITE_API_KEY.');
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
       
       // Select Instruction based on mode
       const instruction = isSimulationMode && selectedScenario

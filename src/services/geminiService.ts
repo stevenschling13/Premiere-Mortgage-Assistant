@@ -1,4 +1,5 @@
 import { GoogleGenAI, Type, Modality, FunctionDeclaration } from "@google/genai";
+import { z } from "zod";
 import { Client, CommandIntent, EmailLog, MarketIndex, NewsItem, MarketingCampaign, VerificationResult, Opportunity, DealStrategy, GiftSuggestion, CalendarEvent, SalesScript } from "../types";
 import { loadFromStorage, saveToStorage, StorageKeys } from "./storageService";
 import { errorService } from "./errorService";
@@ -88,11 +89,22 @@ export class AIError extends Error {
   }
 }
 
-const normalizeError = (error: any): AIError => {
+const isStatusError = (error: unknown): error is { status?: number; message?: string } => {
+  return typeof error === 'object' && error !== null && 'status' in error;
+};
+
+const normalizeError = (error: unknown): AIError => {
   if (error instanceof AIError) return error;
 
-  const msg = error.message?.toLowerCase() || '';
-  const status = error.status || 0;
+  const message = typeof (error as { message?: string } | undefined)?.message === 'string'
+    ? (error as { message: string }).message
+    : '';
+  const name = typeof (error as { name?: string } | undefined)?.name === 'string'
+    ? (error as { name: string }).name
+    : '';
+
+  const msg = message.toLowerCase();
+  const status = isStatusError(error) ? error.status || 0 : 0;
 
   if (msg.includes('api key') || status === 403 || msg.includes('403') || msg.includes('permission denied')) {
     return new AIError(AIErrorCodes.INVALID_API_KEY, 'Invalid or expired API Key. Please check your billing settings.', error);
@@ -106,11 +118,11 @@ const normalizeError = (error: any): AIError => {
     return new AIError(AIErrorCodes.SERVICE_UNAVAILABLE, 'AI Service is temporarily unavailable.', error);
   }
 
-  if (msg.includes('timeout') || error.name === 'TimeoutError') {
+  if (msg.includes('timeout') || name === 'TimeoutError') {
       return new AIError(AIErrorCodes.TIMEOUT, 'The request timed out. Please check your connection.', error);
   }
-  
-  if (msg.includes('fetch') || msg.includes('network') || msg.includes('failed to fetch') || msg.includes('connection') || error.name === 'TypeError') {
+
+  if (msg.includes('fetch') || msg.includes('network') || msg.includes('failed to fetch') || msg.includes('connection') || name === 'TypeError') {
      if (typeof navigator !== 'undefined' && !navigator.onLine) {
         return new AIError(AIErrorCodes.NETWORK_ERROR, 'You appear to be offline. Please check your internet connection.', error);
      }
@@ -125,9 +137,8 @@ const normalizeError = (error: any): AIError => {
 };
 
 const getAiClient = () => {
-  const env = (typeof process !== 'undefined' && process.env) ? process.env : {};
-  const apiKey = env.API_KEY;
-  
+  const apiKey = import.meta.env.VITE_API_KEY;
+
   if (!apiKey || apiKey.trim() === '') {
     throw new AIError(AIErrorCodes.INVALID_API_KEY, "API Key is missing. Please connect a billing-enabled key.");
   }
@@ -206,6 +217,42 @@ const parseJson = <T>(text: string, fallback: T): T => {
       try { return JSON.parse(match[1]) as T; } catch (e) { /* continue */ }
   }
   return fallback;
+};
+
+const marketingCampaignSchema = z.object({
+  linkedInPost: z.string(),
+  emailSubject: z.string(),
+  emailBody: z.string(),
+  smsTeaser: z.string(),
+});
+
+const commandPayloadSchema = z.object({
+  name: z.string().optional(),
+  loanAmount: z.number().optional(),
+  status: z.string().optional(),
+  phone: z.string().optional(),
+  email: z.string().optional(),
+  note: z.string().optional(),
+  taskLabel: z.string().optional(),
+  date: z.string().optional(),
+}).passthrough();
+
+const commandIntentSchema: z.ZodType<CommandIntent> = z.object({
+  action: z.enum(["CREATE_CLIENT", "UPDATE_STATUS", "UPDATE_CLIENT", "ADD_NOTE", "ADD_TASK", "UNKNOWN"]) as z.ZodType<CommandIntent['action']>,
+  clientName: z.string().optional(),
+  payload: z.preprocess((value) => value ?? {}, commandPayloadSchema) as z.ZodType<CommandIntent['payload']>,
+});
+
+const parseWithSchema = <T>(text: string | undefined, schema: z.ZodSchema<T>, fallback: T): T => {
+  const parsed = parseJson<unknown>(text || "", fallback as unknown);
+  const validation = schema.safeParse(parsed);
+
+  if (!validation.success) {
+    errorService.log('API_FAIL', 'Schema validation failed', { issues: validation.error.issues });
+    throw new AIError(AIErrorCodes.SCHEMA_MISMATCH, 'Received malformed data from AI.');
+  }
+
+  return validation.data;
 };
 
 // --- Text Generation & Chat ---
@@ -522,7 +569,7 @@ export const generateMarketingCampaign = async (topic: string, tone: string): Pr
       }
     });
 
-    return parseJson<MarketingCampaign>(response.text || "{}", {
+    return parseWithSchema<MarketingCampaign>(response.text, marketingCampaignSchema, {
       linkedInPost: "",
       emailSubject: "",
       emailBody: "",
@@ -1043,8 +1090,8 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
     const candidate = response.candidates?.[0];
     const groundingChunks = candidate?.groundingMetadata?.groundingChunks || [];
     const sources = groundingChunks
-      .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
-      .filter((link: any) => link !== null);
+      .map((chunk: any) => chunk.web ? { uri: String(chunk.web.uri), title: String(chunk.web.title) } : null)
+      .filter((link): link is { uri: string; title: string } => Boolean(link?.uri && link?.title));
 
     // Determine status based on text content (simple heuristic for UI color coding)
     const textLower = response.text?.toLowerCase() || "";
@@ -1601,16 +1648,12 @@ export const parseNaturalLanguageCommand = async (transcript: string, validStatu
       }
     });
 
-    const result = parseJson<CommandIntent | null>(response.text || "{}", null);
-    
-    if (!result || !result.action) {
-        throw new Error("Schema mismatch: Invalid command structure.");
-    }
+    const result = parseWithSchema<CommandIntent>(response.text, commandIntentSchema, { action: "UNKNOWN", payload: {} });
 
     if (!result.payload) {
-        result.payload = {};
+        return { ...result, payload: {} };
     }
-    
+
     return result;
   });
 };
