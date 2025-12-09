@@ -19,7 +19,6 @@ export const StorageKeys = {
   SAVED_VIEWS: `${STORAGE_PREFIX}saved_views`,
   MARKET_DATA: `${STORAGE_PREFIX}market_data`,
   VALUATIONS: `${STORAGE_PREFIX}valuations`,
-  CALENDAR_EVENTS: `${STORAGE_PREFIX}calendar_events`,
 };
 
 // In-memory write cache to prevent redundant disk I/O

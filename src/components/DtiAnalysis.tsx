@@ -5,13 +5,12 @@ import { loadFromStorage, saveToStorage, StorageKeys, solveDtiScenario } from '.
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { useToast } from './Toast';
 import { Client } from '../types';
-import { AGENCY_GUIDELINES, VA_RESIDUAL_INCOME_TABLE, VA_REGIONS, VA_ADDITIONAL_MEMBER_AMOUNT } from '../constants';
+import { AGENCY_GUIDELINES } from '../constants';
 
 const DEFAULT_INCOME = { baseSalary: 25000, bonus: 5000, rsu: 8000, other: 0 };
 const DEFAULT_DEBTS = { creditCards: 500, carLoans: 1200, studentLoans: 0, otherRealEstate: 2500, otherLoans: 0 };
 
 type LoanType = 'CONVENTIONAL' | 'FHA' | 'VA' | 'JUMBO';
-type VaRegion = typeof VA_REGIONS[number];
 
 export const DtiAnalysis: React.FC = () => {
     const { showToast } = useToast();
@@ -20,7 +19,6 @@ export const DtiAnalysis: React.FC = () => {
     const [income, setIncome] = useState(() => loadFromStorage(StorageKeys.DTI_DATA, { income: DEFAULT_INCOME, debts: DEFAULT_DEBTS, proposedHousing: 14500 }).income);
     const [debts, setDebts] = useState(() => loadFromStorage(StorageKeys.DTI_DATA, { income: DEFAULT_INCOME, debts: DEFAULT_DEBTS, proposedHousing: 14500 }).debts);
     const [proposedHousing, setProposedHousing] = useState(() => loadFromStorage(StorageKeys.DTI_DATA, { income: DEFAULT_INCOME, debts: DEFAULT_DEBTS, proposedHousing: 14500 }).proposedHousing);
-    const [liquidAssets, setLiquidAssets] = useState(0);
 
     // AI State
     const [isSolving, setIsSolving] = useState(false);
@@ -30,12 +28,7 @@ export const DtiAnalysis: React.FC = () => {
     const [showBooster, setShowBooster] = useState(false);
     const [rsuCalc, setRsuCalc] = useState({ value: 0, years: 3 });
     const [assetCalc, setAssetCalc] = useState({ value: 0, months: 240 });
-    
-    // Loan Specific State
     const [selectedLoanType, setSelectedLoanType] = useState<LoanType>('CONVENTIONAL');
-    const [hasAusApproval, setHasAusApproval] = useState(true); // FHA/Conventional AUS status
-    const [vaRegion, setVaRegion] = useState<VaRegion>('WEST');
-    const [vaFamilySize, setVaFamilySize] = useState(4);
 
     // Client Link State
     const [clients, setClients] = useState<Client[]>(() => loadFromStorage(StorageKeys.CLIENTS, []));
@@ -55,24 +48,14 @@ export const DtiAnalysis: React.FC = () => {
 
     // Guideline Checking
     const guidelines = AGENCY_GUIDELINES[selectedLoanType];
-    
-    // Determine effective max DTI based on AUS toggle
-    let effectiveMaxDti = guidelines.maxDTI;
-    if (selectedLoanType === 'FHA' && !hasAusApproval) {
-        effectiveMaxDti = guidelines.manualDTI || 43.00;
-    }
-
     const isOverStandard = backEndRatio > guidelines.standardDTI;
-    const isHardStop = backEndRatio > effectiveMaxDti;
+    const isHardStop = backEndRatio > guidelines.maxDTI;
 
-    // VA Residual Income Calculation
-    let requiredResidual = 0;
-    if (selectedLoanType === 'VA') {
-        const baseIndex = Math.min(vaFamilySize, 5) - 1;
-        const baseAmount = VA_RESIDUAL_INCOME_TABLE[vaRegion][baseIndex];
-        const additionalAmount = Math.max(0, vaFamilySize - 5) * VA_ADDITIONAL_MEMBER_AMOUNT;
-        requiredResidual = baseAmount + additionalAmount;
-    }
+    // Purchasing Power Calculation (Reverse DTI based on Selected Guideline Max)
+    const maxAllowedBackEnd = totalMonthlyIncome * (guidelines.standardDTI / 100);
+    const maxHousingPayment = Math.max(0, maxAllowedBackEnd - totalMonthlyDebts);
+    // Rough estimation: $700 monthly payment ~ $100k purchasing power
+    const estimatedPurchasingPower = (maxHousingPayment / 700) * 100000;
 
     const handleIncomeChange = (field: keyof typeof income, val: string) => {
         const num = val === '' ? 0 : parseFloat(val);
@@ -85,7 +68,7 @@ export const DtiAnalysis: React.FC = () => {
     };
 
     const handleRunDealDoctor = async () => {
-        if (!isOverStandard && selectedLoanType !== 'VA') {
+        if (!isOverStandard) {
             showToast("Deal qualifies under standard guidelines!", "success");
             return;
         }
@@ -96,11 +79,7 @@ export const DtiAnalysis: React.FC = () => {
             const financials = {
                 totalIncome: totalMonthlyIncome,
                 proposedHousing,
-                debts,
-                liquidAssets,
-                loanType: selectedLoanType,
-                hasAusApproval,
-                requiredResidual: selectedLoanType === 'VA' ? requiredResidual : undefined
+                debts
             };
             const advice = await solveDtiScenario(financials);
             setDealDoctorAdvice(advice);
@@ -139,7 +118,6 @@ export const DtiAnalysis: React.FC = () => {
                         totalIncome: totalMonthlyIncome,
                         totalDebts: totalMonthlyDebts,
                         proposedHousing: proposedHousing,
-                        liquidAssets: liquidAssets
                     }
                 };
             }
@@ -361,7 +339,7 @@ export const DtiAnalysis: React.FC = () => {
                     {/* Loan Type Selector */}
                     <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Loan Program Guideline Check</label>
-                        <div className="grid grid-cols-4 gap-2 mb-4">
+                        <div className="grid grid-cols-4 gap-2">
                             {(Object.keys(AGENCY_GUIDELINES) as LoanType[]).map((type) => (
                                 <button
                                     key={type}
@@ -375,65 +353,6 @@ export const DtiAnalysis: React.FC = () => {
                                     {type}
                                 </button>
                             ))}
-                        </div>
-
-                        {/* Specific Controls based on Loan Type */}
-                        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
-                            {selectedLoanType === 'VA' && (
-                                <div className="grid grid-cols-2 gap-3 animate-fade-in">
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Region</label>
-                                        <select 
-                                            value={vaRegion} 
-                                            onChange={(e) => setVaRegion(e.target.value as VaRegion)}
-                                            className="w-full p-2 bg-white border border-gray-200 rounded text-xs"
-                                        >
-                                            {VA_REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Family Size</label>
-                                        <input 
-                                            type="number" 
-                                            min="1"
-                                            value={vaFamilySize} 
-                                            onChange={(e) => setVaFamilySize(parseInt(e.target.value) || 1)}
-                                            className="w-full p-2 bg-white border border-gray-200 rounded text-xs"
-                                        />
-                                    </div>
-                                    <div className="col-span-2 text-xs text-blue-700 bg-blue-50 px-2 py-1 rounded font-medium flex items-center">
-                                        <div className="mr-1">ℹ️</div> Required Residual Income: <span className="font-bold ml-1">${requiredResidual.toLocaleString()}</span>
-                                    </div>
-                                </div>
-                            )}
-
-                            {(selectedLoanType === 'FHA' || selectedLoanType === 'CONVENTIONAL') && (
-                                <div className="flex items-center justify-between animate-fade-in">
-                                    <span className="text-xs font-bold text-gray-600">Automated Underwriting (AUS)</span>
-                                    <button 
-                                        onClick={() => setHasAusApproval(!hasAusApproval)}
-                                        className={`flex items-center px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-                                            hasAusApproval ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'
-                                        }`}
-                                    >
-                                        {hasAusApproval ? "Approved / Accept" : "Manual Underwrite"}
-                                    </button>
-                                </div>
-                            )}
-                            
-                            {/* Liquid Assets Input for Reserves */}
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Verified Liquid Assets (Reserves)</label>
-                                <div className="relative">
-                                    <span className="absolute left-3 top-2 text-gray-400 text-xs">$</span>
-                                    <input 
-                                        type="number" 
-                                        value={liquidAssets} 
-                                        onChange={(e) => setLiquidAssets(parseFloat(e.target.value) || 0)} 
-                                        className="w-full pl-6 p-2 bg-white border border-gray-200 rounded text-xs focus:ring-1 focus:ring-brand-gold outline-none"
-                                    />
-                                </div>
-                            </div>
                         </div>
                     </div>
 
@@ -489,18 +408,13 @@ export const DtiAnalysis: React.FC = () => {
                                         isOverStandard ? 'text-orange-800' : 
                                         'text-green-800'
                                     }`}>
-                                        {isHardStop ? `Exceeds ${selectedLoanType} Max Limit (${effectiveMaxDti}%)` : 
+                                        {isHardStop ? `Exceeds ${selectedLoanType} Max Limit` : 
                                          isOverStandard ? `Requires AUS Approval / Reserves` : 
                                          `Meets ${selectedLoanType} Guidelines`}
                                     </h4>
                                     <p className="text-xs mt-1 opacity-80 text-gray-700">
-                                        {selectedLoanType === 'FHA' && !hasAusApproval ? 'Manual Underwrite Limit Applied (43%).' : guidelines.notes}
+                                        {guidelines.notes}
                                     </p>
-                                    {liquidAssets > proposedHousing * 6 && isOverStandard && !isHardStop && (
-                                        <p className="text-xs mt-1 text-green-700 font-bold">
-                                            Strong Reserves detected: {Math.floor(liquidAssets/proposedHousing)} months PITIA. Likely compensating factor.
-                                        </p>
-                                    )}
                                 </div>
                              </div>
                         </div>
@@ -514,7 +428,6 @@ export const DtiAnalysis: React.FC = () => {
                         <div className="grid grid-cols-2 gap-y-2">
                             <div>Standard DTI: <span className="font-mono font-bold text-gray-800">{guidelines.standardDTI}%</span></div>
                             <div>Max DTI (AUS): <span className="font-mono font-bold text-gray-800">{guidelines.maxDTI}%</span></div>
-                            {guidelines.manualDTI && <div>Max DTI (Manual): <span className="font-mono font-bold text-gray-800">{guidelines.manualDTI}%</span></div>}
                             <div>Max LTV: <span className="font-mono font-bold text-gray-800">{guidelines.maxLTV}%</span></div>
                             <div>Reserves: <span className="font-mono font-bold text-gray-800">{guidelines.reserves}</span></div>
                         </div>

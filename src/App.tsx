@@ -1,4 +1,4 @@
-import './polyfill';
+
 import React, { useState, useCallback, useEffect, ReactNode } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Calculator } from './components/Calculator';
@@ -8,88 +8,15 @@ import { DtiAnalysis } from './components/DtiAnalysis';
 import { RatesNotes } from './components/RatesNotes';
 import { MarketingStudio } from './components/MarketInsights';
 import { CompensationTracker } from './components/CompensationTracker';
+import { DailyPlanner } from './components/DailyPlanner';
+import { KnowledgeBase } from './components/KnowledgeBase';
 import { ToastContainer, ToastContext } from './components/Toast';
-import { AppView, ToastMessage, ToastType } from './types';
-import { Menu, Building2, Loader2, AlertTriangle, RefreshCcw } from 'lucide-react';
-
-interface ErrorBoundaryProps {
-  children?: ReactNode;
-}
-
-interface ErrorBoundaryState {
-  hasError: boolean;
-  error?: Error;
-}
-
-// Error Boundary Implementation
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  public state: ErrorBoundaryState = { hasError: false };
-  // Explicitly defining props to satisfy strict type checking if React types are failing inference
-  public readonly props: Readonly<ErrorBoundaryProps>;
-
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.props = props;
-    this.state = { hasError: false };
-  }
-
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.group("ErrorBoundary Caught Error");
-    console.error("Error Message:", error.message);
-    console.error("Component Stack Trace:\n", errorInfo.componentStack);
-    console.groupEnd();
-  }
-
-  handleReset = () => {
-      if(confirm('This will clear all local data and reload. Are you sure?')) {
-          localStorage.clear();
-          window.location.reload();
-      }
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="flex h-screen items-center justify-center bg-gray-50 text-center p-6 animate-fade-in">
-          <div className="max-w-md w-full bg-white p-8 rounded-xl shadow-lg border border-gray-100">
-            <div className="bg-red-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
-                <AlertTriangle className="w-8 h-8 text-red-500" />
-            </div>
-            <h2 className="text-xl font-bold text-gray-900 mb-2">Application Error</h2>
-            <p className="text-gray-500 mb-6 text-sm">
-                We encountered an unexpected issue. Please try reloading or resetting your local data.
-            </p>
-            {this.state.error && (
-                <div className="bg-gray-100 p-3 rounded text-xs text-left mb-6 font-mono overflow-auto max-h-32 text-red-700">
-                    {this.state.error.toString()}
-                </div>
-            )}
-            <div className="flex flex-col gap-3">
-                <button 
-                onClick={() => window.location.reload()}
-                className="w-full px-4 py-3 bg-brand-dark text-white rounded-lg hover:bg-gray-800 transition-colors font-medium flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-brand-dark"
-                >
-                <RefreshCcw size={16} className="mr-2"/> Reload Application
-                </button>
-                <button 
-                onClick={this.handleReset}
-                className="w-full px-4 py-3 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gray-300"
-                >
-                Reset & Clear Data
-                </button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    return this.props.children;
-  }
-}
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { CommandPalette } from './components/CommandPalette';
+import { AppView, ToastMessage, ToastType, Client } from './types';
+import { Menu, Building2, Loader2, Bot } from 'lucide-react';
+import { errorService } from './services/errorService';
+import { saveToStorage, StorageKeys, loadFromStorage } from './services/storageService';
 
 // API Key Gate Component
 const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -102,7 +29,6 @@ const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           const selected = await (window as any).aistudio.hasSelectedApiKey();
           setHasKey(selected);
         } else {
-          // Fallback for environments where the helper isn't injected
           setHasKey(true); 
         }
       } catch (e) {
@@ -172,21 +98,89 @@ const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  
+  // Specific state for Client Manager navigation via Palette
+  const [selectedClientFromPalette, setSelectedClientFromPalette] = useState<Client | null>(null);
 
-  const showToast = useCallback((message: string, type: ToastType) => {
+  const showToast = useCallback((message: string, type: ToastType, action?: { label: string; onClick: () => void }) => {
     const id = Date.now().toString();
-    setToasts(prev => [...prev, { id, message, type }]);
+    setToasts(prev => [...prev, { id, message, type, action }]);
   }, []);
 
   const removeToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
+  // Global Command Palette Hotkey
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Global Error Listener
+  useEffect(() => {
+      const handleGlobalError = (event: ErrorEvent) => {
+          console.error("Global Error Caught:", event.error);
+          errorService.log('ERROR', event.message, { type: 'global_error' }, event.error);
+      };
+
+      const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+          console.error("Unhandled Rejection:", event.reason);
+          const msg = event.reason?.message || "Unknown Async Error";
+          errorService.log('ERROR', `Unhandled Promise: ${msg}`, { reason: event.reason });
+          
+          showToast("Background operation failed.", "warning", {
+              label: "Report Issue",
+              onClick: () => {
+                  alert(`Diagnostic info captured. ID: ${Date.now()}`);
+              }
+          });
+      };
+
+      window.addEventListener('error', handleGlobalError);
+      window.addEventListener('unhandledrejection', handleUnhandledRejection);
+
+      return () => {
+          window.removeEventListener('error', handleGlobalError);
+          window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      };
+  }, [showToast]);
+
+  const handlePaletteNavigate = (view: AppView) => {
+    setCurrentView(view);
+    setIsCommandPaletteOpen(false);
+  };
+
+  const handlePaletteSelectClient = (client: Client) => {
+    // We update the recent IDs so ClientManager can pick it up if it wants,
+    // but primarily we pass this specific client down if we are mounting ClientManager
+    const existingRecents = loadFromStorage(StorageKeys.RECENT_IDS, []) as string[];
+    const newRecents = [client.id, ...existingRecents.filter(id => id !== client.id)].slice(0, 5);
+    saveToStorage(StorageKeys.RECENT_IDS, newRecents);
+    
+    setSelectedClientFromPalette(client);
+    setCurrentView(AppView.DASHBOARD);
+    setIsCommandPaletteOpen(false);
+  };
+
   const renderContent = () => {
     switch (currentView) {
       case AppView.DASHBOARD:
-        return <ClientManager />;
+        return <ClientManager initialSelectedClient={selectedClientFromPalette} onSelectionCleared={() => setSelectedClientFromPalette(null)} />;
+      case AppView.PLANNER:
+        return <DailyPlanner />;
+      case AppView.KNOWLEDGE:
+        return <KnowledgeBase />;
       case AppView.CALCULATOR:
         return <Calculator />;
       case AppView.DTI_ANALYSIS:
@@ -215,6 +209,13 @@ const AppContent: React.FC = () => {
         </a>
 
         <ToastContainer toasts={toasts} removeToast={removeToast} />
+        
+        <CommandPalette 
+          isOpen={isCommandPaletteOpen} 
+          onClose={() => setIsCommandPaletteOpen(false)}
+          onNavigate={handlePaletteNavigate}
+          onSelectClient={handlePaletteSelectClient}
+        />
 
         {isSidebarOpen && (
           <div 
@@ -231,9 +232,11 @@ const AppContent: React.FC = () => {
           }} 
           isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
+          isCollapsed={isSidebarCollapsed}
+          toggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         />
 
-        <div className="flex-1 flex flex-col md:ml-64 h-full transition-all duration-300 w-full relative bg-gray-50/50">
+        <div className={`flex-1 flex flex-col h-full transition-all duration-300 w-full relative bg-gray-50/50 ${isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
           
           <div className="md:hidden bg-brand-dark text-white p-4 flex items-center justify-between shadow-md shrink-0 z-30 safe-top">
             <div className="flex items-center space-x-2">
@@ -261,6 +264,26 @@ const AppContent: React.FC = () => {
               {renderContent()}
             </ErrorBoundary>
           </main>
+
+          {/* Global Assistant FAB - Only show if not on Assistant page */}
+          {currentView !== AppView.ASSISTANT && (
+            <>
+                <button
+                    onClick={() => setIsAssistantOpen(!isAssistantOpen)}
+                    className="fixed bottom-6 right-6 z-50 p-4 bg-brand-red text-white rounded-full shadow-2xl hover:bg-red-700 transition-all hover:scale-105 active:scale-95 group"
+                    title="Open AI Assistant"
+                >
+                    <Bot size={28} className="group-hover:rotate-12 transition-transform"/>
+                </button>
+
+                {/* Assistant Slide-Over Overlay */}
+                <div 
+                    className={`fixed inset-y-0 right-0 w-full md:w-[450px] bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-50 flex flex-col ${isAssistantOpen ? 'translate-x-0' : 'translate-x-full'}`}
+                >
+                    {isAssistantOpen && <Assistant onClose={() => setIsAssistantOpen(false)} />}
+                </div>
+            </>
+          )}
         </div>
       </div>
     </ToastContext.Provider>

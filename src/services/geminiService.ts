@@ -1,5 +1,4 @@
-
-import { GoogleGenAI, Type, Modality } from "@google/genai";
+import { GoogleGenAI, Type, Modality, FunctionDeclaration } from "@google/genai";
 import { Client, CommandIntent, EmailLog, MarketIndex, NewsItem, MarketingCampaign, VerificationResult, Opportunity, DealStrategy, GiftSuggestion, CalendarEvent, SalesScript } from "../types";
 import { loadFromStorage, saveToStorage, StorageKeys } from "./storageService";
 import { errorService } from "./errorService";

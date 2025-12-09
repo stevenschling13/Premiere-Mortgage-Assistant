@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 interface MarkdownRendererProps {
@@ -10,7 +11,6 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
   const parseContent = (text: string) => {
     // Split text into paragraphs based on double newlines or just single lines to process lists correctly
-    // We'll process line by line to handle lists, but group paragraphs
     const lines = text.split('\n');
     const elements: React.ReactNode[] = [];
     let listBuffer: React.ReactNode[] = [];
@@ -18,7 +18,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
     const flushList = (keyPrefix: number) => {
          if (listBuffer.length > 0) {
              elements.push(
-                 <ul key={`list-${keyPrefix}`} className="list-disc pl-5 mb-3 space-y-1">
+                 <ul key={`list-${keyPrefix}`} className="list-disc pl-5 mb-3 space-y-1 text-inherit">
                      {listBuffer}
                  </ul>
              );
@@ -28,19 +28,16 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
     const processInline = (str: string) => {
         // Simple regex-based parser for inline styles
-        // Note: Using dangerouslySetInnerHTML requires sanitized input in production, 
-        // but for this AI output context, we do a basic replacement.
-        
         let html = str
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;")
             // Bold: **text**
-            .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold">$1</strong>')
+            .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-inherit">$1</strong>')
             // Italic: *text*
-            .replace(/\*([^*]+)\*/g, '<em class="italic">$1</em>')
-            // Code: `text`
-            .replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono text-brand-red">$1</code>');
+            .replace(/\*([^*]+)\*/g, '<em class="italic text-inherit">$1</em>')
+            // Code: `text` - Using semi-transparent bg for adaptability
+            .replace(/`([^`]+)`/g, '<code class="bg-gray-500/10 px-1 py-0.5 rounded text-xs font-mono font-semibold text-inherit border border-gray-500/20">$1</code>');
         
         return { __html: html };
     };
@@ -48,7 +45,6 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
     lines.forEach((line, idx) => {
         const trimmed = line.trim();
         
-        // Skip empty lines, but use them to flush lists/paragraphs if needed
         if (!trimmed) {
             flushList(idx);
             return;
@@ -58,27 +54,27 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
         if (trimmed.startsWith('- ') || trimmed.startsWith('* ') || trimmed.startsWith('• ')) {
             const content = trimmed.replace(/^[\-\*\•]\s+/, '');
             listBuffer.push(
-                <li key={`li-${idx}`} dangerouslySetInnerHTML={processInline(content)} />
+                <li key={`li-${idx}`} className="text-inherit" dangerouslySetInnerHTML={processInline(content)} />
             );
         } 
         // Headers
         else if (trimmed.startsWith('### ')) {
             flushList(idx);
             elements.push(
-                <h3 key={idx} className="text-sm font-bold mt-4 mb-2" dangerouslySetInnerHTML={processInline(trimmed.substring(4))} />
+                <h3 key={idx} className="text-sm font-bold mt-4 mb-2 text-inherit" dangerouslySetInnerHTML={processInline(trimmed.substring(4))} />
             );
         }
         else if (trimmed.startsWith('## ')) {
             flushList(idx);
             elements.push(
-                <h2 key={idx} className="text-base font-bold mt-5 mb-2" dangerouslySetInnerHTML={processInline(trimmed.substring(3))} />
+                <h2 key={idx} className="text-base font-bold mt-5 mb-2 text-inherit" dangerouslySetInnerHTML={processInline(trimmed.substring(3))} />
             );
         }
         // Standard Paragraphs
         else {
             flushList(idx);
             elements.push(
-                <p key={idx} className="mb-3 leading-relaxed last:mb-0" dangerouslySetInnerHTML={processInline(trimmed)} />
+                <p key={idx} className="mb-3 leading-relaxed last:mb-0 text-inherit" dangerouslySetInnerHTML={processInline(trimmed)} />
             );
         }
     });

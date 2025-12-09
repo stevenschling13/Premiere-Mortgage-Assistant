@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, ReactNode, Component } from 'react';
+import React, { useState, useCallback, useEffect, ReactNode } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Calculator } from './components/Calculator';
 import { ClientManager } from './components/ClientManager';
@@ -7,80 +7,12 @@ import { DtiAnalysis } from './components/DtiAnalysis';
 import { RatesNotes } from './components/RatesNotes';
 import { MarketingStudio } from './components/MarketInsights';
 import { CompensationTracker } from './components/CompensationTracker';
+import { DailyPlanner } from './components/DailyPlanner';
 import { ToastContainer, ToastContext } from './components/Toast';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { AppView, ToastMessage, ToastType } from './types';
-import { Menu, Building2, Loader2, AlertTriangle, RefreshCcw } from 'lucide-react';
-
-interface ErrorBoundaryProps {
-  children?: ReactNode;
-}
-
-interface ErrorBoundaryState {
-  hasError: boolean;
-  error?: Error;
-}
-
-// Error Boundary Implementation
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  readonly props: Readonly<ErrorBoundaryProps>;
-
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.props = props;
-    this.state = { hasError: false };
-  }
-
-  public state: ErrorBoundaryState = { hasError: false };
-
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("Uncaught error:", error, errorInfo);
-  }
-
-  handleReset = () => {
-      if(confirm('This will clear all local data and reload. Are you sure?')) {
-          localStorage.clear();
-          window.location.reload();
-      }
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="flex h-screen items-center justify-center bg-gray-50 text-center p-6 animate-fade-in">
-          <div className="max-w-md w-full bg-white p-8 rounded-xl shadow-lg border border-gray-100">
-            <div className="bg-red-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
-                <AlertTriangle className="w-8 h-8 text-red-500" />
-            </div>
-            <h2 className="text-xl font-bold text-gray-900 mb-2">Application Error</h2>
-            <p className="text-gray-500 mb-6 text-sm">
-                We encountered an unexpected issue. Please try reloading or resetting your local data.
-            </p>
-            <div className="flex flex-col gap-3">
-                <button 
-                onClick={() => window.location.reload()}
-                className="w-full px-4 py-3 bg-brand-dark text-white rounded-lg hover:bg-gray-800 transition-colors font-medium flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-brand-dark"
-                >
-                <RefreshCcw size={16} className="mr-2"/> Reload Application
-                </button>
-                <button 
-                onClick={this.handleReset}
-                className="w-full px-4 py-3 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gray-300"
-                >
-                Reset & Clear Data
-                </button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    return this.props.children;
-  }
-}
+import { Menu, Building2, Loader2 } from 'lucide-react';
+import { errorService } from './services/errorService';
 
 // API Key Gate Component
 const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -93,7 +25,6 @@ const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           const selected = await (window as any).aistudio.hasSelectedApiKey();
           setHasKey(selected);
         } else {
-          // Fallback for environments where the helper isn't injected
           setHasKey(true); 
         }
       } catch (e) {
@@ -108,16 +39,12 @@ const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     try {
         if ((window as any).aistudio?.openSelectKey) {
             await (window as any).aistudio.openSelectKey();
-            // Per instructions: Assume success after triggering and proceed
             setHasKey(true); 
         } else {
-            // Fallback if method missing
             setHasKey(true);
         }
     } catch (e) {
         console.error("Error selecting key", e);
-        // Reset state or allow retry if needed, but per instructions we proceed or retry
-        // Here we stay on the screen if it failed, user can click again.
     }
   };
 
@@ -169,19 +96,52 @@ const AppContent: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  const showToast = useCallback((message: string, type: ToastType) => {
+  const showToast = useCallback((message: string, type: ToastType, action?: { label: string; onClick: () => void }) => {
     const id = Date.now().toString();
-    setToasts(prev => [...prev, { id, message, type }]);
+    setToasts(prev => [...prev, { id, message, type, action }]);
   }, []);
 
   const removeToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
+  // Global Error Listener
+  useEffect(() => {
+      const handleGlobalError = (event: ErrorEvent) => {
+          console.error("Global Error Caught:", event.error);
+          errorService.log('ERROR', event.message, { type: 'global_error' }, event.error);
+          // Optional: Show toast for non-fatal global errors if needed
+          // showToast("An unexpected error occurred", "error");
+      };
+
+      const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+          console.error("Unhandled Rejection:", event.reason);
+          const msg = event.reason?.message || "Unknown Async Error";
+          errorService.log('ERROR', `Unhandled Promise: ${msg}`, { reason: event.reason });
+          
+          showToast("Background operation failed.", "warning", {
+              label: "Report Issue",
+              onClick: () => {
+                  alert(`Diagnostic info captured. ID: ${Date.now()}`);
+              }
+          });
+      };
+
+      window.addEventListener('error', handleGlobalError);
+      window.addEventListener('unhandledrejection', handleUnhandledRejection);
+
+      return () => {
+          window.removeEventListener('error', handleGlobalError);
+          window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      };
+  }, [showToast]);
+
   const renderContent = () => {
     switch (currentView) {
       case AppView.DASHBOARD:
         return <ClientManager />;
+      case AppView.PLANNER:
+        return <DailyPlanner />;
       case AppView.CALCULATOR:
         return <Calculator />;
       case AppView.DTI_ANALYSIS:
@@ -202,7 +162,6 @@ const AppContent: React.FC = () => {
   return (
     <ToastContext.Provider value={{ showToast }}>
       <div className="flex h-[100dvh] bg-slate-50 font-sans text-gray-900 overflow-hidden">
-        {/* Skip to Content Link for Accessibility */}
         <a 
           href="#main-content" 
           className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-brand-red focus:text-white focus:rounded-md focus:shadow-lg focus:outline-none"
@@ -210,10 +169,8 @@ const AppContent: React.FC = () => {
           Skip to main content
         </a>
 
-        {/* Toast Container */}
         <ToastContainer toasts={toasts} removeToast={removeToast} />
 
-        {/* Mobile Sidebar Overlay */}
         {isSidebarOpen && (
           <div 
             className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm animate-fade-in"
@@ -221,7 +178,6 @@ const AppContent: React.FC = () => {
           />
         )}
 
-        {/* Sidebar Navigation */}
         <Sidebar 
           currentView={currentView} 
           onChangeView={(view) => {
@@ -232,10 +188,8 @@ const AppContent: React.FC = () => {
           onClose={() => setIsSidebarOpen(false)}
         />
 
-        {/* Main Content Area */}
         <div className="flex-1 flex flex-col md:ml-64 h-full transition-all duration-300 w-full relative bg-gray-50/50">
           
-          {/* Mobile Header */}
           <div className="md:hidden bg-brand-dark text-white p-4 flex items-center justify-between shadow-md shrink-0 z-30 safe-top">
             <div className="flex items-center space-x-2">
               <Building2 className="w-6 h-6 text-brand-red" />
@@ -253,7 +207,6 @@ const AppContent: React.FC = () => {
             </button>
           </div>
 
-          {/* Scrollable Main Content */}
           <main 
             id="main-content"
             className="flex-1 overflow-y-auto w-full relative scroll-smooth focus:outline-none"

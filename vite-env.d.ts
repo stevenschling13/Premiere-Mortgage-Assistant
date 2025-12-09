@@ -1,13 +1,7 @@
-// /// <reference types="vite/client" />
-
-// Fallback definitions in case the reference is not resolvable
-declare module 'vite/client' {
-  // Minimal placeholder
-  export const meta: any;
-}
-
 interface ImportMetaEnv {
   readonly API_KEY: string;
+  readonly VITE_API_KEY?: string;
+  [key: string]: any;
 }
 
 interface ImportMeta {
