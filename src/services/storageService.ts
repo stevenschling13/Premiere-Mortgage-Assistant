@@ -12,6 +12,7 @@ export const StorageKeys = {
   DEAL_STAGES: `${STORAGE_PREFIX}deal_stages`,
   USER_PROFILE: `${STORAGE_PREFIX}user_profile`,
   MARKETING_DATA: `${STORAGE_PREFIX}marketing_data`,
+  CALENDAR_EVENTS: `${STORAGE_PREFIX}calendar_events`,
   CALCULATOR_SCENARIO: `${STORAGE_PREFIX}calculator_scenario`,
   DTI_DATA: `${STORAGE_PREFIX}dti_data`,
   COMP_SETTINGS: `${STORAGE_PREFIX}comp_settings`,
