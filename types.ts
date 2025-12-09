@@ -133,8 +133,7 @@ export enum AppView {
   DTI_ANALYSIS = 'DTI_ANALYSIS', // DTI
   RATES_NOTES = 'RATES_NOTES', // Rates & Notes
   MARKETING = 'MARKETING', // Marketing Studio
-  ASSISTANT = 'ASSISTANT', // Virtual Analyst
-  KNOWLEDGE = 'KNOWLEDGE', // Knowledge Base & Learning
+  ASSISTANT = 'ASSISTANT',
   COMPENSATION = 'COMPENSATION' // Wealth & Performance
 }
 
