@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useRef, useDeferredValue } from 'react';
 import { 
-    Users, Search, Plus, Filter, Edit2, Trash2, X, Sparkles, Loader2, 
+    Users, Search, Plus, Filter, Edit, Trash, X, Sparkles, Loader2, 
     Settings, CheckSquare, Square, Check, Clock, Crown, Radar, XCircle, 
     Briefcase, Headphones, Pause, Command, LayoutGrid, List
 } from 'lucide-react';
@@ -510,7 +510,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
                 <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in" onClick={() => setIsManageStagesOpen(false)}>
                     <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
                         <div className="flex justify-between items-center mb-6"><h3 className="font-bold text-lg text-brand-dark">Manage Deal Stages</h3><button onClick={() => setIsManageStagesOpen(false)} className="p-1 hover:bg-gray-100 rounded-full"><X size={20} className="text-gray-500"/></button></div>
-                        <div className="space-y-2 mb-6 max-h-[300px] overflow-y-auto">{dealStages.map(stage => (<div key={stage.name} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100 group"><div className="flex items-center space-x-3"><div className="w-4 h-4 rounded-full border border-gray-200" style={{backgroundColor: stage.color}}></div><span className="font-medium text-sm text-gray-700">{stage.name}</span></div><button onClick={() => setDealStages(dealStages.filter(s => s.name !== stage.name))} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" disabled={dealStages.length <= 1}><Trash2 size={16}/></button></div>))}</div>
+                        <div className="space-y-2 mb-6 max-h-[300px] overflow-y-auto">{dealStages.map(stage => (<div key={stage.name} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100 group"><div className="flex items-center space-x-3"><div className="w-4 h-4 rounded-full border border-gray-200" style={{backgroundColor: stage.color}}></div><span className="font-medium text-sm text-gray-700">{stage.name}</span></div><button onClick={() => setDealStages(dealStages.filter(s => s.name !== stage.name))} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" disabled={dealStages.length <= 1}><Trash size={16}/></button></div>))}</div>
                         <div className="bg-gray-50 p-4 rounded-xl border border-gray-200"><label className="block text-xs font-bold text-gray-500 uppercase mb-2">Add New Stage</label><div className="flex gap-2 mb-3"><input value={newStageName} onChange={(e) => setNewStageName(e.target.value)} placeholder="Stage Name" className="flex-1 p-2 bg-white border border-gray-200 rounded-lg text-sm outline-none focus:border-brand-gold"/><div className="flex gap-1 bg-white border border-gray-200 rounded-lg p-1">{COLOR_PALETTE.slice(0, 5).map(color => (<button key={color} onClick={() => setNewStageColor(color)} className={`w-6 h-full rounded transition-transform ${newStageColor === color ? 'scale-110 ring-2 ring-offset-1 ring-gray-400' : ''}`} style={{backgroundColor: color}}/>))}</div></div><button onClick={() => { if (newStageName && !dealStages.find(s => s.name === newStageName)) { setDealStages([...dealStages, { name: newStageName, color: newStageColor }]); setNewStageName(''); } }} disabled={!newStageName.trim()} className="w-full bg-brand-dark text-white py-2 rounded-lg text-sm font-bold hover:bg-gray-800 disabled:opacity-50 transition-colors">Add Stage</button></div>
                     </div>
                 </div>
@@ -521,7 +521,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
                 <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-brand-dark text-white px-6 py-3 rounded-full shadow-2xl flex items-center space-x-4 animate-slide-up">
                     <span className="font-bold text-sm">{selectedIds.size} Selected</span>
                     <div className="h-4 w-px bg-white/20"></div>
-                    <button onClick={executeBulkDelete} className="flex items-center space-x-2 hover:text-red-300 transition-colors"><Trash2 size={16}/><span className="text-xs font-bold">Delete</span></button>
+                    <button onClick={executeBulkDelete} className="flex items-center space-x-2 hover:text-red-300 transition-colors"><Trash size={16}/><span className="text-xs font-bold">Delete</span></button>
                     <button onClick={() => toggleSelection('')} className="p-1 hover:bg-white/10 rounded-full"><X size={14}/></button>
                 </div>
             )}
