@@ -4,7 +4,7 @@ import {
     TrendingUp, Megaphone, BrainCircuit, RefreshCw, 
     Linkedin, Mail, MessageSquare, 
     Layers, Loader2, Sparkles, Copy, ExternalLink, 
-    Trash2, ShieldCheck, AlertTriangle, Link as LinkIcon, Home, Wallet
+    Trash, ShieldCheck, AlertTriangle, Link as LinkIcon, Home, Wallet
 } from 'lucide-react';
 import { 
     fetchDailyMarketPulse, 
@@ -371,7 +371,7 @@ export const MarketingStudio: React.FC = () => {
                     onClick={handleClearWorkspace}
                     className="text-xs text-gray-400 hover:text-red-500 flex items-center px-2 py-1 hover:bg-gray-100 rounded transition-colors"
                  >
-                    <Trash2 size={12} className="mr-1"/> Clear Workspace
+                    <Trash size={12} className="mr-1"/> Clear Workspace
                  </button>
               </div>
 
