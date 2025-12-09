@@ -63,6 +63,12 @@
         -moz-osx-font-smoothing: grayscale;
         overflow-x: hidden;
       }
+      html, body, #root {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overscroll-behavior-y: none;
+      }
       ::-webkit-scrollbar {
         width: 6px;
         height: 6px;
@@ -87,10 +93,6 @@
       .mask-image-fade-right {
         mask-image: linear-gradient(to right, black 85%, transparent 100%);
         -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%);
-      }
-      html, body {
-        height: 100%;
-        overscroll-behavior-y: none;
       }
       .safe-top {
         padding-top: env(safe-area-inset-top);
@@ -117,6 +119,6 @@
 </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
