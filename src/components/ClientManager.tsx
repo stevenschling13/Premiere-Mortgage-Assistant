@@ -6,11 +6,17 @@ import {
     Briefcase, Headphones, Pause, Command, LayoutGrid, List
 } from 'lucide-react';
 import { Client, ChecklistItem, DealStage, CommandIntent, SavedClientView, Opportunity } from '../types';
-import { 
-    loadFromStorage, saveToStorage, StorageKeys, 
-    transcribeAudio, parseNaturalLanguageCommand, generateMorningMemo, 
-    fetchDailyMarketPulse, generateAudioBriefing, scanPipelineOpportunities 
+import {
+    loadFromStorage, saveToStorage,
+    transcribeAudio, parseNaturalLanguageCommand, generateMorningMemo,
+    fetchDailyMarketPulse, generateAudioBriefing, scanPipelineOpportunities
 } from '../services';
+import {
+    loadClientsFromDb,
+    loadDealStagesFromDb,
+    persistClientsToDb,
+    persistDealStagesToDb
+} from '../services/db';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { ClientDetailView } from './ClientDetailView';
@@ -40,31 +46,51 @@ interface ClientManagerProps {
 
 export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedClient, onSelectionCleared }) => {
     const { showToast } = useToast();
-    
+
     // -- Data State --
-    const [clients, setClients] = useState<Client[]>(() => {
-        const saved = loadFromStorage(StorageKeys.CLIENTS, INITIAL_CLIENTS);
-        return Array.isArray(saved) ? saved : INITIAL_CLIENTS;
-    });
-    
-    const [dealStages, setDealStages] = useState<DealStage[]>(() => {
-        const saved = loadFromStorage(StorageKeys.DEAL_STAGES, null);
-        return Array.isArray(saved) ? saved : DEFAULT_DEAL_STAGES;
-    });
+    const [clients, setClients] = useState<Client[]>([]);
+    const [dealStages, setDealStages] = useState<DealStage[]>([]);
+    const [isHydrated, setIsHydrated] = useState(false);
 
     // -- UI State --
     const [selectedClient, setSelectedClient] = useState<Client | null>(initialSelectedClient || null);
     const [searchQuery, setSearchQuery] = useState('');
     const deferredSearchQuery = useDeferredValue(searchQuery);
     const [viewMode, setViewMode] = useState<'LIST' | 'BOARD'>('LIST');
+
+    useEffect(() => {
+        let isActive = true;
+
+        const hydrateFromDb = async () => {
+            try {
+                const [dbClients, dbDealStages] = await Promise.all([
+                    loadClientsFromDb(),
+                    loadDealStagesFromDb()
+                ]);
+
+                if (!isActive) return;
+                setClients(dbClients);
+                setDealStages(dbDealStages);
+                setIsHydrated(true);
+            } catch (error) {
+                console.error('Failed to hydrate client data from IndexedDB, falling back to defaults.', error);
+                if (!isActive) return;
+                setClients(INITIAL_CLIENTS);
+                setDealStages(DEFAULT_DEAL_STAGES);
+                setIsHydrated(true);
+            }
+        };
+
+        hydrateFromDb();
+        return () => { isActive = false; };
+    }, []);
     
     // Handle external selection
     useEffect(() => {
-        if (initialSelectedClient) {
-            const freshClient = clients.find(c => c.id === initialSelectedClient.id) || initialSelectedClient;
-            setSelectedClient(freshClient);
-        }
-    }, [initialSelectedClient, clients]);
+        if (!isHydrated || !initialSelectedClient) return;
+        const freshClient = clients.find(c => c.id === initialSelectedClient.id) || initialSelectedClient;
+        setSelectedClient(freshClient);
+    }, [initialSelectedClient, clients, isHydrated]);
 
     // -- Dashboard Widgets State --
     const todayStr = new Date().toISOString().split('T')[0];
@@ -95,12 +121,18 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
 
     // -- Effects --
     useEffect(() => {
-        saveToStorage(StorageKeys.CLIENTS, clients);
-    }, [clients]);
+        if (!isHydrated) return;
+        persistClientsToDb(clients).catch(error => {
+            console.error('Failed to persist clients to IndexedDB', error);
+        });
+    }, [clients, isHydrated]);
 
     useEffect(() => {
-        saveToStorage(StorageKeys.DEAL_STAGES, dealStages);
-    }, [dealStages]);
+        if (!isHydrated) return;
+        persistDealStagesToDb(dealStages).catch(error => {
+            console.error('Failed to persist deal stages to IndexedDB', error);
+        });
+    }, [dealStages, isHydrated]);
 
     // -- Computed --
     const getStageColor = (status: string) => dealStages.find(s => s.name === status)?.color || '#64748B';
@@ -169,7 +201,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
 
     const handleCreateClient = () => {
         const newClient: Client = {
-            id: Date.now().toString(),
+            id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Date.now().toString(),
             name: 'New Client',
             email: '',
             phone: '',
@@ -220,7 +252,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
         try {
             const marketData = await fetchDailyMarketPulse();
             const memo = await generateMorningMemo(urgentClients, marketData);
-            setMorningMemo(memo);
+            setMorningMemo(memo ?? null);
             saveToStorage(memoKey, memo);
         } catch (e) {
             showToast("Failed to generate executive brief", "error");
