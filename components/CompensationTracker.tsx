@@ -187,7 +187,7 @@ export const CompensationTracker: React.FC = () => {
         setIsStrategizing(true);
         try {
             const strategy = await generateGapStrategy(totalYtdIncome, TARGET_ANNUAL_INCOME, pipelineData);
-            setGapStrategy(strategy);
+            setGapStrategy(strategy ?? null);
         } catch (e) {
             console.error(e);
             showToast('Strategy generation unavailable', 'error');

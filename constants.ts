@@ -38,8 +38,19 @@ export const COLOR_PALETTE = [
     '#8B5CF6', '#A855F7', '#D946EF', '#EC4899', '#CD1337', '#F4B23E'
 ];
 
+type AgencyGuideline = {
+    name: string;
+    maxLTV: number;
+    standardLTV?: number;
+    maxDTI: number;
+    standardDTI: number;
+    reserves: string;
+    notes: string;
+    manualDTI?: number;
+};
+
 // --- REAL UNDERWRITING GUIDELINES (Source: AllRegs/Selling Guides 2024) ---
-export const AGENCY_GUIDELINES = {
+export const AGENCY_GUIDELINES: Record<'CONVENTIONAL' | 'FHA' | 'VA' | 'JUMBO', AgencyGuideline> = {
     CONVENTIONAL: {
         name: 'Conventional (FNMA/FHLMC)',
         maxLTV: 97, // First time home buyer
