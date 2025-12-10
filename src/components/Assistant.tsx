@@ -283,7 +283,8 @@ export const Assistant: React.FC<AssistantProps> = ({ onClose }) => {
 
       mediaStreamRef.current = stream;
 
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const apiKey = process?.env?.API_KEY || process?.env?.GEMINI_API_KEY || '';
+      const ai = new GoogleGenAI({ apiKey });
       
       // Select Instruction based on mode
       const instruction = isSimulationMode && selectedScenario
