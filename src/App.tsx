@@ -16,7 +16,7 @@ import { CommandPalette } from './components/CommandPalette';
 import { AppView, ToastMessage, ToastType, Client } from './types';
 import { Menu, Building2, Loader2, Bot } from 'lucide-react';
 import { errorService } from './services/errorService';
-import { saveToStorage, StorageKeys, loadFromStorage, StorageBootstrapStatus } from './services/storageService';
+import { saveToStorage, StorageKeys, loadFromStorage } from './services/storageService';
 
 // API Key Gate Component
 const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -100,11 +100,7 @@ const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return <>{children}</>;
 };
 
-interface AppProps {
-  storageStatus?: StorageBootstrapStatus;
-}
-
-const AppContent: React.FC<AppProps> = ({ storageStatus }) => {
+const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -123,12 +119,6 @@ const AppContent: React.FC<AppProps> = ({ storageStatus }) => {
   const removeToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
-
-  useEffect(() => {
-    if (storageStatus?.warnings?.length) {
-      storageStatus.warnings.forEach(message => showToast(message, 'warning'));
-    }
-  }, [showToast, storageStatus]);
 
   // Global Command Palette Hotkey
   useEffect(() => {
@@ -305,10 +295,10 @@ const AppContent: React.FC<AppProps> = ({ storageStatus }) => {
   );
 };
 
-const App: React.FC<AppProps> = ({ storageStatus }) => {
+const App: React.FC = () => {
   return (
     <ApiKeyGate>
-      <AppContent storageStatus={storageStatus} />
+      <AppContent />
     </ApiKeyGate>
   );
 };
