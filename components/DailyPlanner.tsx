@@ -99,9 +99,9 @@ export const DailyPlanner: React.FC = () => {
                     (event.clientId && c.id === event.clientId) || 
                     event.title.toLowerCase().includes(c.name.toLowerCase())
                 );
-                
+
                 const content = await generateMeetingPrep(event.title, matchedClient);
-                setPrepContent(content);
+                setPrepContent(content ?? null);
             } catch (e) {
                 console.error(e);
                 setPrepContent("Unable to generate prep materials.");
