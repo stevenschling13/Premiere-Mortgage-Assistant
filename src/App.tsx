@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Calculator } from './components/Calculator';
@@ -22,34 +23,59 @@ const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [hasKey, setHasKey] = useState<boolean | null>(null);
 
   useEffect(() => {
+    let mounted = true;
+    
+    // Safety fallback: If check takes too long, let the user in (fail open)
+    // or assume environment doesn't support the bridge.
+    const safetyTimer = setTimeout(() => {
+        if (mounted && hasKey === null) {
+            console.warn("ApiKeyGate: Check timed out, bypassing gate.");
+            setHasKey(true);
+        }
+    }, 2000);
+
     const checkKey = async () => {
       try {
-        // Short timeout to prevent infinite loading if the bridge is unresponsive
-        const timeout = new Promise(resolve => setTimeout(resolve, 1500));
-        const check = (window as any).aistudio?.hasSelectedApiKey 
-            ? (window as any).aistudio.hasSelectedApiKey() 
-            : Promise.resolve(true); // Default to true if not in AI Studio environment
+        const aiStudio = (window as any).aistudio;
         
-        const result = await Promise.race([check, timeout.then(() => true)]);
-        setHasKey(!!result);
+        // If not in AI Studio or bridge missing, bypass immediately
+        if (!aiStudio || typeof aiStudio.hasSelectedApiKey !== 'function') {
+            if (mounted) setHasKey(true);
+            return;
+        }
+
+        // Bridge exists, check key
+        const selected = await aiStudio.hasSelectedApiKey();
+        if (mounted) setHasKey(!!selected);
+        
       } catch (e) {
-        console.warn("Failed to check API key status", e);
-        setHasKey(true);
+        console.warn("ApiKeyGate: Bridge check failed", e);
+        // On error, fail open to allow app usage (geminiService handles missing keys)
+        if (mounted) setHasKey(true);
       }
     };
+
     checkKey();
+
+    return () => {
+        mounted = false;
+        clearTimeout(safetyTimer);
+    };
   }, []);
 
   const handleSelectKey = async () => {
     try {
         if ((window as any).aistudio?.openSelectKey) {
             await (window as any).aistudio.openSelectKey();
-            setHasKey(true); 
+            // Optimistically update to avoid reloading race
+            setHasKey(true);
         } else {
             setHasKey(true);
         }
     } catch (e) {
         console.error("Error selecting key", e);
+        // Ensure we don't block user even if selection dialog fails
+        setHasKey(true); 
     }
   };
 
