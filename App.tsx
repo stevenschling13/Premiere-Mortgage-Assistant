@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect, ReactNode } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Calculator } from './components/Calculator';
@@ -9,14 +8,11 @@ import { RatesNotes } from './components/RatesNotes';
 import { MarketingStudio } from './components/MarketInsights';
 import { CompensationTracker } from './components/CompensationTracker';
 import { DailyPlanner } from './components/DailyPlanner';
-import { KnowledgeBase } from './components/KnowledgeBase';
 import { ToastContainer, ToastContext } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { CommandPalette } from './components/CommandPalette';
-import { AppView, ToastMessage, ToastType, Client } from './types';
-import { Menu, Building2, Loader2, Bot } from 'lucide-react';
+import { AppView, ToastMessage, ToastType } from './types';
+import { Menu, Building2, Loader2 } from 'lucide-react';
 import { errorService } from './services/errorService';
-import { saveToStorage, StorageKeys, loadFromStorage } from './services/storageService';
 
 // API Key Gate Component
 const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -25,17 +21,12 @@ const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   useEffect(() => {
     const checkKey = async () => {
       try {
-        // Race condition handler: If API check takes > 1.5s, assume true (fail open for preview)
-        // This fixes desktop hanging issues where window.aistudio exists but is unresponsive
-        const timeout = new Promise(resolve => setTimeout(resolve, 1500));
-        
-        const check = (window as any).aistudio?.hasSelectedApiKey 
-            ? (window as any).aistudio.hasSelectedApiKey() 
-            : Promise.resolve(true);
-        
-        const result = await Promise.race([check, timeout.then(() => true)]);
-        
-        setHasKey(!!result);
+        if ((window as any).aistudio?.hasSelectedApiKey) {
+          const selected = await (window as any).aistudio.hasSelectedApiKey();
+          setHasKey(selected);
+        } else {
+          setHasKey(true); 
+        }
       } catch (e) {
         console.warn("Failed to check API key status", e);
         setHasKey(true); // Fail open to allow app usage if check fails
@@ -103,13 +94,7 @@ const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
-  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
-  
-  // Specific state for Client Manager navigation via Palette
-  const [selectedClientFromPalette, setSelectedClientFromPalette] = useState<Client | null>(null);
 
   const showToast = useCallback((message: string, type: ToastType, action?: { label: string; onClick: () => void }) => {
     const id = Date.now().toString();
@@ -120,23 +105,13 @@ const AppContent: React.FC = () => {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
-  // Global Command Palette Hotkey
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setIsCommandPaletteOpen(prev => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
   // Global Error Listener
   useEffect(() => {
       const handleGlobalError = (event: ErrorEvent) => {
           console.error("Global Error Caught:", event.error);
           errorService.log('ERROR', event.message, { type: 'global_error' }, event.error);
+          // Optional: Show toast for non-fatal global errors if needed
+          // showToast("An unexpected error occurred", "error");
       };
 
       const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
@@ -161,31 +136,12 @@ const AppContent: React.FC = () => {
       };
   }, [showToast]);
 
-  const handlePaletteNavigate = (view: AppView) => {
-    setCurrentView(view);
-    setIsCommandPaletteOpen(false);
-  };
-
-  const handlePaletteSelectClient = (client: Client) => {
-    // We update the recent IDs so ClientManager can pick it up if it wants,
-    // but primarily we pass this specific client down if we are mounting ClientManager
-    const existingRecents = loadFromStorage(StorageKeys.RECENT_IDS, []) as string[];
-    const newRecents = [client.id, ...existingRecents.filter(id => id !== client.id)].slice(0, 5);
-    saveToStorage(StorageKeys.RECENT_IDS, newRecents);
-    
-    setSelectedClientFromPalette(client);
-    setCurrentView(AppView.DASHBOARD);
-    setIsCommandPaletteOpen(false);
-  };
-
   const renderContent = () => {
     switch (currentView) {
       case AppView.DASHBOARD:
-        return <ClientManager initialSelectedClient={selectedClientFromPalette} onSelectionCleared={() => setSelectedClientFromPalette(null)} />;
+        return <ClientManager />;
       case AppView.PLANNER:
         return <DailyPlanner />;
-      case AppView.KNOWLEDGE:
-        return <KnowledgeBase />;
       case AppView.CALCULATOR:
         return <Calculator />;
       case AppView.DTI_ANALYSIS:
@@ -205,7 +161,7 @@ const AppContent: React.FC = () => {
 
   return (
     <ToastContext.Provider value={{ showToast }}>
-      <div className="flex h-screen h-[100dvh] bg-slate-50 font-sans text-gray-900 overflow-hidden">
+      <div className="flex h-[100dvh] bg-slate-50 font-sans text-gray-900 overflow-hidden">
         <a 
           href="#main-content" 
           className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-brand-red focus:text-white focus:rounded-md focus:shadow-lg focus:outline-none"
@@ -214,13 +170,6 @@ const AppContent: React.FC = () => {
         </a>
 
         <ToastContainer toasts={toasts} removeToast={removeToast} />
-        
-        <CommandPalette 
-          isOpen={isCommandPaletteOpen} 
-          onClose={() => setIsCommandPaletteOpen(false)}
-          onNavigate={handlePaletteNavigate}
-          onSelectClient={handlePaletteSelectClient}
-        />
 
         {isSidebarOpen && (
           <div 
@@ -237,11 +186,9 @@ const AppContent: React.FC = () => {
           }} 
           isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
-          isCollapsed={isSidebarCollapsed}
-          toggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         />
 
-        <div className={`flex-1 flex flex-col h-full transition-all duration-300 w-full relative bg-gray-50/50 ${isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
+        <div className="flex-1 flex flex-col md:ml-64 h-full transition-all duration-300 w-full relative bg-gray-50/50">
           
           <div className="md:hidden bg-brand-dark text-white p-4 flex items-center justify-between shadow-md shrink-0 z-30 safe-top">
             <div className="flex items-center space-x-2">
@@ -269,26 +216,6 @@ const AppContent: React.FC = () => {
               {renderContent()}
             </ErrorBoundary>
           </main>
-
-          {/* Global Assistant FAB - Only show if not on Assistant page */}
-          {currentView !== AppView.ASSISTANT && (
-            <>
-                <button
-                    onClick={() => setIsAssistantOpen(!isAssistantOpen)}
-                    className="fixed bottom-6 right-6 z-50 p-4 bg-brand-red text-white rounded-full shadow-2xl hover:bg-red-700 transition-all hover:scale-105 active:scale-95 group"
-                    title="Open AI Assistant"
-                >
-                    <Bot size={28} className="group-hover:rotate-12 transition-transform"/>
-                </button>
-
-                {/* Assistant Slide-Over Overlay */}
-                <div 
-                    className={`fixed inset-y-0 right-0 w-full md:w-[450px] bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-50 flex flex-col ${isAssistantOpen ? 'translate-x-0' : 'translate-x-full'}`}
-                >
-                    {isAssistantOpen && <Assistant onClose={() => setIsAssistantOpen(false)} />}
-                </div>
-            </>
-          )}
         </div>
       </div>
     </ToastContext.Provider>
