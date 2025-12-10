@@ -187,9 +187,9 @@ export const Assistant: React.FC = () => {
       const aiMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        text: response.text ?? '',
+        text: response.text,
         timestamp: new Date(),
-        groundingLinks: (response.links || []).filter((link): link is { uri: string; title: string } => Boolean(link?.uri && link?.title)),
+        groundingLinks: response.links,
         searchEntryPoint: response.searchEntryPoint,
         searchQueries: response.searchQueries
       };

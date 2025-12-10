@@ -1045,7 +1045,7 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
     const groundingChunks = candidate?.groundingMetadata?.groundingChunks || [];
     const sources = groundingChunks
       .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
-      .filter((link): link is { uri: string; title: string } => Boolean(link?.uri && link?.title));
+      .filter((link: any) => link !== null);
 
     // Determine status based on text content (simple heuristic for UI color coding)
     const textLower = response.text?.toLowerCase() || "";

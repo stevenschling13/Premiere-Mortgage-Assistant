@@ -1,26 +1,18 @@
-import React, { Suspense, useCallback, useEffect, useState } from 'react';
+import React, { useState, useCallback, useEffect, ReactNode } from 'react';
 import { Sidebar } from './components/Sidebar';
+import { Calculator } from './components/Calculator';
+import { ClientManager } from './components/ClientManager';
+import { Assistant } from './components/Assistant';
+import { DtiAnalysis } from './components/DtiAnalysis';
+import { RatesNotes } from './components/RatesNotes';
+import { MarketingStudio } from './components/MarketInsights';
+import { CompensationTracker } from './components/CompensationTracker';
+import { DailyPlanner } from './components/DailyPlanner';
 import { ToastContainer, ToastContext } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AppView, ToastMessage, ToastType } from './types';
 import { Menu, Building2, Loader2 } from 'lucide-react';
 import { errorService } from './services/errorService';
-
-// Lazy Loaded Components – keeps the initial bundle small for faster startup
-const ClientManager = React.lazy(() => import('./components/ClientManager').then(module => ({ default: module.ClientManager })));
-const Calculator = React.lazy(() => import('./components/Calculator').then(module => ({ default: module.Calculator })));
-const Assistant = React.lazy(() => import('./components/Assistant').then(module => ({ default: module.Assistant })));
-const DtiAnalysis = React.lazy(() => import('./components/DtiAnalysis').then(module => ({ default: module.DtiAnalysis })));
-const RatesNotes = React.lazy(() => import('./components/RatesNotes').then(module => ({ default: module.RatesNotes })));
-const MarketingStudio = React.lazy(() => import('./components/MarketInsights').then(module => ({ default: module.MarketingStudio })));
-const CompensationTracker = React.lazy(() => import('./components/CompensationTracker').then(module => ({ default: module.CompensationTracker })));
-const DailyPlanner = React.lazy(() => import('./components/DailyPlanner').then(module => ({ default: module.DailyPlanner })));
-
-const ViewLoader = () => (
-  <div className="flex h-full items-center justify-center bg-gray-50/50">
-    <Loader2 className="w-8 h-8 animate-spin text-brand-dark/20" />
-  </div>
-);
 
 // API Key Gate Component
 const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -186,12 +178,12 @@ const AppContent: React.FC = () => {
           />
         )}
 
-        <Sidebar
-          currentView={currentView}
-          onChangeView={(view: AppView) => {
+        <Sidebar 
+          currentView={currentView} 
+          onChangeView={(view) => {
             setCurrentView(view);
             setIsSidebarOpen(false);
-          }}
+          }} 
           isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
         />
@@ -215,15 +207,13 @@ const AppContent: React.FC = () => {
             </button>
           </div>
 
-          <main
+          <main 
             id="main-content"
             className="flex-1 overflow-y-auto w-full relative scroll-smooth focus:outline-none"
             tabIndex={-1}
           >
             <ErrorBoundary>
-              <Suspense fallback={<ViewLoader />}>
-                {renderContent()}
-              </Suspense>
+              {renderContent()}
             </ErrorBoundary>
           </main>
         </div>
