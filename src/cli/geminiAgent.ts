@@ -7,6 +7,8 @@ import process from "node:process";
 const DEFAULT_MODEL = "gemini-3-pro-preview";
 const SESSION_DIR = ".cli-sessions";
 
+const DEFAULT_SYSTEM = `You are the Premiere Private Banking Assistant CLI agent. Be concise, numerate, and explicit about risk.
+Always provide actionable next steps and cite any assumptions you are making.`;
 const DEFAULT_SYSTEM = `You are the Premiere Private Banking Assistant CLI agent. Keep tone professional and calm for both desktop and mobile users.
 
 Operating principles:
@@ -189,6 +191,7 @@ class GeminiCliAgent {
       model: this.options.model,
       history: this.history,
       config: {
+        systemInstruction: this.options.systemInstruction || DEFAULT_SYSTEM,
         systemInstruction,
         temperature: this.options.temperature,
         tools: [{ googleSearch: {} }],
@@ -289,6 +292,7 @@ const parseArgs = (): CliOptions => {
 };
 
 const printHelp = () => {
+  console.log(`Gemini CLI agent\n\nUsage: npm run ai:cli -- --prompt "How do I prep for Monday?" [options]\n\nOptions:\n  -p, --prompt <text>     Prompt text (required unless piped)\n  -c, --context <path>    Attach a file as read-only context (repeatable)\n  -s, --session <name>    Persist conversation to .cli-sessions/<name>.json\n      --reset             Reset the named session before running\n  -m, --model <name>      Model to use (default: ${DEFAULT_MODEL})\n  -t, --temp <value>      Temperature (default: 0.4)\n      --system <text>     Override the default system instruction\n      --json              Emit JSON with metadata instead of plain text\n  -h, --help              Show this help message\n`);
   console.log(`Gemini CLI agent\n\nUsage: npm run ai:cli -- --prompt "How do I prep for Monday?" [options]\n\nOptions:\n  -p, --prompt <text>     Prompt text (required unless piped)\n  -c, --context <path>    Attach a file as read-only context (repeatable)\n  -s, --session <name>    Persist conversation to .cli-sessions/<name>.json\n      --reset             Reset the named session before running\n  -m, --model <name>      Model to use (default: ${DEFAULT_MODEL})\n  -t, --temp <value>      Temperature (default: 0.4)\n      --system <text>     Override the default system instruction\n      --system-file <path> Load a system instruction from a file (overrides --system)\n      --json              Emit JSON with metadata instead of plain text\n  -h, --help              Show this help message\n`);
 };
 
