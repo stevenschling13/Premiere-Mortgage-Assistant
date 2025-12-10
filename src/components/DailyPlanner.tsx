@@ -2,9 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import { 
     Calendar as CalendarIcon, Clock, Plus, BrainCircuit, 
-    Sparkles, Loader2, CheckCircle2, MoreHorizontal, Trash2, 
+    Sparkles, Loader2, CheckCircle2, MoreHorizontal, Trash, 
     ChevronRight, ChevronLeft, MapPin, User, FileText, Link as LinkIcon,
-    Edit2, X, Save
+    Edit, X, Save
 } from 'lucide-react';
 import { CalendarEvent, Client } from '../types';
 import { loadFromStorage, saveToStorage, StorageKeys, generateDailySchedule, generateMeetingPrep } from '../services';
@@ -318,8 +318,8 @@ export const DailyPlanner: React.FC = () => {
                                     )}
                                 </div>
                                 <div className="flex space-x-1">
-                                    <button onClick={() => openEditModal(selectedEvent)} className="p-2 text-gray-400 hover:text-brand-dark hover:bg-gray-100 rounded-lg transition-colors"><Edit2 size={16}/></button>
-                                    <button onClick={() => handleDeleteEvent(selectedEvent.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16}/></button>
+                                    <button onClick={() => openEditModal(selectedEvent)} className="p-2 text-gray-400 hover:text-brand-dark hover:bg-gray-100 rounded-lg transition-colors"><Edit size={16}/></button>
+                                    <button onClick={() => handleDeleteEvent(selectedEvent.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash size={16}/></button>
                                 </div>
                             </div>
                             
