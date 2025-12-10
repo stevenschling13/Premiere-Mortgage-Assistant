@@ -6,6 +6,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "ai:cli": "tsx src/cli/geminiAgent.ts"
     "ai:cli": "tsx src/cli/geminiAgent.ts",
     "check:structure": "node scripts/check-structure.mjs"
   },
