@@ -125,10 +125,9 @@ const normalizeError = (error: any): AIError => {
 };
 
 const getAiClient = () => {
-  const apiKey = (typeof import.meta !== 'undefined' && (import.meta as any).env)
-    ? (import.meta as any).env.VITE_GEMINI_API_KEY
-    : undefined;
-
+  const env = (typeof process !== 'undefined' && process.env) ? process.env : {};
+  const apiKey = env.API_KEY;
+  
   if (!apiKey || apiKey.trim() === '') {
     throw new AIError(AIErrorCodes.INVALID_API_KEY, "API Key is missing. Please connect a billing-enabled key.");
   }
@@ -1043,9 +1042,9 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
 
     const candidate = response.candidates?.[0];
     const groundingChunks = candidate?.groundingMetadata?.groundingChunks || [];
-    const sources: Array<{ uri: string; title: string }> = groundingChunks
-      .map((chunk: any) => chunk.web ? { uri: chunk.web.uri as string, title: chunk.web.title as string } : null)
-      .filter((link: { uri: string; title: string } | null): link is { uri: string; title: string } => link !== null);
+    const sources = groundingChunks
+      .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
+      .filter((link: any) => link !== null);
 
     // Determine status based on text content (simple heuristic for UI color coding)
     const textLower = response.text?.toLowerCase() || "";

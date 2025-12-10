@@ -64,7 +64,7 @@ export const DailyPlanner: React.FC = () => {
             const updatedClients = [...clients];
             let hasUpdates = false;
 
-            newEvents.forEach((evt: CalendarEvent) => {
+            newEvents.forEach(evt => {
                 if (evt.clientId) {
                     const clientIdx = updatedClients.findIndex(c => c.id === evt.clientId);
                     if (clientIdx >= 0) {
@@ -118,7 +118,7 @@ export const DailyPlanner: React.FC = () => {
                 );
                 
                 const content = await generateMeetingPrep(event.title, matchedClient);
-                setPrepContent(content ?? null);
+                setPrepContent(content);
             } catch (e) {
                 console.error(e);
                 setPrepContent("Unable to generate prep materials.");

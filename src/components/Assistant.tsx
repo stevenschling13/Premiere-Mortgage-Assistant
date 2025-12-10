@@ -192,15 +192,12 @@ export const Assistant: React.FC<AssistantProps> = ({ onClose }) => {
 
       const response = await chatWithAssistant(history, userMsg.text, systemInstruction);
 
-      const groundingLinks = (response.links ?? [])
-        .filter((link): link is { uri: string; title: string } => !!link?.uri && !!link?.title);
-
       const aiMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        text: response.text ?? '',
+        text: response.text,
         timestamp: new Date(),
-        groundingLinks,
+        groundingLinks: response.links,
         searchEntryPoint: response.searchEntryPoint,
         searchQueries: response.searchQueries
       };
@@ -286,8 +283,7 @@ export const Assistant: React.FC<AssistantProps> = ({ onClose }) => {
 
       mediaStreamRef.current = stream;
 
-      const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       
       // Select Instruction based on mode
       const instruction = isSimulationMode && selectedScenario

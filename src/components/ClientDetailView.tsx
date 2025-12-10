@@ -185,7 +185,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
         try {
             const suggestions = await generateSmartChecklist(client);
             if (suggestions.length > 0) {
-                const newItems: ChecklistItem[] = suggestions.map((label: string) => ({
+                const newItems: ChecklistItem[] = suggestions.map(label => ({
                     id: Date.now() + Math.random().toString(),
                     label,
                     checked: false
