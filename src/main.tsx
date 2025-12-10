@@ -4,10 +4,16 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
-const rootElement = document.getElementById('root');
-if (!rootElement) {
-  throw new Error("Could not find root element to mount to");
-}
+const rootElement = (() => {
+  const existing = document.getElementById('root');
+  if (existing) return existing;
+
+  // Ensure we always have a mount point, even in unconventional host shells
+  const created = document.createElement('div');
+  created.id = 'root';
+  document.body.appendChild(created);
+  return created;
+})();
 
 const root = ReactDOM.createRoot(rootElement);
 root.render(
