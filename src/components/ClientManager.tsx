@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef, useDeferredValue } from 'react';
 import { 
     Users, Search, Plus, Filter, Edit2, Trash2, X, Sparkles, Loader2, 
@@ -141,6 +142,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
                    c.propertyAddress.toLowerCase().includes(query);
         });
 
+        // Sort by Lead Score Descending
         results.sort((a, b) => {
             const scoreA = calculateLeadScore(a, getStageProgress(a.status));
             const scoreB = calculateLeadScore(b, getStageProgress(b.status));
@@ -270,10 +272,11 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
     const handleDragStart = (e: React.DragEvent, clientId: string) => {
         setDraggedClientId(clientId);
         e.dataTransfer.effectAllowed = 'move';
+        // Transparent drag image or default
     };
 
     const handleDragOver = (e: React.DragEvent) => {
-        e.preventDefault(); 
+        e.preventDefault(); // Necessary to allow dropping
         e.dataTransfer.dropEffect = 'move';
     };
 

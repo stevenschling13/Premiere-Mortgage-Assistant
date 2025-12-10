@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, ReactNode } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Calculator } from './components/Calculator';
 import { ClientManager } from './components/ClientManager';
@@ -23,59 +23,32 @@ const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [hasKey, setHasKey] = useState<boolean | null>(null);
 
   useEffect(() => {
-    let mounted = true;
-    
-    // Safety fallback: If check takes too long, let the user in (fail open)
-    // or assume environment doesn't support the bridge.
-    const safetyTimer = setTimeout(() => {
-        if (mounted && hasKey === null) {
-            console.warn("ApiKeyGate: Check timed out, bypassing gate.");
-            setHasKey(true);
-        }
-    }, 1500); // Reduced to 1.5s for faster fallback
-
     const checkKey = async () => {
       try {
-        const aiStudio = (window as any).aistudio;
-        
-        // If not in AI Studio or bridge missing, bypass immediately
-        if (!aiStudio || typeof aiStudio.hasSelectedApiKey !== 'function') {
-            if (mounted) setHasKey(true);
-            return;
+        if ((window as any).aistudio?.hasSelectedApiKey) {
+          const selected = await (window as any).aistudio.hasSelectedApiKey();
+          setHasKey(selected);
+        } else {
+          setHasKey(true); 
         }
-
-        // Bridge exists, check key
-        const selected = await aiStudio.hasSelectedApiKey();
-        if (mounted) setHasKey(!!selected);
-        
       } catch (e) {
-        console.warn("ApiKeyGate: Bridge check failed", e);
-        // On error, fail open to allow app usage (geminiService handles missing keys)
-        if (mounted) setHasKey(true);
+        console.warn("Failed to check API key status", e);
+        setHasKey(true); // Fail open to allow app usage if check fails
       }
     };
-
     checkKey();
-
-    return () => {
-        mounted = false;
-        clearTimeout(safetyTimer);
-    };
   }, []);
 
   const handleSelectKey = async () => {
     try {
         if ((window as any).aistudio?.openSelectKey) {
             await (window as any).aistudio.openSelectKey();
-            // Optimistically update to avoid reloading race
-            setHasKey(true);
+            setHasKey(true); 
         } else {
             setHasKey(true);
         }
     } catch (e) {
         console.error("Error selecting key", e);
-        // Ensure we don't block user even if selection dialog fails
-        setHasKey(true); 
     }
   };
 
@@ -130,6 +103,7 @@ const AppContent: React.FC = () => {
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   
+  // Specific state for Client Manager navigation via Palette
   const [selectedClientFromPalette, setSelectedClientFromPalette] = useState<Client | null>(null);
 
   const showToast = useCallback((message: string, type: ToastType, action?: { label: string; onClick: () => void }) => {
@@ -141,6 +115,7 @@ const AppContent: React.FC = () => {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
+  // Global Command Palette Hotkey
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -152,6 +127,7 @@ const AppContent: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Global Error Listener
   useEffect(() => {
       const handleGlobalError = (event: ErrorEvent) => {
           console.error("Global Error Caught:", event.error);
@@ -162,6 +138,13 @@ const AppContent: React.FC = () => {
           console.error("Unhandled Rejection:", event.reason);
           const msg = event.reason?.message || "Unknown Async Error";
           errorService.log('ERROR', `Unhandled Promise: ${msg}`, { reason: event.reason });
+          
+          showToast("Background operation failed.", "warning", {
+              label: "Report Issue",
+              onClick: () => {
+                  alert(`Diagnostic info captured. ID: ${Date.now()}`);
+              }
+          });
       };
 
       window.addEventListener('error', handleGlobalError);
@@ -171,7 +154,7 @@ const AppContent: React.FC = () => {
           window.removeEventListener('error', handleGlobalError);
           window.removeEventListener('unhandledrejection', handleUnhandledRejection);
       };
-  }, []);
+  }, [showToast]);
 
   const handlePaletteNavigate = (view: AppView) => {
     setCurrentView(view);
@@ -179,6 +162,8 @@ const AppContent: React.FC = () => {
   };
 
   const handlePaletteSelectClient = (client: Client) => {
+    // We update the recent IDs so ClientManager can pick it up if it wants,
+    // but primarily we pass this specific client down if we are mounting ClientManager
     const existingRecents = loadFromStorage(StorageKeys.RECENT_IDS, []) as string[];
     const newRecents = [client.id, ...existingRecents.filter(id => id !== client.id)].slice(0, 5);
     saveToStorage(StorageKeys.RECENT_IDS, newRecents);
@@ -216,6 +201,13 @@ const AppContent: React.FC = () => {
   return (
     <ToastContext.Provider value={{ showToast }}>
       <div className="flex h-[100dvh] bg-slate-50 font-sans text-gray-900 overflow-hidden">
+        <a 
+          href="#main-content" 
+          className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-brand-red focus:text-white focus:rounded-md focus:shadow-lg focus:outline-none"
+        >
+          Skip to main content
+        </a>
+
         <ToastContainer toasts={toasts} removeToast={removeToast} />
         
         <CommandPalette 
@@ -273,6 +265,7 @@ const AppContent: React.FC = () => {
             </ErrorBoundary>
           </main>
 
+          {/* Global Assistant FAB - Only show if not on Assistant page */}
           {currentView !== AppView.ASSISTANT && (
             <>
                 <button
@@ -283,6 +276,7 @@ const AppContent: React.FC = () => {
                     <Bot size={28} className="group-hover:rotate-12 transition-transform"/>
                 </button>
 
+                {/* Assistant Slide-Over Overlay */}
                 <div 
                     className={`fixed inset-y-0 right-0 w-full md:w-[450px] bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-50 flex flex-col ${isAssistantOpen ? 'translate-x-0' : 'translate-x-full'}`}
                 >

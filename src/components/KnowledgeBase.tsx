@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { BookOpen, Mic, Copy, MessageSquare, Search, FileText, Bookmark, GraduationCap, ChevronRight, Wand2, Loader2, PlayCircle, Plus, Edit, Trash, X } from 'lucide-react';
+import { BookOpen, Mic, Copy, MessageSquare, Search, FileText, Bookmark, GraduationCap, ChevronRight, Wand2, Loader2, PlayCircle, Plus, Edit2, Trash2, X } from 'lucide-react';
 import { SalesScript, MortgageTerm } from '../types';
 import { INITIAL_SCRIPTS, MORTGAGE_TERMS, AGENCY_GUIDELINES } from '../constants';
 import { useToast } from './Toast';
@@ -191,10 +191,10 @@ export const KnowledgeBase: React.FC = () => {
                                                 </button>
                                                 {/* Edit Controls - Always visible or on hover */}
                                                 <button onClick={() => handleOpenEdit(script)} className="p-2 hover:bg-gray-100 rounded-full text-gray-500 hover:text-brand-dark" title="Edit Script">
-                                                    <Edit size={16}/>
+                                                    <Edit2 size={16}/>
                                                 </button>
                                                 <button onClick={() => handleDeleteScript(script.id)} className="p-2 hover:bg-red-50 rounded-full text-gray-400 hover:text-red-500" title="Delete Script">
-                                                    <Trash size={16}/>
+                                                    <Trash2 size={16}/>
                                                 </button>
                                             </div>
                                         </div>
