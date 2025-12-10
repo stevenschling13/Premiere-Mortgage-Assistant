@@ -22,10 +22,14 @@ if (typeof window !== 'undefined') {
       const env = import.meta.env as any;
 
       // Map API_KEY
-      if (env.API_KEY) {
-        win.process.env.API_KEY = env.API_KEY;
-      } else if (env.VITE_API_KEY) {
-        win.process.env.API_KEY = env.VITE_API_KEY;
+      const keyFromEnv =
+        env.API_KEY ||
+        env.GEMINI_API_KEY ||
+        env.VITE_API_KEY ||
+        env.VITE_GEMINI_API_KEY;
+
+      if (keyFromEnv) {
+        win.process.env.API_KEY = keyFromEnv;
       }
       
       // Pass through other env vars

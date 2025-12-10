@@ -64,7 +64,7 @@ export const DailyPlanner: React.FC = () => {
             const updatedClients = [...clients];
             let hasUpdates = false;
 
-            newEvents.forEach(evt => {
+            newEvents.forEach((evt: CalendarEvent) => {
                 if (evt.clientId) {
                     const clientIdx = updatedClients.findIndex(c => c.id === evt.clientId);
                     if (clientIdx >= 0) {

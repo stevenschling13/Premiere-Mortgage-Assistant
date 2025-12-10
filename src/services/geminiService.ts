@@ -126,7 +126,7 @@ const normalizeError = (error: any): AIError => {
 
 const getAiClient = () => {
   const env = (typeof process !== 'undefined' && process.env) ? process.env : {};
-  const apiKey = env.API_KEY;
+  const apiKey = env.API_KEY || env.GEMINI_API_KEY;
   
   if (!apiKey || apiKey.trim() === '') {
     throw new AIError(AIErrorCodes.INVALID_API_KEY, "API Key is missing. Please connect a billing-enabled key.");
@@ -243,11 +243,11 @@ export const chatWithAssistant = async (
     
     const links = groundingChunks
       .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
-      .filter((link: any) => link !== null);
+      .filter((link): link is { uri: string; title: string } => Boolean(link));
 
     return {
-      text: response.text,
-      links: links,
+      text: response.text || '',
+      links,
       searchEntryPoint: groundingMetadata?.searchEntryPoint?.renderedContent,
       searchQueries: groundingMetadata?.webSearchQueries
     };
@@ -343,7 +343,7 @@ export const generateClientSummary = async (client: Client) => {
           thinkingConfig: { thinkingBudget: 2048 }
         }
       });
-      return response.text;
+      return response.text || '';
   });
 };
 
@@ -370,7 +370,7 @@ export const generateEmailDraft = async (client: Client, topic: string, specific
         temperature: 0.7,
       }
     });
-    return response.text;
+    return response.text || '';
   });
 };
 
@@ -402,7 +402,7 @@ export const generatePartnerUpdate = async (client: Client, partnerName: string)
         temperature: 0.7,
       }
     });
-    return response.text;
+    return response.text || '';
   });
 };
 
@@ -437,7 +437,7 @@ export const generateRateSheetEmail = async (rates: any, rawNotes: string) => {
         thinkingConfig: { thinkingBudget: 2048 }
       }
     });
-    return response.text;
+    return response.text || '';
   });
 };
 
@@ -548,7 +548,7 @@ export const generateMarketingContent = async (channel: string, topic: string, t
         contents: prompt,
         config: { systemInstruction: SYSTEM_INSTRUCTION }
     });
-    return response.text;
+    return response.text || '';
   });
 };
 
@@ -573,7 +573,7 @@ export const analyzeCommunicationHistory = async (clientName: string, history: E
         contents: prompt,
         config: { systemInstruction: SYSTEM_INSTRUCTION }
     });
-    return response.text;
+    return response.text || '';
   });
 }
 
@@ -605,7 +605,7 @@ export const analyzeLoanScenario = async (scenarioData: string) => {
         thinkingConfig: { thinkingBudget: 32768 }
       }
     });
-    return response.text;
+    return response.text || '';
   });
 }
 
@@ -644,7 +644,7 @@ export const compareLoanScenarios = async (scenarioA: any, scenarioB: any) => {
         thinkingConfig: { thinkingBudget: 4096 }
       }
     });
-    return response.text;
+    return response.text || '';
   });
 };
 
@@ -694,7 +694,7 @@ export const solveDtiScenario = async (financials: any) => {
         thinkingConfig: { thinkingBudget: 4096 }
       }
     });
-    return response.text;
+    return response.text || '';
   });
 }
 
@@ -820,7 +820,7 @@ export const generateMorningMemo = async (urgentClients: Client[], marketData: a
         thinkingConfig: { thinkingBudget: 2048 }
       }
     });
-    return response.text;
+    return response.text || '';
   });
 };
 
@@ -852,7 +852,7 @@ export const generateClientFriendlyAnalysis = async (marketData: any) => {
         thinkingConfig: { thinkingBudget: 2048 } 
       }
     });
-    return response.text;
+    return response.text || '';
   });
 }
 
@@ -884,7 +884,7 @@ export const generateBuyerSpecificAnalysis = async (marketData: any) => {
         thinkingConfig: { thinkingBudget: 2048 }
       }
     });
-    return response.text;
+    return response.text || '';
   });
 }
 
@@ -904,7 +904,7 @@ export const analyzeRateTrends = async (rates: any) => {
         contents: prompt,
         config: { systemInstruction: SYSTEM_INSTRUCTION }
     });
-    return response.text;
+    return response.text || '';
   });
 }
 
@@ -921,7 +921,7 @@ export const synthesizeMarketNews = async (newsItems: any[]) => {
         contents: prompt,
         config: { systemInstruction: SYSTEM_INSTRUCTION }
     });
-    return response.text;
+    return response.text || '';
   });
 }
 
@@ -958,7 +958,7 @@ export const analyzeIncomeProjection = async (clients: any[], currentCommission:
             contents: prompt,
             config: { systemInstruction: SYSTEM_INSTRUCTION }
         });
-        return response.text;
+        return response.text || '';
     });
 };
 
@@ -997,7 +997,7 @@ export const generateGapStrategy = async (currentTotalIncome: number, targetInco
         thinkingConfig: { thinkingBudget: 2048 }
       }
     });
-    return response.text;
+    return response.text || '';
   });
 };
 
@@ -1044,7 +1044,7 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
     const groundingChunks = candidate?.groundingMetadata?.groundingChunks || [];
     const sources = groundingChunks
       .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
-      .filter((link: any) => link !== null);
+      .filter((link): link is { uri: string; title: string } => Boolean(link));
 
     // Determine status based on text content (simple heuristic for UI color coding)
     const textLower = response.text?.toLowerCase() || "";
@@ -1163,7 +1163,7 @@ export const organizeScratchpadNotes = async (rawText: string) => {
       contents: prompt,
       config: { systemInstruction: SYSTEM_INSTRUCTION }
     });
-    return response.text;
+    return response.text || '';
   });
 };
 
@@ -1490,7 +1490,7 @@ export const generateMeetingPrep = async (clientName: string, clientData?: Clien
                 thinkingConfig: { thinkingBudget: 2048 }
             }
         });
-        return response.text;
+        return response.text || '';
     });
 };
 
