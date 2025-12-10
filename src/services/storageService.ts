@@ -19,6 +19,7 @@ export const StorageKeys = {
   SAVED_VIEWS: `${STORAGE_PREFIX}saved_views`,
   MARKET_DATA: `${STORAGE_PREFIX}market_data`,
   VALUATIONS: `${STORAGE_PREFIX}valuations`,
+  CALENDAR_EVENTS: `${STORAGE_PREFIX}calendar_events`,
 };
 
 // In-memory write cache to prevent redundant disk I/O
@@ -56,45 +57,56 @@ const sanitizeForStorage = (data: any, depth = 0): any => {
 };
 
 const performWrite = (key: string, data: any) => {
-    try {
-        const serialized = JSON.stringify(data);
-        
-        // Performance: Skip write if data hasn't changed since last save
-        if (writeCache.get(key) === serialized) {
-            return;
-        }
-
-        localStorage.setItem(key, serialized);
-        writeCache.set(key, serialized);
-        
-        // Cleanup pending state after successful write
-        pendingWrites.delete(key);
-        if (writeTimers.has(key)) {
-            clearTimeout(writeTimers.get(key));
-            writeTimers.delete(key);
-        }
-
-    } catch (error: any) {
-        if (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
-            console.warn('LocalStorage Quota Exceeded. Attempting to sanitize data...', key);
-            try {
-                // Attempt fallback: Remove heavy artifacts and retry
-                const sanitized = sanitizeForStorage(data);
-                const serializedSanitized = JSON.stringify(sanitized);
-                
-                // Check cache again for sanitized version
-                if (writeCache.get(key) === serializedSanitized) return;
-
-                localStorage.setItem(key, serializedSanitized);
-                writeCache.set(key, serializedSanitized);
-                
-                pendingWrites.delete(key);
-            } catch (retryError) {
-                console.error('Failed to save even after sanitization.', retryError);
+    // Wrap heavy serialization in an idle callback to avoid blocking the main thread (UI input)
+    const runWrite = () => {
+        try {
+            const serialized = JSON.stringify(data);
+            
+            // Performance: Skip write if data hasn't changed since last save
+            if (writeCache.get(key) === serialized) {
+                return;
             }
-        } else {
-            console.error('Error saving to storage', error);
+
+            localStorage.setItem(key, serialized);
+            writeCache.set(key, serialized);
+            
+            // Cleanup pending state after successful write
+            pendingWrites.delete(key);
+            if (writeTimers.has(key)) {
+                clearTimeout(writeTimers.get(key));
+                writeTimers.delete(key);
+            }
+
+        } catch (error: any) {
+            if (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+                console.warn('LocalStorage Quota Exceeded. Attempting to sanitize data...', key);
+                try {
+                    // Attempt fallback: Remove heavy artifacts and retry
+                    const sanitized = sanitizeForStorage(data);
+                    const serializedSanitized = JSON.stringify(sanitized);
+                    
+                    // Check cache again for sanitized version
+                    if (writeCache.get(key) === serializedSanitized) return;
+
+                    localStorage.setItem(key, serializedSanitized);
+                    writeCache.set(key, serializedSanitized);
+                    
+                    pendingWrites.delete(key);
+                } catch (retryError) {
+                    console.error('Failed to save even after sanitization.', retryError);
+                }
+            } else {
+                console.error('Error saving to storage', error);
+            }
         }
+    };
+
+    // Use requestIdleCallback if available, otherwise fallback to immediate execution
+    if (typeof window !== 'undefined' && (window as any).requestIdleCallback) {
+        (window as any).requestIdleCallback(runWrite, { timeout: 1000 });
+    } else {
+        // Fallback for Safari or environments without requestIdleCallback
+        setTimeout(runWrite, 0);
     }
 };
 
@@ -120,6 +132,7 @@ export const saveToStorage = (key: string, data: any, immediate = false) => {
 
 export const loadFromStorage = <T>(key: string, fallback: T): T => {
   // 1. Check dirty memory state first (pending writes)
+  // This ensures that even if the disk write is deferred/idle, the app sees the latest state
   if (pendingWrites.has(key)) {
       return pendingWrites.get(key) as T;
   }
@@ -133,7 +146,6 @@ export const loadFromStorage = <T>(key: string, fallback: T): T => {
             return JSON.parse(item);
         } catch (parseError) {
             console.error(`Malformed JSON in storage for key: ${key}. Resetting to fallback.`, parseError);
-            // Optional: Backup corrupted data for debug? localStorage.setItem(key + '_corrupt', item);
             return fallback;
         }
     }
@@ -148,7 +160,10 @@ export const loadFromStorage = <T>(key: string, fallback: T): T => {
 if (typeof window !== 'undefined') {
     window.addEventListener('beforeunload', () => {
         pendingWrites.forEach((data, key) => {
-            performWrite(key, data);
+            // Force immediate write on unload
+            try {
+                localStorage.setItem(key, JSON.stringify(data));
+            } catch(e) { /* ignore errors on unload */ }
         });
     });
 }

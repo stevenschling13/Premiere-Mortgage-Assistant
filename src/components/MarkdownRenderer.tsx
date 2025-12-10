@@ -5,7 +5,7 @@ interface MarkdownRendererProps {
   className?: string;
 }
 
-export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className = '' }) => {
+const MarkdownRendererComponent: React.FC<MarkdownRendererProps> = ({ content, className = '' }) => {
   if (!content) return null;
 
   const parseContent = (text: string) => {
@@ -85,3 +85,5 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
   return parseContent(content);
 };
+
+export const MarkdownRenderer = React.memo(MarkdownRendererComponent);

@@ -1,15 +1,5 @@
-
-import React, { useState, useCallback, useEffect, ReactNode } from 'react';
+import React, { useState, useCallback, useEffect, Suspense } from 'react';
 import { Sidebar } from './components/Sidebar';
-import { Calculator } from './components/Calculator';
-import { ClientManager } from './components/ClientManager';
-import { Assistant } from './components/Assistant';
-import { DtiAnalysis } from './components/DtiAnalysis';
-import { RatesNotes } from './components/RatesNotes';
-import { MarketingStudio } from './components/MarketInsights';
-import { CompensationTracker } from './components/CompensationTracker';
-import { DailyPlanner } from './components/DailyPlanner';
-import { KnowledgeBase } from './components/KnowledgeBase';
 import { ToastContainer, ToastContext } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { CommandPalette } from './components/CommandPalette';
@@ -18,80 +8,26 @@ import { Menu, Building2, Loader2, Bot } from 'lucide-react';
 import { errorService } from './services/errorService';
 import { saveToStorage, StorageKeys, loadFromStorage } from './services/storageService';
 
-// API Key Gate Component
+// Lazy Loaded Components
+const ClientManager = React.lazy(() => import('./components/ClientManager').then(module => ({ default: module.ClientManager })));
+const Calculator = React.lazy(() => import('./components/Calculator').then(module => ({ default: module.Calculator })));
+const Assistant = React.lazy(() => import('./components/Assistant').then(module => ({ default: module.Assistant })));
+const DtiAnalysis = React.lazy(() => import('./components/DtiAnalysis').then(module => ({ default: module.DtiAnalysis })));
+const RatesNotes = React.lazy(() => import('./components/RatesNotes').then(module => ({ default: module.RatesNotes })));
+const MarketingStudio = React.lazy(() => import('./components/MarketInsights').then(module => ({ default: module.MarketingStudio })));
+const CompensationTracker = React.lazy(() => import('./components/CompensationTracker').then(module => ({ default: module.CompensationTracker })));
+const DailyPlanner = React.lazy(() => import('./components/DailyPlanner').then(module => ({ default: module.DailyPlanner })));
+const KnowledgeBase = React.lazy(() => import('./components/KnowledgeBase').then(module => ({ default: module.KnowledgeBase })));
+
+// Loading Component
+const ViewLoader = () => (
+  <div className="flex h-full items-center justify-center bg-gray-50/50">
+    <Loader2 className="w-8 h-8 animate-spin text-brand-dark/20" />
+  </div>
+);
+
+// API Key Gate Component - Pass-through to allow free tier usage
 const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [hasKey, setHasKey] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    const checkKey = async () => {
-      try {
-        if ((window as any).aistudio?.hasSelectedApiKey) {
-          const selected = await (window as any).aistudio.hasSelectedApiKey();
-          setHasKey(selected);
-        } else {
-          setHasKey(true); 
-        }
-      } catch (e) {
-        console.warn("Failed to check API key status", e);
-        setHasKey(true); // Fail open to allow app usage if check fails
-      }
-    };
-    checkKey();
-  }, []);
-
-  const handleSelectKey = async () => {
-    try {
-        if ((window as any).aistudio?.openSelectKey) {
-            await (window as any).aistudio.openSelectKey();
-            setHasKey(true); 
-        } else {
-            setHasKey(true);
-        }
-    } catch (e) {
-        console.error("Error selecting key", e);
-    }
-  };
-
-  if (hasKey === null) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-slate-50">
-        <Loader2 className="w-8 h-8 animate-spin text-brand-red" />
-      </div>
-    );
-  }
-
-  if (hasKey === false) {
-    return (
-      <div className="h-screen flex flex-col items-center justify-center bg-slate-900 text-white p-4 animate-fade-in">
-        <div className="max-w-md text-center">
-          <div className="bg-brand-dark/50 p-4 rounded-full w-24 h-24 flex items-center justify-center mx-auto mb-8 border border-white/10 shadow-xl">
-             <Building2 className="w-12 h-12 text-brand-gold" />
-          </div>
-          <h1 className="text-3xl font-bold mb-3 tracking-tight">Premiere Mortgage Assistant</h1>
-          <p className="text-gray-400 mb-8 leading-relaxed text-sm">
-            To access the AI-powered features (Gemini 3 Pro, Imagen, Veo), please connect a billing-enabled Google Cloud Project API Key.
-          </p>
-          <button 
-            onClick={handleSelectKey}
-            className="bg-brand-red hover:bg-red-700 text-white font-bold py-3.5 px-8 rounded-full shadow-lg transition-transform active:scale-95 flex items-center mx-auto focus:outline-none focus:ring-4 focus:ring-red-500/50"
-          >
-            Connect API Key
-          </button>
-          <div className="mt-10 pt-6 border-t border-white/5">
-            <a 
-              href="https://ai.google.dev/gemini-api/docs/billing" 
-              target="_blank" 
-              rel="noreferrer"
-              className="text-xs text-gray-500 hover:text-white transition-colors flex items-center justify-center hover:underline focus:text-white focus:outline-none"
-            >
-              View Billing Documentation
-            </a>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return <>{children}</>;
 };
 
@@ -162,8 +98,6 @@ const AppContent: React.FC = () => {
   };
 
   const handlePaletteSelectClient = (client: Client) => {
-    // We update the recent IDs so ClientManager can pick it up if it wants,
-    // but primarily we pass this specific client down if we are mounting ClientManager
     const existingRecents = loadFromStorage(StorageKeys.RECENT_IDS, []) as string[];
     const newRecents = [client.id, ...existingRecents.filter(id => id !== client.id)].slice(0, 5);
     saveToStorage(StorageKeys.RECENT_IDS, newRecents);
@@ -174,6 +108,7 @@ const AppContent: React.FC = () => {
   };
 
   const renderContent = () => {
+    // Each component is now lazy-loaded, wrapped in Suspense for smooth transitions
     switch (currentView) {
       case AppView.DASHBOARD:
         return <ClientManager initialSelectedClient={selectedClientFromPalette} onSelectionCleared={() => setSelectedClientFromPalette(null)} />;
@@ -261,7 +196,9 @@ const AppContent: React.FC = () => {
             tabIndex={-1}
           >
             <ErrorBoundary>
-              {renderContent()}
+              <Suspense fallback={<ViewLoader />}>
+                {renderContent()}
+              </Suspense>
             </ErrorBoundary>
           </main>
 
@@ -280,7 +217,9 @@ const AppContent: React.FC = () => {
                 <div 
                     className={`fixed inset-y-0 right-0 w-full md:w-[450px] bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-50 flex flex-col ${isAssistantOpen ? 'translate-x-0' : 'translate-x-full'}`}
                 >
-                    {isAssistantOpen && <Assistant onClose={() => setIsAssistantOpen(false)} />}
+                    <Suspense fallback={<ViewLoader />}>
+                        {isAssistantOpen && <Assistant onClose={() => setIsAssistantOpen(false)} />}
+                    </Suspense>
                 </div>
             </>
           )}
