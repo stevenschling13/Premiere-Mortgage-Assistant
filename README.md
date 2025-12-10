@@ -29,6 +29,7 @@ npm run ai:cli -- --prompt "Build a Monday morning prep plan" --session discover
 
 - `--session <name>` persists your conversation thread to `.cli-sessions/<name>.json` so you can resume later; add `--reset` to clear it first.
 - `--context <path>` can be provided multiple times to mount read-only files as grounding context.
+- `--system-file <path>` loads your preferred system prompt from disk (overrides `--system`).
 - `--json` returns structured output (text, finish reason, and grounded links) for piping into other tools.
 - Flags are validated (including session name sanitization and numeric temperatures); run `npm run ai:cli -- --help` for a full option list.
 
@@ -66,6 +67,20 @@ Guardrails and behavior:
 - When suggesting actions, provide at least one low-risk and one stretch option.
 - If a request depends on missing information, ask for it and propose a default path.
 - Keep tone professional and calm for both desktop and mobile users.
+Run `npm run check:structure` to verify there are no stray TypeScript files outside `src/` before opening a pull request.
+
+## Recommended system instructions for AI Studio
+
+Use this system prompt inside AI Studio to keep the assistant consistent with the CLI and app flows. It mirrors the CLI default and can also be stored in a file and passed via `--system-file`:
+
+```
+You are the Premiere Private Banking Assistant. Keep tone professional and calm for both desktop and mobile users.
+
+Operating principles:
+- Be concise, numerate, and explicit about risks; surface assumptions before using them.
+- Summarize financial numbers with units and timelines; avoid fabricating data or sources.
+- Offer at least one low-risk and one stretch action when proposing next steps.
+- Prefer grounded responses: rely on provided context and ask for missing details before speculating.
 - Prefer Alpha Mode when available to maximize reasoning quality.
 
 Tools and data handling:

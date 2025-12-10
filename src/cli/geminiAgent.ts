@@ -9,6 +9,14 @@ const SESSION_DIR = ".cli-sessions";
 
 const DEFAULT_SYSTEM = `You are the Premiere Private Banking Assistant CLI agent. Be concise, numerate, and explicit about risk.
 Always provide actionable next steps and cite any assumptions you are making.`;
+const DEFAULT_SYSTEM = `You are the Premiere Private Banking Assistant CLI agent. Keep tone professional and calm for both desktop and mobile users.
+
+Operating principles:
+- Be concise, numerate, and explicit about risks; surface assumptions before using them.
+- Summarize financial numbers with units and timelines; avoid fabricating data or sources.
+- Offer at least one low-risk and one stretch action when proposing next steps.
+- Prefer grounded responses: rely on provided context and ask for missing details before speculating.
+- Prefer Alpha Mode when available to maximize reasoning quality.`;
 
 type GroundedLink = { title: string; uri: string };
 
@@ -57,6 +65,7 @@ type CliOptions = {
   model: string;
   temperature: number;
   systemInstruction?: string;
+  systemFile?: string;
   json: boolean;
 };
 
@@ -124,6 +133,26 @@ const readContexts = (paths: string[]): ContextAttachment[] => {
   });
 };
 
+const readSystemInstruction = (options: CliOptions) => {
+  if (!options.systemFile) {
+    return options.systemInstruction;
+  }
+
+  const resolved = path.resolve(process.cwd(), options.systemFile);
+  const stats = fs.existsSync(resolved) ? fs.statSync(resolved) : undefined;
+
+  if (!stats || !stats.isFile()) {
+    throw new Error(`System instruction file not found: ${options.systemFile}`);
+  }
+
+  const content = fs.readFileSync(resolved, "utf8").trim();
+  if (!content) {
+    throw new Error("System instruction file is empty.");
+  }
+
+  return content;
+};
+
 class GeminiCliAgent {
   private history: ChatHistory;
   private store: SessionStore;
@@ -155,6 +184,7 @@ class GeminiCliAgent {
   async run(): Promise<ChatResult> {
     const contexts = readContexts(this.options.contextPaths);
     const payload = this.buildMessage(contexts);
+    const systemInstruction = readSystemInstruction(this.options) || DEFAULT_SYSTEM;
 
     const ai = new GoogleGenAI({ apiKey: this.apiKey });
     const chat = ai.chats.create({
@@ -162,6 +192,7 @@ class GeminiCliAgent {
       history: this.history,
       config: {
         systemInstruction: this.options.systemInstruction || DEFAULT_SYSTEM,
+        systemInstruction,
         temperature: this.options.temperature,
         tools: [{ googleSearch: {} }],
       },
@@ -198,6 +229,7 @@ const parseArgs = (): CliOptions => {
     model: DEFAULT_MODEL,
     temperature: 0.4,
     systemInstruction: undefined,
+    systemFile: undefined,
     json: false,
   };
 
@@ -230,6 +262,9 @@ const parseArgs = (): CliOptions => {
       case "--system":
         options.systemInstruction = requireValue(arg, args[++i]);
         break;
+      case "--system-file":
+        options.systemFile = requireValue(arg, args[++i]);
+        break;
       case "--json":
         options.json = true;
         break;
@@ -258,6 +293,7 @@ const parseArgs = (): CliOptions => {
 
 const printHelp = () => {
   console.log(`Gemini CLI agent\n\nUsage: npm run ai:cli -- --prompt "How do I prep for Monday?" [options]\n\nOptions:\n  -p, --prompt <text>     Prompt text (required unless piped)\n  -c, --context <path>    Attach a file as read-only context (repeatable)\n  -s, --session <name>    Persist conversation to .cli-sessions/<name>.json\n      --reset             Reset the named session before running\n  -m, --model <name>      Model to use (default: ${DEFAULT_MODEL})\n  -t, --temp <value>      Temperature (default: 0.4)\n      --system <text>     Override the default system instruction\n      --json              Emit JSON with metadata instead of plain text\n  -h, --help              Show this help message\n`);
+  console.log(`Gemini CLI agent\n\nUsage: npm run ai:cli -- --prompt "How do I prep for Monday?" [options]\n\nOptions:\n  -p, --prompt <text>     Prompt text (required unless piped)\n  -c, --context <path>    Attach a file as read-only context (repeatable)\n  -s, --session <name>    Persist conversation to .cli-sessions/<name>.json\n      --reset             Reset the named session before running\n  -m, --model <name>      Model to use (default: ${DEFAULT_MODEL})\n  -t, --temp <value>      Temperature (default: 0.4)\n      --system <text>     Override the default system instruction\n      --system-file <path> Load a system instruction from a file (overrides --system)\n      --json              Emit JSON with metadata instead of plain text\n  -h, --help              Show this help message\n`);
 };
 
 (async () => {

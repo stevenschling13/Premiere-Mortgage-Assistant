@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User as UserIcon, Loader2, Link as LinkIcon, ExternalLink, Mic, MicOff, Trash2, Search, ShieldCheck, AlertTriangle, Swords, XCircle, PlayCircle, Trophy, Beaker, X } from 'lucide-react';
+import { Send, Bot, User as UserIcon, Loader2, Link as LinkIcon, ExternalLink, Mic, MicOff, Trash, Search, ShieldCheck, AlertTriangle, Swords, XCircle, PlayCircle, Trophy, Beaker, X } from 'lucide-react';
 import { ChatMessage, SimulationScenario } from '../types';
 import { chatWithAssistant, verifyFactualClaims, loadFromStorage, saveToStorage, StorageKeys } from '../services';
 import { SIMULATION_SCENARIOS, SUGGESTED_PROMPTS } from '../constants';
@@ -499,7 +499,7 @@ export const Assistant: React.FC<AssistantProps> = ({ onClose }) => {
                     className="p-1.5 text-gray-400 hover:text-white transition-colors"
                     title="Clear History"
                 >
-                    <Trash2 size={16} />
+                    <Trash size={16} />
                 </button>
             )}
             <button 
@@ -746,7 +746,7 @@ export const Assistant: React.FC<AssistantProps> = ({ onClose }) => {
                             className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-gray-300 hover:text-red-400"
                             title="Delete Message"
                         >
-                            <Trash2 size={12} />
+                            <Trash size={12} />
                         </button>
                     )}
                 </div>
