@@ -207,9 +207,8 @@ export const ClientManager: React.FC = () => {
         try {
             const marketData = await fetchDailyMarketPulse();
             const memo = await generateMorningMemo(urgentClients, marketData);
-            const safeMemo = memo ?? 'No executive brief available yet.';
-            setMorningMemo(safeMemo);
-            saveToStorage(memoKey, safeMemo);
+            setMorningMemo(memo);
+            saveToStorage(memoKey, memo);
         } catch (e) {
             showToast("Failed to generate executive brief", "error");
         } finally {

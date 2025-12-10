@@ -84,7 +84,7 @@ export const Calculator: React.FC = () => {
     try {
       const dataStr = `Jumbo Loan Scenario. Price: $${scenario.purchasePrice}, Loan: $${loanAmount}, IO: ${scenario.isInterestOnly}, Rate: ${scenario.interestRate}%, Dwn: ${scenario.downPaymentPercent}%`;
       const result = await analyzeLoanScenario(dataStr);
-      setAiAnalysis(result ?? 'No AI analysis available yet.');
+      setAiAnalysis(result);
     } catch (e) {
       console.error(e);
       showToast('AI Analysis failed', 'error');

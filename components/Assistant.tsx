@@ -6,7 +6,6 @@ import { chatWithAssistant, verifyFactualClaims, loadFromStorage, saveToStorage,
 import { SIMULATION_SCENARIOS, SUGGESTED_PROMPTS } from '../constants';
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
 import { MarkdownRenderer } from './MarkdownRenderer';
-declare const process: { env?: Record<string, string | undefined> };
 
 // Robust manual encoding to avoid stack overflow with large buffers
 function encode(bytes: Uint8Array) {
@@ -188,9 +187,9 @@ export const Assistant: React.FC = () => {
       const aiMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        text: response.text ?? 'No response received.',
+        text: response.text,
         timestamp: new Date(),
-        groundingLinks: (response.links || []).filter((link): link is { uri: string; title: string } => !!link && !!link.uri && !!link.title),
+        groundingLinks: response.links,
         searchEntryPoint: response.searchEntryPoint,
         searchQueries: response.searchQueries
       };
@@ -276,8 +275,7 @@ export const Assistant: React.FC = () => {
 
       mediaStreamRef.current = stream;
 
-      const apiKey = typeof process !== 'undefined' ? process.env?.API_KEY : undefined;
-      const ai = new GoogleGenAI({ apiKey: apiKey ?? '' });
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       
       // Select Instruction based on mode
       const instruction = isSimulationMode && selectedScenario

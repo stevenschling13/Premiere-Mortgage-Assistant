@@ -178,12 +178,12 @@ const AppContent: React.FC = () => {
           />
         )}
 
-        <Sidebar
-          currentView={currentView}
-          onChangeView={(view: AppView) => {
+        <Sidebar 
+          currentView={currentView} 
+          onChangeView={(view) => {
             setCurrentView(view);
             setIsSidebarOpen(false);
-          }}
+          }} 
           isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
         />

@@ -4,17 +4,6 @@ import { ErrorLog } from '../types';
 const MAX_LOGS = 50;
 const STORAGE_KEY = 'premiere_debug_logs';
 
-const isStorageAvailable = () => {
-  try {
-    const testKey = '__pm_storage_test__';
-    localStorage.setItem(testKey, '1');
-    localStorage.removeItem(testKey);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 class ErrorService {
   private logs: ErrorLog[] = [];
 
@@ -23,8 +12,6 @@ class ErrorService {
   }
 
   private loadLogs() {
-    if (!isStorageAvailable()) return;
-
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
@@ -36,8 +23,6 @@ class ErrorService {
   }
 
   private saveLogs() {
-    if (!isStorageAvailable()) return;
-
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.logs));
     } catch (e) {

@@ -58,8 +58,8 @@ export const DtiAnalysis: React.FC = () => {
     
     // Determine effective max DTI based on AUS toggle
     let effectiveMaxDti = guidelines.maxDTI;
-    if (selectedLoanType === 'FHA' && !hasAusApproval && 'manualDTI' in guidelines) {
-        effectiveMaxDti = guidelines.manualDTI ?? 43.00;
+    if (selectedLoanType === 'FHA' && !hasAusApproval) {
+        effectiveMaxDti = guidelines.manualDTI || 43.00;
     }
 
     const isOverStandard = backEndRatio > guidelines.standardDTI;
@@ -103,7 +103,7 @@ export const DtiAnalysis: React.FC = () => {
                 requiredResidual: selectedLoanType === 'VA' ? requiredResidual : undefined
             };
             const advice = await solveDtiScenario(financials);
-            setDealDoctorAdvice(advice ?? null);
+            setDealDoctorAdvice(advice);
         } catch (e) {
             console.error(e);
             showToast("DTI Optimizer unavailable.", "error");
@@ -514,9 +514,7 @@ export const DtiAnalysis: React.FC = () => {
                         <div className="grid grid-cols-2 gap-y-2">
                             <div>Standard DTI: <span className="font-mono font-bold text-gray-800">{guidelines.standardDTI}%</span></div>
                             <div>Max DTI (AUS): <span className="font-mono font-bold text-gray-800">{guidelines.maxDTI}%</span></div>
-                            {'manualDTI' in guidelines && guidelines.manualDTI !== undefined && (
-                                <div>Max DTI (Manual): <span className="font-mono font-bold text-gray-800">{guidelines.manualDTI}%</span></div>
-                            )}
+                            {guidelines.manualDTI && <div>Max DTI (Manual): <span className="font-mono font-bold text-gray-800">{guidelines.manualDTI}%</span></div>}
                             <div>Max LTV: <span className="font-mono font-bold text-gray-800">{guidelines.maxLTV}%</span></div>
                             <div>Reserves: <span className="font-mono font-bold text-gray-800">{guidelines.reserves}</span></div>
                         </div>
