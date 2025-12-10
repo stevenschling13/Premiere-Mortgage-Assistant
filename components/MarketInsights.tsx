@@ -7,14 +7,15 @@ import {
     Trash2, ShieldCheck, AlertTriangle, Link as LinkIcon, Home, Wallet
 } from 'lucide-react';
 import { 
-    fetchDailyMarketPulse, 
-    generateClientFriendlyAnalysis, 
+    fetchDailyMarketPulse,
+    generateClientFriendlyAnalysis,
     generateBuyerSpecificAnalysis,
     generateMarketingCampaign,
     verifyCampaignContent,
-    loadFromStorage, 
-    saveToStorage, 
-    StorageKeys 
+    copyTextToClipboard,
+    loadFromStorage,
+    saveToStorage,
+    StorageKeys
 } from '../services';
 import { MarketIndex, NewsItem, MarketingCampaign, VerificationResult } from '../types';
 import { useToast } from './Toast';
@@ -179,9 +180,19 @@ export const MarketingStudio: React.FC = () => {
       }
   };
 
-  const copyToClipboard = (text: string) => {
-      navigator.clipboard.writeText(text);
-      showToast('Copied to clipboard', 'info');
+  const copyToClipboard = async (text: string, label: string) => {
+      if (!text?.trim()) {
+          showToast('Nothing to copy', 'warning');
+          return;
+      }
+
+      try {
+          await copyTextToClipboard(text);
+          showToast(`${label} copied`, 'success');
+      } catch (error) {
+          console.error('Clipboard copy failed', error);
+          showToast('Unable to copy to clipboard', 'error');
+      }
   };
 
   // --- Render Sections ---
@@ -459,7 +470,7 @@ export const MarketingStudio: React.FC = () => {
                   <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[400px]">
                       <div className="bg-[#0077b5] p-3 flex justify-between items-center text-white shrink-0">
                           <div className="flex items-center space-x-2"><Linkedin size={16}/><span className="font-bold text-xs">LinkedIn Post</span></div>
-                          <button onClick={() => copyToClipboard(marketingState.campaignResult?.linkedInPost || '')} className="hover:bg-white/20 p-1 rounded"><Copy size={14}/></button>
+                          <button onClick={() => copyToClipboard(marketingState.campaignResult?.linkedInPost || '', 'LinkedIn draft')} className="hover:bg-white/20 p-1 rounded"><Copy size={14}/></button>
                       </div>
                       <div className="flex-1 p-2 bg-gray-50">
                           <textarea 
@@ -476,7 +487,7 @@ export const MarketingStudio: React.FC = () => {
                   <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[400px]">
                       <div className="bg-gray-800 p-3 flex justify-between items-center text-white shrink-0">
                           <div className="flex items-center space-x-2"><Mail size={16}/><span className="font-bold text-xs">Client Email</span></div>
-                          <button onClick={() => copyToClipboard(`${marketingState.campaignResult?.emailSubject}\n\n${marketingState.campaignResult?.emailBody}`)} className="hover:bg-white/20 p-1 rounded"><Copy size={14}/></button>
+                          <button onClick={() => copyToClipboard(`${marketingState.campaignResult?.emailSubject}\n\n${marketingState.campaignResult?.emailBody}`, 'Email content')} className="hover:bg-white/20 p-1 rounded"><Copy size={14}/></button>
                       </div>
                       <div className="p-4 flex-1 bg-gray-50 flex flex-col space-y-3 overflow-hidden">
                           <div className="border-b border-gray-200 pb-2 shrink-0">
@@ -503,7 +514,7 @@ export const MarketingStudio: React.FC = () => {
                   <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[400px]">
                       <div className="bg-green-600 p-3 flex justify-between items-center text-white shrink-0">
                           <div className="flex items-center space-x-2"><MessageSquare size={16}/><span className="font-bold text-xs">SMS Blast</span></div>
-                          <button onClick={() => copyToClipboard(marketingState.campaignResult?.smsTeaser || '')} className="hover:bg-white/20 p-1 rounded"><Copy size={14}/></button>
+                          <button onClick={() => copyToClipboard(marketingState.campaignResult?.smsTeaser || '', 'SMS teaser')} className="hover:bg-white/20 p-1 rounded"><Copy size={14}/></button>
                       </div>
                       <div className="p-4 flex-1 bg-gray-50 flex items-center justify-center">
                           <div className="bg-white border border-gray-200 p-3 rounded-tr-xl rounded-tl-xl rounded-bl-xl shadow-sm max-w-[90%] w-full">
