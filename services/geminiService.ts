@@ -4,6 +4,7 @@ import { Client, CommandIntent, EmailLog, MarketIndex, NewsItem, MarketingCampai
 import { loadFromStorage, saveToStorage, StorageKeys } from "./storageService";
 import { errorService } from "./errorService";
 import { AGENCY_GUIDELINES } from "../constants";
+declare const process: { env?: Record<string, string | undefined> };
 
 const SYSTEM_INSTRUCTION = `You are the "Premiere Private Banking Assistant", an elite AI designed for high-net-worth mortgage banking. 
 Your demeanor is sophisticated, precise, and anticipatory.
@@ -1045,7 +1046,7 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
     const groundingChunks = candidate?.groundingMetadata?.groundingChunks || [];
     const sources = groundingChunks
       .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
-      .filter((link: any) => link !== null);
+      .filter((link): link is { uri: string; title: string } => !!link && !!link.uri && !!link.title);
 
     // Determine status based on text content (simple heuristic for UI color coding)
     const textLower = response.text?.toLowerCase() || "";
