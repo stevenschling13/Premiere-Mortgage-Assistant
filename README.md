@@ -1,35 +1,20 @@
-# Premiere Mortgage Assistant
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+</div>
 
-A Vite + React + TypeScript single-page app for managing mortgage clients, daily planning, and AI-powered assistance.
+# Run and deploy your AI Studio app
 
-## Project Structure
-- **Root-level app code**: `App.tsx`, `components/`, `services/`, `constants.ts`, `types.ts`, `polyfill.ts`, `index.tsx`.
-- **Legacy experiments**: `src/` mirrors earlier iterations and is not part of the build pipeline.
-- **Styling**: Tailwind is consumed via CDN in `index.html`.
+This contains everything you need to run your app locally.
 
-## Prerequisites
-- Node.js 18+
-- A Gemini API key if you intend to use AI-powered features (set `GEMINI_API_KEY` or `VITE_API_KEY` in your environment).
+View your app in AI Studio: https://ai.studio/apps/drive/186_Uuec2HzFHN-DoXsysBSw8yYCHJWox
 
-## Getting Started
+## Run Locally
+
+**Prerequisites:**  Node.js
+
+
 1. Install dependencies:
-   ```bash
-   npm install
-   ```
-2. Run the development server:
-   ```bash
-   npm run dev
-   ```
-3. Build for production (runs TypeScript type-checking first):
-   ```bash
-   npm run build
-   ```
-4. Preview the production bundle locally:
-   ```bash
-   npm run preview
-   ```
-
-## Notes
-- The app entry point referenced by `index.html` is `index.tsx` at the repository root.
-- Avoid updating `src/` unless performing a full migration, as the current build ignores it.
-- Error logging and toast notifications are centralized via `services/errorService` and `components/Toast`.
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`

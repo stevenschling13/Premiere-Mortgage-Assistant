@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Save, Calendar, PenTool, Sparkles, Loader2, Copy, AlertCircle, Wand2, Mail } from 'lucide-react';
-import { analyzeRateTrends, organizeScratchpadNotes, generateRateSheetEmail, loadFromStorage, saveToStorage, StorageKeys, copyTextToClipboard } from '../services';
+import { analyzeRateTrends, organizeScratchpadNotes, generateRateSheetEmail, loadFromStorage, saveToStorage, StorageKeys } from '../services';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
@@ -135,19 +135,9 @@ export const RatesNotes: React.FC = () => {
         }
     };
 
-    const copyToClipboard = async (text: string) => {
-        if (!text?.trim()) {
-            showToast('Nothing to copy', 'warning');
-            return;
-        }
-
-        try {
-            await copyTextToClipboard(text);
-            showToast('Copied to clipboard', 'success');
-        } catch (error) {
-            console.error('Clipboard copy failed', error);
-            showToast('Unable to copy to clipboard', 'error');
-        }
+    const copyToClipboard = (text: string) => {
+        navigator.clipboard.writeText(text);
+        showToast('Copied to clipboard', 'info');
     };
 
     return (
