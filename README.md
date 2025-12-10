@@ -33,3 +33,6 @@ A Vite + React + TypeScript single-page app for managing mortgage clients, daily
 - The app entry point referenced by `index.html` is `index.tsx` at the repository root.
 - Avoid updating `src/` unless performing a full migration, as the current build ignores it.
 - Error logging and toast notifications are centralized via `services/errorService` and `components/Toast`.
+- Containerization is ready out of the box: the Dockerfile builds the Vite bundle and serves it with Nginx on port 8080 (SPA fallback is configured in `nginx.conf`).
+  - Example: `docker build -t premiere-assistant --build-arg VITE_API_KEY=your_key_here . && docker run -p 8080:8080 premiere-assistant`
+- If a deployed Cloud Run endpoint returns `403 Forbidden` to a basic `curl` request, the service likely requires authentication; either allow unauthenticated ingress or include an identity token header (for example, `curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" https://<service-host>`).
