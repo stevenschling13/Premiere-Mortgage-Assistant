@@ -18,3 +18,13 @@ View your app in AI Studio: https://ai.studio/apps/drive/186_Uuec2HzFHN-DoXsysBS
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Quality gates
+
+- Type safety: `npm run typecheck`
+- CI: GitHub Actions runs the same type check on every push and pull request (`.github/workflows/typecheck.yml`).
+
+## Project structure
+
+All source files live at the repository root (for example, `components/`, `services/`, `App.tsx`, and `index.tsx`).
+There is no `src/` directory; it was removed to avoid drift with the active code under the top-level modules.
