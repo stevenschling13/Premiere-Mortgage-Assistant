@@ -1,3 +1,4 @@
+
 if (typeof window !== 'undefined') {
   const win = window as any;
   
