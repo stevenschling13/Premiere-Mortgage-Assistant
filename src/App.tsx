@@ -1,22 +1,23 @@
 
-import React, { useState, useCallback, useEffect, ReactNode } from 'react';
+import React, { useState, useCallback, useEffect, ReactNode, Suspense, lazy } from 'react';
 import { Sidebar } from './components/Sidebar';
-import { Calculator } from './components/Calculator';
-import { ClientManager } from './components/ClientManager';
-import { Assistant } from './components/Assistant';
-import { DtiAnalysis } from './components/DtiAnalysis';
-import { RatesNotes } from './components/RatesNotes';
-import { MarketingStudio } from './components/MarketInsights';
-import { CompensationTracker } from './components/CompensationTracker';
-import { DailyPlanner } from './components/DailyPlanner';
-import { KnowledgeBase } from './components/KnowledgeBase';
 import { ToastContainer, ToastContext } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { CommandPalette } from './components/CommandPalette';
 import { AppView, ToastMessage, ToastType, Client } from './types';
 import { Menu, Building2, Loader2, Bot } from 'lucide-react';
 import { errorService } from './services/errorService';
 import { saveToStorage, StorageKeys, loadFromStorage } from './services/storageService';
+
+const Calculator = lazy(() => import('./components/Calculator').then(module => ({ default: module.Calculator })));
+const ClientManager = lazy(() => import('./components/ClientManager').then(module => ({ default: module.ClientManager })));
+const Assistant = lazy(() => import('./components/Assistant').then(module => ({ default: module.Assistant })));
+const DtiAnalysis = lazy(() => import('./components/DtiAnalysis').then(module => ({ default: module.DtiAnalysis })));
+const RatesNotes = lazy(() => import('./components/RatesNotes').then(module => ({ default: module.RatesNotes })));
+const MarketingStudio = lazy(() => import('./components/MarketInsights').then(module => ({ default: module.MarketingStudio })));
+const CompensationTracker = lazy(() => import('./components/CompensationTracker').then(module => ({ default: module.CompensationTracker })));
+const DailyPlanner = lazy(() => import('./components/DailyPlanner').then(module => ({ default: module.DailyPlanner })));
+const KnowledgeBase = lazy(() => import('./components/KnowledgeBase').then(module => ({ default: module.KnowledgeBase })));
+const CommandPalette = lazy(() => import('./components/CommandPalette').then(module => ({ default: module.CommandPalette })));
 
 // API Key Gate Component
 const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -99,6 +100,15 @@ const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   return <>{children}</>;
 };
+
+const ModuleFallback: React.FC<{ message?: string }> = ({ message = 'Loading module...' }) => (
+  <div className="flex items-center justify-center w-full py-12 text-gray-600" role="status" aria-live="polite">
+    <div className="flex items-center space-x-3 px-4 py-3 bg-white rounded-xl shadow-sm border border-gray-100">
+      <Loader2 className="w-5 h-5 animate-spin text-brand-red" />
+      <div className="text-sm font-medium tracking-tight">{message}</div>
+    </div>
+  </div>
+);
 
 const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
@@ -215,12 +225,14 @@ const AppContent: React.FC = () => {
 
         <ToastContainer toasts={toasts} removeToast={removeToast} />
         
-        <CommandPalette 
-          isOpen={isCommandPaletteOpen} 
-          onClose={() => setIsCommandPaletteOpen(false)}
-          onNavigate={handlePaletteNavigate}
-          onSelectClient={handlePaletteSelectClient}
-        />
+        <Suspense fallback={null}>
+          <CommandPalette
+            isOpen={isCommandPaletteOpen}
+            onClose={() => setIsCommandPaletteOpen(false)}
+            onNavigate={handlePaletteNavigate}
+            onSelectClient={handlePaletteSelectClient}
+          />
+        </Suspense>
 
         {isSidebarOpen && (
           <div 
@@ -266,7 +278,9 @@ const AppContent: React.FC = () => {
             tabIndex={-1}
           >
             <ErrorBoundary>
-              {renderContent()}
+              <Suspense fallback={<ModuleFallback message="Loading workspace..." />}>
+                {renderContent()}
+              </Suspense>
             </ErrorBoundary>
           </main>
 
@@ -282,10 +296,14 @@ const AppContent: React.FC = () => {
                 </button>
 
                 {/* Assistant Slide-Over Overlay */}
-                <div 
+                <div
                     className={`fixed inset-y-0 right-0 w-full md:w-[450px] bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-50 flex flex-col ${isAssistantOpen ? 'translate-x-0' : 'translate-x-full'}`}
                 >
-                    {isAssistantOpen && <Assistant onClose={() => setIsAssistantOpen(false)} />}
+                    {isAssistantOpen && (
+                      <Suspense fallback={<ModuleFallback message="Loading assistant..." />}>
+                        <Assistant onClose={() => setIsAssistantOpen(false)} />
+                      </Suspense>
+                    )}
                 </div>
             </>
           )}

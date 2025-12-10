@@ -1,6 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { 
+    Users, ArrowUpRight, Edit2, Trash2, Sparkles, Loader2, Copy, 
     Users, ArrowUpRight, Edit, Trash, Sparkles, Loader2, Copy, 
     Square, Mic, Check, ChevronLeft, DollarSign, Save, Zap, Wand2, Mail, Phone, 
     UserPlus, Scale, CheckSquare, History, Gift, PenTool, Camera, X
@@ -481,6 +482,8 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                         >
                             {isProcessingVoice ? <Loader2 size={18} className="animate-spin" /> : isRecording ? <Square size={18} fill="currentColor" /> : <Mic size={18} />}
                         </button>
+                        <button onClick={() => setIsEditing(!isEditing)} className={`p-2 rounded-full ${isEditing ? 'bg-brand-red text-white' : 'text-gray-400 hover:bg-gray-100'}`} aria-label="Edit Client"><Edit2 size={18}/></button>
+                        <button onClick={() => onDelete(client.id)} className="p-3 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors" aria-label="Delete Client"><Trash2 size={20}/></button>
                         <button onClick={() => setIsEditing(!isEditing)} className={`p-2 rounded-full ${isEditing ? 'bg-brand-red text-white' : 'text-gray-400 hover:bg-gray-100'}`} aria-label="Edit Client"><Edit size={18}/></button>
                         <button onClick={() => onDelete(client.id)} className="p-3 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors" aria-label="Delete Client"><Trash size={20}/></button>
                     </div>
