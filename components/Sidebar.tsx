@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { Users, Calculator, Sparkles, Building2, LogOut, Megaphone, FileText, PieChart, X, TrendingUp, Download, Calendar } from 'lucide-react';
 import { AppView } from '../types';
 
@@ -10,8 +10,8 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isOpen, onClose }) => {
-  
-  const navItems = [
+
+  const navItems = useMemo(() => ([
     { id: AppView.DASHBOARD, label: 'Client Dashboard', icon: Users },
     { id: AppView.PLANNER, label: 'Daily Planner', icon: Calendar },
     { id: AppView.MARKETING, label: 'Market Intelligence', icon: Megaphone },
@@ -20,40 +20,38 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isO
     { id: AppView.RATES_NOTES, label: 'Rates & Commentary', icon: FileText },
     { id: AppView.COMPENSATION, label: 'Wealth & Performance', icon: TrendingUp },
     { id: AppView.ASSISTANT, label: 'Virtual Analyst', icon: Sparkles },
-  ];
+  ]), []);
 
-  const handleSignOut = () => {
+  const handleSignOut = useCallback(() => {
     if (confirm("Sign out? This will clear your local session data.")) {
-       localStorage.clear();
-       window.location.reload();
+      localStorage.clear();
+      window.location.reload();
     }
-  };
+  }, []);
 
-  const handleExportData = () => {
-      const data: Record<string, any> = {};
-      // Iterate over known keys or all local storage
-      // Only export app-specific keys
-      for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && key.startsWith('premiere_mortgage_')) {
-              try {
-                  data[key] = JSON.parse(localStorage.getItem(key) || 'null');
-              } catch (e) {
-                  data[key] = localStorage.getItem(key);
-              }
-          }
+  const handleExportData = useCallback(() => {
+    const data: Record<string, any> = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('premiere_mortgage_')) {
+        try {
+          data[key] = JSON.parse(localStorage.getItem(key) || 'null');
+        } catch (e) {
+          data[key] = localStorage.getItem(key);
+        }
       }
-      
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `mortgage_assistant_backup_${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-  };
+    }
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mortgage_assistant_backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, []);
 
   return (
     <div 
