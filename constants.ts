@@ -1,6 +1,17 @@
 
 import { Client, DealStage, SalesScript, MortgageTerm, SimulationScenario } from './types';
 
+type AgencyGuideline = {
+    name: string;
+    maxLTV: number;
+    standardLTV?: number;
+    maxDTI: number;
+    standardDTI: number;
+    reserves: string;
+    notes: string;
+    manualDTI?: number;
+};
+
 export const INITIAL_CLIENTS: Client[] = [
     {
         id: 'seed-john-doe',
@@ -39,7 +50,7 @@ export const COLOR_PALETTE = [
 ];
 
 // --- REAL UNDERWRITING GUIDELINES (Source: AllRegs/Selling Guides 2024) ---
-export const AGENCY_GUIDELINES = {
+export const AGENCY_GUIDELINES: Record<'CONVENTIONAL' | 'FHA' | 'VA' | 'JUMBO', AgencyGuideline> = {
     CONVENTIONAL: {
         name: 'Conventional (FNMA/FHLMC)',
         maxLTV: 97, // First time home buyer

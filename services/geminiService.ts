@@ -5,6 +5,15 @@ import { loadFromStorage, saveToStorage, StorageKeys } from "./storageService";
 import { errorService } from "./errorService";
 import { AGENCY_GUIDELINES } from "../constants";
 
+type GroundingLink = { uri: string; title: string };
+
+interface AssistantResponse {
+  text: string;
+  links: GroundingLink[];
+  searchEntryPoint?: string;
+  searchQueries?: string[];
+}
+
 const SYSTEM_INSTRUCTION = `You are the "Premiere Private Banking Assistant", an elite AI designed for high-net-worth mortgage banking. 
 Your demeanor is sophisticated, precise, and anticipatory.
 
@@ -212,10 +221,10 @@ const parseJson = <T>(text: string, fallback: T): T => {
 // --- Text Generation & Chat ---
 
 export const chatWithAssistant = async (
-    history: Array<{role: string, parts: Array<{text: string}>}>, 
-    message: string, 
+    history: Array<{role: string, parts: Array<{text: string}>}>,
+    message: string,
     customSystemInstruction?: string
-) => {
+): Promise<AssistantResponse> => {
   return withRetry(async () => {
     const ai = getAiClient();
     const optimizedHistory = history.length > 30 ? history.slice(history.length - 30) : history;
@@ -241,14 +250,14 @@ export const chatWithAssistant = async (
 
     const groundingMetadata = candidate?.groundingMetadata;
     const groundingChunks = groundingMetadata?.groundingChunks || [];
-    
-    const links = groundingChunks
-      .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
-      .filter((link: any) => link !== null);
+
+    const links: GroundingLink[] = groundingChunks
+      .map((chunk: any) => (chunk.web && chunk.web.uri && chunk.web.title) ? { uri: chunk.web.uri, title: chunk.web.title } : null)
+      .filter((link): link is GroundingLink => link !== null);
 
     return {
-      text: response.text,
-      links: links,
+      text: response.text || '',
+      links,
       searchEntryPoint: groundingMetadata?.searchEntryPoint?.renderedContent,
       searchQueries: groundingMetadata?.webSearchQueries
     };
@@ -580,7 +589,7 @@ export const analyzeCommunicationHistory = async (clientName: string, history: E
 
 // --- Thinking Mode (Gemini 3 Pro) ---
 
-export const analyzeLoanScenario = async (scenarioData: string) => {
+export const analyzeLoanScenario = async (scenarioData: string): Promise<string> => {
   return withRetry(async () => {
     const ai = getAiClient();
     const response = await ai.models.generateContent({
@@ -606,7 +615,7 @@ export const analyzeLoanScenario = async (scenarioData: string) => {
         thinkingConfig: { thinkingBudget: 32768 }
       }
     });
-    return response.text;
+    return response.text || '';
   });
 }
 
@@ -649,7 +658,7 @@ export const compareLoanScenarios = async (scenarioA: any, scenarioB: any) => {
   });
 };
 
-export const solveDtiScenario = async (financials: any) => {
+export const solveDtiScenario = async (financials: any): Promise<string> => {
   return withRetry(async () => {
     const ai = getAiClient();
     
@@ -695,7 +704,7 @@ export const solveDtiScenario = async (financials: any) => {
         thinkingConfig: { thinkingBudget: 4096 }
       }
     });
-    return response.text;
+    return response.text || '';
   });
 }
 
@@ -787,7 +796,7 @@ export const fetchDailyMarketPulse = async (): Promise<{ indices: MarketIndex[],
 
 // --- Morning Briefing Service ---
 
-export const generateMorningMemo = async (urgentClients: Client[], marketData: any) => {
+export const generateMorningMemo = async (urgentClients: Client[], marketData: any): Promise<string> => {
   return withRetry(async () => {
     const ai = getAiClient();
     
@@ -821,11 +830,11 @@ export const generateMorningMemo = async (urgentClients: Client[], marketData: a
         thinkingConfig: { thinkingBudget: 2048 }
       }
     });
-    return response.text;
+    return response.text || '';
   });
 };
 
-export const generateClientFriendlyAnalysis = async (marketData: any) => {
+export const generateClientFriendlyAnalysis = async (marketData: any): Promise<string> => {
   return withRetry(async () => {
     const ai = getAiClient();
     
@@ -853,11 +862,11 @@ export const generateClientFriendlyAnalysis = async (marketData: any) => {
         thinkingConfig: { thinkingBudget: 2048 } 
       }
     });
-    return response.text;
+    return response.text || '';
   });
 }
 
-export const generateBuyerSpecificAnalysis = async (marketData: any) => {
+export const generateBuyerSpecificAnalysis = async (marketData: any): Promise<string> => {
   return withRetry(async () => {
     const ai = getAiClient();
     
@@ -885,7 +894,7 @@ export const generateBuyerSpecificAnalysis = async (marketData: any) => {
         thinkingConfig: { thinkingBudget: 2048 }
       }
     });
-    return response.text;
+    return response.text || '';
   });
 }
 
@@ -963,7 +972,7 @@ export const analyzeIncomeProjection = async (clients: any[], currentCommission:
     });
 };
 
-export const generateGapStrategy = async (currentTotalIncome: number, targetIncome: number, pipeline: any[]) => {
+export const generateGapStrategy = async (currentTotalIncome: number, targetIncome: number, pipeline: any[]): Promise<string> => {
   return withRetry(async () => {
     const ai = getAiClient();
     const gap = targetIncome - currentTotalIncome;
@@ -998,8 +1007,8 @@ export const generateGapStrategy = async (currentTotalIncome: number, targetInco
         thinkingConfig: { thinkingBudget: 2048 }
       }
     });
-    return response.text;
-  });
+    return response.text || '';
+    });
 };
 
 // --- Verification Service ---
@@ -1043,9 +1052,9 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
 
     const candidate = response.candidates?.[0];
     const groundingChunks = candidate?.groundingMetadata?.groundingChunks || [];
-    const sources = groundingChunks
-      .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
-      .filter((link: any) => link !== null);
+    const sources: GroundingLink[] = groundingChunks
+      .map((chunk: any) => (chunk.web && chunk.web.uri && chunk.web.title) ? { uri: chunk.web.uri, title: chunk.web.title } : null)
+      .filter((link): link is GroundingLink => link !== null);
 
     // Determine status based on text content (simple heuristic for UI color coding)
     const textLower = response.text?.toLowerCase() || "";
@@ -1060,7 +1069,7 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
     return {
       status,
       text: response.text || "Verification complete.",
-      sources: sources
+      sources
     };
   });
 };
@@ -1453,7 +1462,7 @@ export const generateDailySchedule = async (events: CalendarEvent[], rawInput: s
     });
 };
 
-export const generateMeetingPrep = async (clientName: string, clientData?: Client) => {
+export const generateMeetingPrep = async (clientName: string, clientData?: Client): Promise<string> => {
     return withRetry(async () => {
         const ai = getAiClient();
         
@@ -1491,7 +1500,7 @@ export const generateMeetingPrep = async (clientName: string, clientData?: Clien
                 thinkingConfig: { thinkingBudget: 2048 }
             }
         });
-        return response.text;
+        return response.text || '';
     });
 };
 
