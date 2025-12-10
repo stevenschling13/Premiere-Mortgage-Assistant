@@ -26,8 +26,10 @@ const ViewLoader = () => (
   </div>
 );
 
-// API Key Gate Component - Pass-through to allow free tier usage
+// API Key Gate Component - Pass-through to allow free tier usage by default
 const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // We no longer block on initialization. The app loads immediately.
+  // The service layer handles triggering the key prompt if/when quota is hit.
   return <>{children}</>;
 };
 

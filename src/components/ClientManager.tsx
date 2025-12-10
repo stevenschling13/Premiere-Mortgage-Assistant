@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useRef, useDeferredValue } from 'react';
 import { 
     Users, Search, Plus, Filter, Edit2, Trash2, X, Sparkles, Loader2, 
@@ -116,6 +115,15 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
         return clients.filter(c => c.nextActionDate <= today && c.status !== 'Closed').slice(0, 5);
     }, [clients]);
 
+    // OPTIMIZATION: Memoize stage progress map to avoid finding index repeatedly
+    const stageProgressMap = useMemo(() => {
+        const map: Record<string, number> = {};
+        dealStages.forEach((stage, index) => {
+            map[stage.name] = Math.min(100, Math.max(10, ((index + 1) / dealStages.length) * 100));
+        });
+        return map;
+    }, [dealStages]);
+
     const filteredClients = useMemo(() => {
         const query = deferredSearchQuery.trim().toLowerCase();
         let results = clients.filter(c => {
@@ -142,15 +150,16 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
                    c.propertyAddress.toLowerCase().includes(query);
         });
 
-        // Sort by Lead Score Descending
-        results.sort((a, b) => {
-            const scoreA = calculateLeadScore(a, getStageProgress(a.status));
-            const scoreB = calculateLeadScore(b, getStageProgress(b.status));
-            return scoreB - scoreA;
-        });
+        // Optimization: Pre-calculate scores to sort in O(N) instead of O(N log N) re-calculations
+        const scoredResults = results.map(client => ({
+            client,
+            score: calculateLeadScore(client, stageProgressMap[client.status] || 10)
+        }));
 
-        return results;
-    }, [clients, deferredSearchQuery, statusFilter, loanAmountFilter, dateFilter]);
+        scoredResults.sort((a, b) => b.score - a.score);
+
+        return scoredResults.map(item => item.client);
+    }, [clients, deferredSearchQuery, statusFilter, loanAmountFilter, dateFilter, stageProgressMap]);
 
     // -- Handlers --
 
@@ -390,7 +399,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
                             // List View
                             <div>
                                 {filteredClients.map(client => {
-                                    const stageProgress = getStageProgress(client.status);
+                                    const stageProgress = stageProgressMap[client.status] || 10;
                                     const leadScore = calculateLeadScore(client, stageProgress);
                                     // Temperature visual
                                     let tempColor = 'text-blue-400'; 
@@ -446,7 +455,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ initialSelectedCli
                                         </div>
                                         <div className="flex-1 overflow-y-auto p-2 space-y-2">
                                             {filteredClients.filter(c => c.status === stage.name).map(client => {
-                                                const leadScore = calculateLeadScore(client, getStageProgress(client.status));
+                                                const leadScore = calculateLeadScore(client, stageProgressMap[stage.name]);
                                                 return (
                                                     <div 
                                                         key={client.id}

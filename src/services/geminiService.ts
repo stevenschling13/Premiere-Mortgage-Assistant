@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, Modality, FunctionDeclaration } from "@google/genai";
 import { Client, CommandIntent, EmailLog, MarketIndex, NewsItem, MarketingCampaign, VerificationResult, Opportunity, DealStrategy, GiftSuggestion, CalendarEvent, SalesScript } from "../types";
 import { loadFromStorage, saveToStorage, StorageKeys } from "./storageService";
@@ -130,7 +129,6 @@ const getAiClient = () => {
   const apiKey = env.API_KEY;
   
   if (!apiKey || apiKey.trim() === '') {
-    // We allow the client to fail here, and `withRetry` will catch it and prompt for key
     throw new AIError(AIErrorCodes.INVALID_API_KEY, "API Key is missing. Please connect a billing-enabled key.");
   }
   return new GoogleGenAI({ apiKey });
