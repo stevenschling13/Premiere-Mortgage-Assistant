@@ -1,5 +1,4 @@
-
-import { GoogleGenAI, Type, Modality } from "@google/genai";
+import { GoogleGenAI, Type, Modality, FunctionDeclaration } from "@google/genai";
 import { Client, CommandIntent, EmailLog, MarketIndex, NewsItem, MarketingCampaign, VerificationResult, Opportunity, DealStrategy, GiftSuggestion, CalendarEvent, SalesScript } from "../types";
 import { loadFromStorage, saveToStorage, StorageKeys } from "./storageService";
 import { errorService } from "./errorService";
@@ -160,6 +159,25 @@ async function withRetry<T>(operation: () => Promise<T>, retries = 5, baseDelay 
     } catch (rawError: any) {
       const normalized = normalizeError(rawError);
       lastError = normalized;
+
+      // Auto-trigger key selection on quota limit or missing key if environment supports it
+      if (
+        (normalized.code === AIErrorCodes.PLAN_LIMIT_EXCEEDED || 
+         normalized.code === AIErrorCodes.INVALID_API_KEY) && 
+        (typeof window !== 'undefined' && (window as any).aistudio?.openSelectKey)
+      ) {
+          try {
+             // Open the key selection dialog
+             await (window as any).aistudio.openSelectKey();
+             // Retry the operation immediately with the new key injected into the environment
+             const result = await operation();
+             CIRCUIT_BREAKER.failures = 0;
+             return result;
+          } catch (e) {
+             // If user cancels dialog or selection fails, throw the original normalized error
+             throw normalized;
+          }
+      }
 
       errorService.log('API_FAIL', `Attempt ${i+1}/${retries} failed: ${normalized.code}`, { error: normalized.message });
 
@@ -669,20 +687,20 @@ export const solveDtiScenario = async (financials: any) => {
       - Proposed Housing Payment: $${financials.proposedHousing}
       - Current Debts: ${JSON.stringify(financials.debts)}
       ${financials.hasAusApproval !== undefined ? `- AUS Status: ${financials.hasAusApproval ? 'Approve/Eligible' : 'Manual Underwrite'}` : ''}
-      ${financials.liquidAssets ? `- Liquid Assets: $${financials.liquidAssets}` : ''}
+      ${financials.liquidAssets ? `- Liquid Assets (Reserves): $${financials.liquidAssets}` : ''}
       ${financials.requiredResidual ? `- VA Required Residual Income: $${financials.requiredResidual}` : ''}
       
       **Mission**:
       1. **VERIFY GUIDELINES**: Use Google Search to find the *most recent* ${financials.loanType} underwriting guidelines (FNMA Selling Guide, Freddie Mac, HUD 4000.1, or VA Lenders Handbook) regarding DTI limits, residual income, and reserve requirements for 2024/2025.
       2. **Compare**: Check if the static context matches live data. If recent changes occurred (e.g., FHA student loan calculations, VA residual updates), prioritize the live search results.
       3. **Optimize**: Find the *most efficient* path to approval.
-         - Identify debts to pay off.
+         - Identify debts to pay off to get below the hard stop or standard guideline.
          - Calculate exact DTI reduction.
-         - Check hard stops (e.g. FHA Manual 43% vs AUS 56.9%).
+         - Check hard stops (e.g. FHA Manual 43% vs AUS 56.9%, VA Residual Shortfall).
       
       **Output**:
       Provide a bulleted "Optimization Strategy" in Markdown.
-      - **Current Guideline Check**: Briefly state the live guideline used (e.g., "Verified HUD 4000.1 effective [Date]...").
+      - **Guideline Check**: Briefly state the live guideline used (e.g., "Verified HUD 4000.1 effective [Date]...").
       - **Strategy**: Specific payoff or restructure advice.
       - **Citation**: Cite the source URL found via search.
     `;

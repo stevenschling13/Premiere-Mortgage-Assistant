@@ -44,7 +44,7 @@ export const AGENCY_GUIDELINES = {
         name: 'Conventional (FNMA/FHLMC)',
         maxLTV: 97, // First time home buyer
         standardLTV: 95,
-        maxDTI: 50.00, // Absolute hard stop for DU/LPA
+        maxDTI: 50.00, // Absolute hard stop for DU/LPA usually
         standardDTI: 45.00, // Threshold requiring strong reserves/credit
         reserves: '2-6 months based on DTI/Credit',
         notes: 'FNMA B3-6-02: DTI > 45% requires strong compensating factors or DU Approve/Eligible.'
@@ -68,7 +68,7 @@ export const AGENCY_GUIDELINES = {
     },
     JUMBO: {
         name: 'Jumbo / Non-Agency',
-        maxLTV: 80, // Typical, varies by investor
+        maxLTV: 80, // Typical
         maxDTI: 43.00, // Strict QM definition usually
         standardDTI: 43.00,
         reserves: '12+ months post-closing liquidity',
