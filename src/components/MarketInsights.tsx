@@ -126,13 +126,10 @@ export const MarketingStudio: React.FC = () => {
       setAnalysisMode(mode);
       try {
           const context = { indices, news: newsFeed.slice(0, 3) };
-          let analysis = '';
-          if (mode === 'GENERAL') {
-              analysis = await generateClientFriendlyAnalysis(context);
-          } else {
-              analysis = await generateBuyerSpecificAnalysis(context);
-          }
-          setClientAnalysis(analysis || "Analysis unavailable.");
+          const analysisText = mode === 'GENERAL'
+              ? await generateClientFriendlyAnalysis(context)
+              : await generateBuyerSpecificAnalysis(context);
+          setClientAnalysis(analysisText || "Analysis unavailable.");
       } catch (error) {
           console.error(error);
           showToast('Analysis failed', 'error');
