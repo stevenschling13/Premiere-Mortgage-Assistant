@@ -1,45 +1,59 @@
 
-import React, { useEffect, createContext, useContext, useState } from 'react';
+import React, { useEffect, createContext, useContext } from 'react';
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from 'lucide-react';
 import { ToastMessage, ToastType } from '../types';
 
 interface ToastProps {
-  toasts: ToastMessage[];
+  toasts?: ToastMessage[];
+  removeToast?: (id: string) => void;
+}
+
+export interface ToastContextType {
+  showToast: (message: string, type: ToastType, action?: { label: string; onClick: () => void }) => void;
   removeToast: (id: string) => void;
 }
 
-// Context Definition
-export interface ToastContextType {
-  showToast: (message: string, type: ToastType, action?: { label: string; onClick: () => void }) => void;
-}
-
-export const ToastContext = createContext<ToastContextType | undefined>(undefined);
+export const ToastActionsContext = createContext<ToastContextType | undefined>(undefined);
+export const ToastStateContext = createContext<ToastMessage[] | undefined>(undefined);
 
 export const useToast = () => {
-  const context = useContext(ToastContext);
+  const context = useContext(ToastActionsContext);
   if (!context) throw new Error('useToast must be used within a ToastProvider');
   return context;
 };
 
+export const useToastState = () => {
+  const context = useContext(ToastStateContext);
+  if (!context) throw new Error('useToastState must be used within a ToastStateProvider');
+  return context;
+};
+
 export const ToastContainer: React.FC<ToastProps> = ({ toasts, removeToast }) => {
+  const contextToasts = useContext(ToastStateContext);
+  const actions = useContext(ToastActionsContext);
+
+  const toastList = toasts ?? contextToasts ?? [];
+  const onRemove = removeToast ?? actions?.removeToast;
+
   return (
     <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2">
-      {toasts.map((toast) => (
-        <ToastItem key={toast.id} toast={toast} onRemove={() => removeToast(toast.id)} />
+      {toastList.map((toast) => (
+        <ToastItem key={toast.id} toast={toast} onRemove={() => onRemove?.(toast.id)} />
       ))}
     </div>
   );
 };
 
-const ToastItem: React.FC<{ toast: ToastMessage; onRemove: () => void }> = ({ toast, onRemove }) => {
+const ToastItem: React.FC<{ toast: ToastMessage; onRemove?: () => void }> = ({ toast, onRemove }) => {
+  const safeRemove = onRemove ?? (() => {});
   useEffect(() => {
     // Longer duration for toasts with actions
     const duration = toast.action ? 8000 : 4000;
     const timer = setTimeout(() => {
-      onRemove();
+      safeRemove();
     }, duration);
     return () => clearTimeout(timer);
-  }, [onRemove, toast.action]);
+  }, [safeRemove, toast.action]);
 
   const getStyles = () => {
     switch (toast.type) {
@@ -68,15 +82,15 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: () => void }> = ({ to
       <div className="flex items-start">
         <div className="mr-3 mt-0.5">{getIcon()}</div>
         <div className="flex-1 text-sm font-medium leading-tight">{toast.message}</div>
-        <button onClick={onRemove} className="ml-4 text-gray-400 hover:text-gray-600 self-start">
+        <button onClick={safeRemove} className="ml-4 text-gray-400 hover:text-gray-600 self-start">
             <X size={14} />
         </button>
       </div>
       {toast.action && (
-          <button 
+          <button
             onClick={() => {
                 toast.action?.onClick();
-                onRemove();
+                safeRemove();
             }}
             className="mt-3 self-end text-xs font-bold uppercase tracking-wide bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded transition-colors"
           >

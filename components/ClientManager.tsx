@@ -131,16 +131,18 @@ export const ClientManager: React.FC = () => {
                    c.email.toLowerCase().includes(query) || 
                    c.propertyAddress.toLowerCase().includes(query);
         });
-
-        // Sort by Lead Score Descending
-        results.sort((a, b) => {
-            const scoreA = calculateLeadScore(a, getStageProgress(a.status));
-            const scoreB = calculateLeadScore(b, getStageProgress(b.status));
-            return scoreB - scoreA;
-        });
-
         return results;
     }, [clients, deferredSearchQuery, statusFilter, loanAmountFilter, dateFilter]);
+
+    const clientsWithScores = useMemo(() => {
+        return filteredClients
+            .map(client => {
+                const stageProgress = getStageProgress(client.status);
+                const leadScore = calculateLeadScore(client, stageProgress);
+                return { ...client, stageProgress, leadScore };
+            })
+            .sort((a, b) => b.leadScore - a.leadScore);
+    }, [filteredClients, dealStages]);
 
     // -- Handlers --
 
@@ -338,11 +340,10 @@ export const ClientManager: React.FC = () => {
 
                 {/* Client List */}
                 <div className="flex-1 overflow-y-auto bg-gray-50">
-                    {filteredClients.length === 0 ? <div className="p-8 text-center text-gray-500 text-sm">No clients found.</div> : filteredClients.map(client => {
-                        const stageProgress = getStageProgress(client.status);
-                        const leadScore = calculateLeadScore(client, stageProgress);
+                    {clientsWithScores.length === 0 ? <div className="p-8 text-center text-gray-500 text-sm">No clients found.</div> : clientsWithScores.map(client => {
+                        const { stageProgress, leadScore } = client;
                         // Temperature visual
-                        let tempColor = 'text-blue-400'; 
+                        let tempColor = 'text-blue-400';
                         let tempIcon = <span className="text-blue-200">❄️</span>;
                         if (leadScore > 75) { tempColor = 'text-red-500'; tempIcon = <span className="text-red-500 animate-pulse">🔥</span>; }
                         else if (leadScore > 40) { tempColor = 'text-orange-400'; tempIcon = <span className="text-orange-400">🌤️</span>; }

@@ -1,18 +1,19 @@
-import React, { useState, useCallback, useEffect, ReactNode } from 'react';
+import React, { useState, useCallback, useEffect, ReactNode, Suspense, lazy, useMemo } from 'react';
 import { Sidebar } from './components/Sidebar';
-import { Calculator } from './components/Calculator';
-import { ClientManager } from './components/ClientManager';
-import { Assistant } from './components/Assistant';
-import { DtiAnalysis } from './components/DtiAnalysis';
-import { RatesNotes } from './components/RatesNotes';
-import { MarketingStudio } from './components/MarketInsights';
-import { CompensationTracker } from './components/CompensationTracker';
-import { DailyPlanner } from './components/DailyPlanner';
-import { ToastContainer, ToastContext } from './components/Toast';
+import { ToastContainer, ToastActionsContext, ToastStateContext } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AppView, ToastMessage, ToastType } from './types';
 import { Menu, Building2, Loader2 } from 'lucide-react';
 import { errorService } from './services/errorService';
+
+const Calculator = lazy(() => import('./components/Calculator').then(mod => ({ default: mod.Calculator })));
+const ClientManager = lazy(() => import('./components/ClientManager').then(mod => ({ default: mod.ClientManager })));
+const Assistant = lazy(() => import('./components/Assistant').then(mod => ({ default: mod.Assistant })));
+const DtiAnalysis = lazy(() => import('./components/DtiAnalysis').then(mod => ({ default: mod.DtiAnalysis })));
+const RatesNotes = lazy(() => import('./components/RatesNotes').then(mod => ({ default: mod.RatesNotes })));
+const MarketingStudio = lazy(() => import('./components/MarketInsights').then(mod => ({ default: mod.MarketingStudio })));
+const CompensationTracker = lazy(() => import('./components/CompensationTracker').then(mod => ({ default: mod.CompensationTracker })));
+const DailyPlanner = lazy(() => import('./components/DailyPlanner').then(mod => ({ default: mod.DailyPlanner })));
 
 // API Key Gate Component
 const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -159,20 +160,36 @@ const AppContent: React.FC = () => {
     }
   };
 
+  const toastActions = useMemo(
+    () => ({
+      showToast,
+      removeToast,
+    }),
+    [showToast, removeToast]
+  );
+
+  const suspenseFallback = (
+    <div className="flex items-center justify-center py-16">
+      <Loader2 className="w-6 h-6 animate-spin text-brand-red" />
+      <span className="ml-2 text-sm text-gray-500">Loading experience...</span>
+    </div>
+  );
+
   return (
-    <ToastContext.Provider value={{ showToast }}>
+    <ToastActionsContext.Provider value={toastActions}>
+      <ToastStateContext.Provider value={toasts}>
+        <ToastContainer removeToast={removeToast} />
+      </ToastStateContext.Provider>
       <div className="flex h-[100dvh] bg-slate-50 font-sans text-gray-900 overflow-hidden">
-        <a 
-          href="#main-content" 
+        <a
+          href="#main-content"
           className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-brand-red focus:text-white focus:rounded-md focus:shadow-lg focus:outline-none"
         >
           Skip to main content
         </a>
 
-        <ToastContainer toasts={toasts} removeToast={removeToast} />
-
         {isSidebarOpen && (
-          <div 
+          <div
             className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm animate-fade-in"
             onClick={() => setIsSidebarOpen(false)}
           />
@@ -207,18 +224,20 @@ const AppContent: React.FC = () => {
             </button>
           </div>
 
-          <main 
+          <main
             id="main-content"
             className="flex-1 overflow-y-auto w-full relative scroll-smooth focus:outline-none"
             tabIndex={-1}
           >
             <ErrorBoundary>
-              {renderContent()}
+              <Suspense fallback={suspenseFallback}>
+                {renderContent()}
+              </Suspense>
             </ErrorBoundary>
           </main>
         </div>
       </div>
-    </ToastContext.Provider>
+    </ToastActionsContext.Provider>
   );
 };
 
