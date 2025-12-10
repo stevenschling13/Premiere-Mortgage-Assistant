@@ -43,7 +43,7 @@ const CIRCUIT_BREAKER = {
 };
 
 // --- Cache State ---
-const CACHE_TTL = 1000 * 60 * 15; // 15 minutes
+const MARKET_CACHE_TTL = 1000 * 60 * 60; // 1 hour
 const marketDataCache: { timestamp: number; data: any } = loadFromStorage(StorageKeys.MARKET_DATA, { timestamp: 0, data: null });
 
 // Valuation Cache: Address -> { value, source, timestamp }
@@ -66,6 +66,7 @@ const VALUATION_TTL = 1000 * 60 * 60 * 24 * 7; // 7 Days
 // In-flight promise tracking
 let activeMarketPulsePromise: Promise<{ indices: MarketIndex[], news: NewsItem[], sources?: any[] }> | null = null;
 const activeValuationPromises = new Map<string, Promise<{ estimatedValue: number, source: string }>>();
+const activeSummaryPromises = new Map<string, Promise<string>>();
 
 // --- Reliability Utilities ---
 
@@ -126,12 +127,15 @@ const normalizeError = (error: any): AIError => {
 };
 
 const getAiClient = () => {
-  const env = (typeof process !== 'undefined' && process.env) ? process.env : {};
-  const apiKey = env.API_KEY;
-  
-  if (!apiKey || apiKey.trim() === '') {
+  const apiKey =
+    (typeof import.meta !== 'undefined' ? (import.meta as any).env?.VITE_API_KEY : undefined) ||
+    (typeof import.meta !== 'undefined' ? (import.meta as any).env?.API_KEY : undefined) ||
+    (typeof globalThis !== 'undefined' ? (globalThis as any)?.process?.env?.API_KEY : undefined);
+
+  if (!apiKey || typeof apiKey !== 'string' || apiKey.trim() === '') {
     throw new AIError(AIErrorCodes.INVALID_API_KEY, "API Key is missing. Please connect a billing-enabled key.");
   }
+
   return new GoogleGenAI({ apiKey });
 };
 
@@ -301,9 +305,15 @@ export const generateGiftSuggestions = async (client: Client): Promise<GiftSugge
 };
 
 export const generateClientSummary = async (client: Client) => {
-  return withRetry(async () => {
+  const cacheKey = `summary_${client.id}_${client.notes?.length || 0}_${client.status}_${client.loanAmount}`;
+
+  if (activeSummaryPromises.has(cacheKey)) {
+      return activeSummaryPromises.get(cacheKey)!;
+  }
+
+  const promise = withRetry(async () => {
       const ai = getAiClient();
-      
+
       const context = `
         **Client Profile**:
         - Name: ${client.name}
@@ -311,10 +321,10 @@ export const generateClientSummary = async (client: Client) => {
         - Status: ${client.status}
         - Next Action Date: ${client.nextActionDate}
         - Property Address: ${client.propertyAddress || 'Not listed'}
-        
+
         **Notes Log**:
         ${client.notes || 'No notes available.'}
-        
+
         **Pending Tasks**:
         ${client.checklist.filter(i => !i.checked).map(i => `- ${i.label}`).join('\n') || 'No pending tasks.'}
       `;
@@ -322,10 +332,10 @@ export const generateClientSummary = async (client: Client) => {
       const prompt = `
         Act as a Chief of Staff for a Private Banker.
         Review this client file and write a strategic **Executive Brief**.
-        
+
         **Client Data**:
         ${context}
-        
+
         **Analysis Requirements**:
         1. **Deal Velocity**: Is the deal moving or stalled? (Check dates vs status).
         2. **Risk Radar**: Identify hidden risks in notes, missing items, or staleness.
@@ -344,8 +354,13 @@ export const generateClientSummary = async (client: Client) => {
           thinkingConfig: { thinkingBudget: 2048 }
         }
       });
-      return response.text;
+      return response.text || "";
+  }).finally(() => {
+      activeSummaryPromises.delete(cacheKey);
   });
+
+  activeSummaryPromises.set(cacheKey, promise);
+  return promise;
 };
 
 export const generateEmailDraft = async (client: Client, topic: string, specificDetails: string) => {
@@ -371,7 +386,7 @@ export const generateEmailDraft = async (client: Client, topic: string, specific
         temperature: 0.7,
       }
     });
-    return response.text;
+    return response.text || "";
   });
 };
 
@@ -403,7 +418,7 @@ export const generatePartnerUpdate = async (client: Client, partnerName: string)
         temperature: 0.7,
       }
     });
-    return response.text;
+    return response.text || "";
   });
 };
 
@@ -438,7 +453,7 @@ export const generateRateSheetEmail = async (rates: any, rawNotes: string) => {
         thinkingConfig: { thinkingBudget: 2048 }
       }
     });
-    return response.text;
+    return response.text || "";
   });
 };
 
@@ -549,7 +564,7 @@ export const generateMarketingContent = async (channel: string, topic: string, t
         contents: prompt,
         config: { systemInstruction: SYSTEM_INSTRUCTION }
     });
-    return response.text;
+    return response.text || "";
   });
 };
 
@@ -574,7 +589,7 @@ export const analyzeCommunicationHistory = async (clientName: string, history: E
         contents: prompt,
         config: { systemInstruction: SYSTEM_INSTRUCTION }
     });
-    return response.text;
+    return response.text || "";
   });
 }
 
@@ -606,7 +621,7 @@ export const analyzeLoanScenario = async (scenarioData: string) => {
         thinkingConfig: { thinkingBudget: 32768 }
       }
     });
-    return response.text;
+    return response.text || "";
   });
 }
 
@@ -645,7 +660,7 @@ export const compareLoanScenarios = async (scenarioA: any, scenarioB: any) => {
         thinkingConfig: { thinkingBudget: 4096 }
       }
     });
-    return response.text;
+    return response.text || "";
   });
 };
 
@@ -695,7 +710,7 @@ export const solveDtiScenario = async (financials: any) => {
         thinkingConfig: { thinkingBudget: 4096 }
       }
     });
-    return response.text;
+    return response.text || "";
   });
 }
 
@@ -703,11 +718,82 @@ export const solveDtiScenario = async (financials: any) => {
 
 export const fetchDailyMarketPulse = async (): Promise<{ indices: MarketIndex[], news: NewsItem[], sources?: any[] }> => {
   const now = Date.now();
-  if (marketDataCache.data && (now - marketDataCache.timestamp < CACHE_TTL)) {
-      const cache = marketDataCache.data;
-      if (cache && Array.isArray(cache.indices) && Array.isArray(cache.news)) {
-          return cache;
-      }
+  const isFresh = marketDataCache.data && (now - marketDataCache.timestamp < MARKET_CACHE_TTL);
+  if (isFresh && marketDataCache.data?.indices && marketDataCache.data?.news) {
+      return marketDataCache.data;
+  }
+
+  if (marketDataCache.data && !activeMarketPulsePromise) {
+      // Stale-but-usable data: refresh in background, return immediately
+      activeMarketPulsePromise = withRetry(async () => {
+          try {
+            const ai = getAiClient();
+            const today = new Date().toLocaleDateString();
+
+            const prompt = `
+          Find current market data for today, ${today}.
+
+          **STRICT SOURCE CONSTRAINT**: Use ONLY the following credible sources: Bloomberg, CNBC, Mortgage News Daily, Federal Reserve, WSJ, HousingWire.
+          Do not use unverified blogs.
+
+          1. 10-Year Treasury Yield (Value and daily change).
+          2. S&P 500 Index (Value and daily change).
+          3. Average 30-Year Fixed Mortgage Rate (Source: Mortgage News Daily or Freddie Mac).
+          4. Brent Crude Oil Price.
+
+          Also find 3 top news headlines from today or yesterday specifically impacting Mortgage Rates, Housing Inventory, or The Fed.
+
+          Output strictly valid JSON with this schema (no markdown, just the JSON):
+          {
+            "indices": [
+               { "label": "10-Yr Treasury", "value": "4.xx%", "change": "+0.xx", "isUp": true/false },
+               { "label": "S&P 500", "value": "5,xxx", "change": "-xx", "isUp": true/false },
+               ...
+            ],
+            "news": [
+               { "id": "1", "source": "Source", "date": "Today", "title": "Headline", "summary": "1 sentence summary", "category": "Rates" | "Economy" | "Housing" }
+            ]
+          }
+        `;
+
+            const response = await ai.models.generateContent({
+              model: 'gemini-3-pro-preview',
+              contents: prompt,
+              config: {
+                tools: [{ googleSearch: {} }]
+              }
+            });
+
+            const rawData = parseJson<any>(response.text || "{}", null);
+
+            if (!rawData || !Array.isArray(rawData.indices) || !Array.isArray(rawData.news)) {
+                 throw new Error("Schema mismatch: Expected 'indices' and 'news' arrays in Market Pulse response.");
+            }
+
+            const safeData = {
+                indices: rawData.indices,
+                news: rawData.news
+            };
+
+            const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+            const sources = groundingChunks
+              .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
+              .filter((link: any) => link !== null);
+
+            const result = { ...safeData, sources };
+
+            marketDataCache.timestamp = Date.now();
+            marketDataCache.data = result;
+
+            saveToStorage(StorageKeys.MARKET_DATA, marketDataCache);
+
+            return result;
+          } finally {
+              activeMarketPulsePromise = null;
+          }
+      });
+
+      return marketDataCache.data;
   }
 
   if (activeMarketPulsePromise) {
@@ -718,10 +804,10 @@ export const fetchDailyMarketPulse = async (): Promise<{ indices: MarketIndex[],
       try {
         const ai = getAiClient();
         const today = new Date().toLocaleDateString();
-        
+
         const prompt = `
           Find current market data for today, ${today}.
-          
+
           **STRICT SOURCE CONSTRAINT**: Use ONLY the following credible sources: Bloomberg, CNBC, Mortgage News Daily, Federal Reserve, WSJ, HousingWire.
           Do not use unverified blogs.
 
@@ -754,16 +840,16 @@ export const fetchDailyMarketPulse = async (): Promise<{ indices: MarketIndex[],
         });
 
         const rawData = parseJson<any>(response.text || "{}", null);
-        
+
         if (!rawData || !Array.isArray(rawData.indices) || !Array.isArray(rawData.news)) {
              throw new Error("Schema mismatch: Expected 'indices' and 'news' arrays in Market Pulse response.");
         }
-        
+
         const safeData = {
             indices: rawData.indices,
             news: rawData.news
         };
-        
+
         const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
         const sources = groundingChunks
           .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
@@ -773,12 +859,12 @@ export const fetchDailyMarketPulse = async (): Promise<{ indices: MarketIndex[],
 
         marketDataCache.timestamp = Date.now();
         marketDataCache.data = result;
-        
+
         saveToStorage(StorageKeys.MARKET_DATA, marketDataCache);
 
         return result;
       } finally {
-          activeMarketPulsePromise = null; 
+          activeMarketPulsePromise = null;
       }
   });
 
@@ -821,7 +907,7 @@ export const generateMorningMemo = async (urgentClients: Client[], marketData: a
         thinkingConfig: { thinkingBudget: 2048 }
       }
     });
-    return response.text;
+    return response.text || "";
   });
 };
 
@@ -853,7 +939,7 @@ export const generateClientFriendlyAnalysis = async (marketData: any) => {
         thinkingConfig: { thinkingBudget: 2048 } 
       }
     });
-    return response.text;
+    return response.text || "";
   });
 }
 
@@ -885,7 +971,7 @@ export const generateBuyerSpecificAnalysis = async (marketData: any) => {
         thinkingConfig: { thinkingBudget: 2048 }
       }
     });
-    return response.text;
+    return response.text || "";
   });
 }
 
@@ -905,7 +991,7 @@ export const analyzeRateTrends = async (rates: any) => {
         contents: prompt,
         config: { systemInstruction: SYSTEM_INSTRUCTION }
     });
-    return response.text;
+    return response.text || "";
   });
 }
 
@@ -922,7 +1008,7 @@ export const synthesizeMarketNews = async (newsItems: any[]) => {
         contents: prompt,
         config: { systemInstruction: SYSTEM_INSTRUCTION }
     });
-    return response.text;
+    return response.text || "";
   });
 }
 
@@ -959,7 +1045,7 @@ export const analyzeIncomeProjection = async (clients: any[], currentCommission:
             contents: prompt,
             config: { systemInstruction: SYSTEM_INSTRUCTION }
         });
-        return response.text;
+        return response.text || "";
     });
 };
 
@@ -998,7 +1084,7 @@ export const generateGapStrategy = async (currentTotalIncome: number, targetInco
         thinkingConfig: { thinkingBudget: 2048 }
       }
     });
-    return response.text;
+    return response.text || "";
   });
 };
 
@@ -1045,7 +1131,7 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
     const groundingChunks = candidate?.groundingMetadata?.groundingChunks || [];
     const sources = groundingChunks
       .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
-      .filter((link: any) => link !== null);
+      .filter((link: any): link is { uri: string; title: string } => Boolean(link?.uri && link?.title));
 
     // Determine status based on text content (simple heuristic for UI color coding)
     const textLower = response.text?.toLowerCase() || "";
@@ -1164,7 +1250,7 @@ export const organizeScratchpadNotes = async (rawText: string) => {
       contents: prompt,
       config: { systemInstruction: SYSTEM_INSTRUCTION }
     });
-    return response.text;
+    return response.text || "";
   });
 };
 
@@ -1491,7 +1577,7 @@ export const generateMeetingPrep = async (clientName: string, clientData?: Clien
                 thinkingConfig: { thinkingBudget: 2048 }
             }
         });
-        return response.text;
+        return response.text || "";
     });
 };
 

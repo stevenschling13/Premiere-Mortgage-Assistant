@@ -1,6 +1,9 @@
 import { Client, EmailTemplate } from '../types';
+import LZString from 'lz-string';
 
 const STORAGE_PREFIX = 'premiere_mortgage_';
+const COMPRESSION_THRESHOLD = 50000; // characters
+const COMPRESSION_PREFIX = '__lz__';
 
 export const StorageKeys = {
   CLIENTS: `${STORAGE_PREFIX}clients`,
@@ -56,17 +59,35 @@ const sanitizeForStorage = (data: any, depth = 0): any => {
     return data;
 };
 
+const encodeForStorage = (data: any) => {
+    const serialized = JSON.stringify(data);
+
+    if (serialized.length > COMPRESSION_THRESHOLD) {
+        return `${COMPRESSION_PREFIX}${LZString.compressToUTF16(serialized)}`;
+    }
+
+    return serialized;
+};
+
+const decodeFromStorage = (value: string) => {
+    if (value.startsWith(COMPRESSION_PREFIX)) {
+        const decompressed = LZString.decompressFromUTF16(value.slice(COMPRESSION_PREFIX.length));
+        return decompressed ?? 'null';
+    }
+    return value;
+};
+
 const performWrite = (key: string, data: any) => {
     try {
-        const serialized = JSON.stringify(data);
-        
+        const encoded = encodeForStorage(data);
+
         // Performance: Skip write if data hasn't changed since last save
-        if (writeCache.get(key) === serialized) {
+        if (writeCache.get(key) === encoded) {
             return;
         }
 
-        localStorage.setItem(key, serialized);
-        writeCache.set(key, serialized);
+        localStorage.setItem(key, encoded);
+        writeCache.set(key, encoded);
         
         // Cleanup pending state after successful write
         pendingWrites.delete(key);
@@ -81,13 +102,13 @@ const performWrite = (key: string, data: any) => {
             try {
                 // Attempt fallback: Remove heavy artifacts and retry
                 const sanitized = sanitizeForStorage(data);
-                const serializedSanitized = JSON.stringify(sanitized);
-                
-                // Check cache again for sanitized version
-                if (writeCache.get(key) === serializedSanitized) return;
+                const encoded = encodeForStorage(sanitized);
 
-                localStorage.setItem(key, serializedSanitized);
-                writeCache.set(key, serializedSanitized);
+                // Check cache again for sanitized version
+                if (writeCache.get(key) === encoded) return;
+
+                localStorage.setItem(key, encoded);
+                writeCache.set(key, encoded);
                 
                 pendingWrites.delete(key);
             } catch (retryError) {
@@ -131,7 +152,8 @@ export const loadFromStorage = <T>(key: string, fallback: T): T => {
     if (item) {
         writeCache.set(key, item);
         try {
-            return JSON.parse(item);
+            const decoded = decodeFromStorage(item);
+            return JSON.parse(decoded);
         } catch (parseError) {
             console.error(`Malformed JSON in storage for key: ${key}. Resetting to fallback.`, parseError);
             // Optional: Backup corrupted data for debug? localStorage.setItem(key + '_corrupt', item);
