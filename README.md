@@ -54,6 +54,8 @@ http://<laptop-ip>:5173
 
 All application source files live under the `src/` directory (entry point: `src/main.tsx`) to avoid duplicate component copies and keep desktop and mobile builds consistent.
 
+Run `npm run check:structure` to verify there are no stray TypeScript files outside `src/` before opening a pull request.
+
 ## Recommended system instructions for AI Studio
 
 Use this system prompt inside AI Studio to keep the assistant consistent with the CLI and app flows. It mirrors the CLI default and can also be stored in a file and passed via `--system-file`:

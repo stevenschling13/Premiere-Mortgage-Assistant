@@ -26,12 +26,17 @@ const ApiKeyGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   useEffect(() => {
     const checkKey = async () => {
       try {
-        if ((window as any).aistudio?.hasSelectedApiKey) {
-          const selected = await (window as any).aistudio.hasSelectedApiKey();
-          setHasKey(selected);
-        } else {
-          setHasKey(true); 
-        }
+        // Race condition handler: If API check takes > 1.5s, assume true (fail open for preview)
+        // This fixes desktop hanging issues where window.aistudio exists but is unresponsive
+        const timeout = new Promise(resolve => setTimeout(resolve, 1500));
+        
+        const check = (window as any).aistudio?.hasSelectedApiKey 
+            ? (window as any).aistudio.hasSelectedApiKey() 
+            : Promise.resolve(true);
+        
+        const result = await Promise.race([check, timeout.then(() => true)]);
+        
+        setHasKey(!!result);
       } catch (e) {
         console.warn("Failed to check API key status", e);
         setHasKey(true); // Fail open to allow app usage if check fails
@@ -210,7 +215,7 @@ const AppContent: React.FC = () => {
 
   return (
     <ToastContext.Provider value={{ showToast }}>
-      <div className="flex h-[100dvh] bg-slate-50 font-sans text-gray-900 overflow-hidden">
+      <div className="flex h-screen h-[100dvh] bg-slate-50 font-sans text-gray-900 overflow-hidden">
         <a 
           href="#main-content" 
           className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-brand-red focus:text-white focus:rounded-md focus:shadow-lg focus:outline-none"
