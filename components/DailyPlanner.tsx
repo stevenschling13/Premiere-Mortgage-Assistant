@@ -1,32 +1,13 @@
 import React, { useState, useEffect, memo, useCallback } from 'react';
-import CalendarIcon from 'lucide-react/icons/calendar';
-import Clock from 'lucide-react/icons/clock';
-import Plus from 'lucide-react/icons/plus';
-import BrainCircuit from 'lucide-react/icons/brain-circuit';
-import Sparkles from 'lucide-react/icons/sparkles';
-import Loader2 from 'lucide-react/icons/loader-2';
-import ChevronRight from 'lucide-react/icons/chevron-right';
-import ChevronLeft from 'lucide-react/icons/chevron-left';
-import LinkIcon from 'lucide-react/icons/link';
-import FileText from 'lucide-react/icons/file-text';
-import Trash2 from 'lucide-react/icons/trash-2';
-import CalendarIcon from 'lucide-react/dist/esm/icons/calendar';
-import Clock from 'lucide-react/dist/esm/icons/clock';
-import Plus from 'lucide-react/dist/esm/icons/plus';
-import BrainCircuit from 'lucide-react/dist/esm/icons/brain-circuit';
-import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
-import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
-import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right';
-import ChevronLeft from 'lucide-react/dist/esm/icons/chevron-left';
-import LinkIcon from 'lucide-react/dist/esm/icons/link';
-import FileText from 'lucide-react/dist/esm/icons/file-text';
-import Trash2 from 'lucide-react/dist/esm/icons/trash-2';
+import { 
+    Calendar as CalendarIcon, Clock, Plus, BrainCircuit, 
+    Sparkles, Loader2, ChevronRight, ChevronLeft, Link as LinkIcon, FileText, Trash2
+} from 'lucide-react';
 import { CalendarEvent, Client } from '../types';
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
+import { generateDailySchedule, generateMeetingPrep } from '../services/geminiService';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
-
-const loadScheduleService = () => import('../services/gemini/scheduleService');
 
 // --- SUB-COMPONENT: Time Slot Row (Memoized) ---
 const TimeSlotRow = memo(({ 
@@ -112,7 +93,6 @@ export const DailyPlanner: React.FC = () => {
         }
         setIsOptimizing(true);
         try {
-            const { generateDailySchedule } = await loadScheduleService();
             const newEvents = await generateDailySchedule(events, naturalInput, clients);
             setEvents(prev => [...prev, ...newEvents]);
             setNaturalInput('');
@@ -168,11 +148,11 @@ export const DailyPlanner: React.FC = () => {
         if (event.type === 'MEETING' || event.type === 'CALL') {
             setIsPrepping(true);
             try {
-                const matchedClient = clients.find(c =>
-                    (event.clientId && c.id === event.clientId) ||
+                const matchedClient = clients.find(c => 
+                    (event.clientId && c.id === event.clientId) || 
                     event.title.toLowerCase().includes(c.name.toLowerCase())
                 );
-                const { generateMeetingPrep } = await loadScheduleService();
+                
                 const content = await generateMeetingPrep(event.title, matchedClient);
                 setPrepContent(content);
             } catch (e) {

@@ -1,51 +1,19 @@
 import React, { useState, useMemo, useEffect, useRef, useDeferredValue, Suspense, useCallback, memo } from 'react';
-import Users from 'lucide-react/icons/users';
-import Search from 'lucide-react/icons/search';
-import Plus from 'lucide-react/icons/plus';
-import Filter from 'lucide-react/icons/filter';
-import Settings from 'lucide-react/icons/settings';
-import Trash2 from 'lucide-react/icons/trash-2';
-import X from 'lucide-react/icons/x';
-import Sparkles from 'lucide-react/icons/sparkles';
-import Loader2 from 'lucide-react/icons/loader-2';
-import CheckSquare from 'lucide-react/icons/check-square';
-import Square from 'lucide-react/icons/square';
-import Radar from 'lucide-react/icons/radar';
-import XCircle from 'lucide-react/icons/x-circle';
-import Briefcase from 'lucide-react/icons/briefcase';
-import Headphones from 'lucide-react/icons/headphones';
-import Pause from 'lucide-react/icons/pause';
-import Check from 'lucide-react/icons/check';
-import MoreHorizontal from 'lucide-react/icons/more-horizontal';
-import Users from 'lucide-react/dist/esm/icons/users';
-import Search from 'lucide-react/dist/esm/icons/search';
-import Plus from 'lucide-react/dist/esm/icons/plus';
-import Filter from 'lucide-react/dist/esm/icons/filter';
-import Settings from 'lucide-react/dist/esm/icons/settings';
-import Trash2 from 'lucide-react/dist/esm/icons/trash-2';
-import X from 'lucide-react/dist/esm/icons/x';
-import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
-import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
-import CheckSquare from 'lucide-react/dist/esm/icons/check-square';
-import Square from 'lucide-react/dist/esm/icons/square';
-import Radar from 'lucide-react/dist/esm/icons/radar';
-import XCircle from 'lucide-react/dist/esm/icons/x-circle';
-import Briefcase from 'lucide-react/dist/esm/icons/briefcase';
-import Headphones from 'lucide-react/dist/esm/icons/headphones';
-import Pause from 'lucide-react/dist/esm/icons/pause';
-import Check from 'lucide-react/dist/esm/icons/check';
-import MoreHorizontal from 'lucide-react/dist/esm/icons/more-horizontal';
-import { List } from 'react-window';
+import { 
+    Users, Search, Plus, Filter, Settings, Trash2, X, Sparkles, Loader2, 
+    CheckSquare, Square, Radar, XCircle, Briefcase, Headphones, Pause, Check, MoreHorizontal
+} from 'lucide-react';
+import { FixedSizeList as List, areEqual } from 'react-window';
 import { Client, DealStage, Opportunity } from '../types';
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
-import { fetchDailyMarketPulse } from '../services/gemini/marketIntelligenceService';
+import { 
+    streamMorningMemo, fetchDailyMarketPulse, generateAudioBriefing, 
+    scanPipelineOpportunities 
+} from '../services/geminiService';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { INITIAL_CLIENTS, DEFAULT_DEAL_STAGES, COLOR_PALETTE } from '../constants';
 import { Skeleton } from './Skeleton';
-
-const loadBriefingService = () => import('../services/gemini/briefingService');
-const loadAssistantService = () => import('../services/gemini/assistantService');
 
 // Performance: Define import factory for prefetching
 const clientDetailViewPromise = () => import('./ClientDetailView');
@@ -197,7 +165,7 @@ const ClientRow = memo(({ index, style, data }: any) => {
             stageProgress={getStageProgress(client.status)}
         />
     );
-});
+}, areEqual);
 
 // --- SUB-COMPONENT: Pipeline Results (Memoized) ---
 const PipelineResults = memo(({ 
@@ -414,9 +382,8 @@ const DashboardWidgets = memo(({
 
         if (!morningMemo) return;
         setIsLoadingAudio(true);
-
+        
         try {
-            const { generateAudioBriefing } = await loadBriefingService();
             const base64Audio = await generateAudioBriefing(morningMemo);
             const binaryString = atob(base64Audio);
             const len = binaryString.length;
@@ -747,7 +714,6 @@ export const ClientManager: React.FC = () => {
         setSentryOpportunities([]); // Clear previous
         try {
             const marketData = await fetchDailyMarketPulse();
-            const { scanPipelineOpportunities } = await loadAssistantService();
             const opportunities = await scanPipelineOpportunities(clients, marketData.indices);
             setSentryOpportunities(opportunities);
         } catch (e) {
@@ -763,10 +729,9 @@ export const ClientManager: React.FC = () => {
         if (!forceRefresh && morningMemoRef.current) return;
         setLoadingMemo(true);
         setMorningMemo(''); // Clear previous
-
+        
         try {
             const marketData = await fetchDailyMarketPulse();
-            const { streamMorningMemo } = await loadBriefingService();
             const stream = streamMorningMemo(urgentClients, marketData);
             let fullText = '';
             for await (const chunk of stream) {

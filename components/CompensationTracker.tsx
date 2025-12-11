@@ -1,47 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import DollarSign from 'lucide-react/icons/dollar-sign';
-import TrendingUp from 'lucide-react/icons/trending-up';
-import ShieldCheck from 'lucide-react/icons/shield-check';
-import Briefcase from 'lucide-react/icons/briefcase';
-import CheckCircle2 from 'lucide-react/icons/check-circle-2';
-import PlusCircle from 'lucide-react/icons/plus-circle';
-import Sparkles from 'lucide-react/icons/sparkles';
-import Loader2 from 'lucide-react/icons/loader-2';
-import ArrowUpRight from 'lucide-react/icons/arrow-up-right';
-import Settings from 'lucide-react/icons/settings';
-import Calculator from 'lucide-react/icons/calculator';
-import BarChart3 from 'lucide-react/icons/bar-chart-3';
-import PieChart from 'lucide-react/icons/pie-chart';
-import History from 'lucide-react/icons/history';
-import X from 'lucide-react/icons/x';
-import Save from 'lucide-react/icons/save';
-import Target from 'lucide-react/icons/target';
-import AlertTriangle from 'lucide-react/icons/alert-triangle';
-import DollarSign from 'lucide-react/dist/esm/icons/dollar-sign';
-import TrendingUp from 'lucide-react/dist/esm/icons/trending-up';
-import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check';
-import Briefcase from 'lucide-react/dist/esm/icons/briefcase';
-import CheckCircle2 from 'lucide-react/dist/esm/icons/check-circle-2';
-import PlusCircle from 'lucide-react/dist/esm/icons/plus-circle';
-import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
-import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
-import ArrowUpRight from 'lucide-react/dist/esm/icons/arrow-up-right';
-import Settings from 'lucide-react/dist/esm/icons/settings';
-import Calculator from 'lucide-react/dist/esm/icons/calculator';
-import BarChart3 from 'lucide-react/dist/esm/icons/bar-chart-3';
-import PieChart from 'lucide-react/dist/esm/icons/pie-chart';
-import History from 'lucide-react/dist/esm/icons/history';
-import X from 'lucide-react/dist/esm/icons/x';
-import Save from 'lucide-react/dist/esm/icons/save';
-import Target from 'lucide-react/dist/esm/icons/target';
-import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
+import { DollarSign, TrendingUp, ShieldCheck, Briefcase, CheckCircle2, PlusCircle, Sparkles, Loader2, ArrowUpRight, Settings, Calculator, BarChart3, PieChart, History, X, Save, Target, AlertTriangle } from 'lucide-react';
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
+import { generateGapStrategy } from '../services/geminiService';
 import { Client, ManualDeal } from '../types';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ReferenceLine, CartesianGrid } from 'recharts';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
-
-const loadCompensationService = () => import('../services/gemini/compensationService');
 
 const DEFAULT_SETTINGS = {
     baseSalary: 51001,
@@ -222,7 +186,6 @@ export const CompensationTracker: React.FC = () => {
     const handleGenerateStrategy = async () => {
         setIsStrategizing(true);
         try {
-            const { generateGapStrategy } = await loadCompensationService();
             const strategy = await generateGapStrategy(totalYtdIncome, TARGET_ANNUAL_INCOME, pipelineData);
             setGapStrategy(strategy);
         } catch (e) {

@@ -1,35 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import DollarSign from 'lucide-react/icons/dollar-sign';
-import AlertCircle from 'lucide-react/icons/alert-circle';
-import CheckCircle2 from 'lucide-react/icons/check-circle-2';
-import TrendingUp from 'lucide-react/icons/trending-up';
-import Stethoscope from 'lucide-react/icons/stethoscope';
-import Loader2 from 'lucide-react/icons/loader-2';
-import RefreshCcw from 'lucide-react/icons/refresh-ccw';
-import Briefcase from 'lucide-react/icons/briefcase';
-import Coins from 'lucide-react/icons/coins';
-import X from 'lucide-react/icons/x';
-import Save from 'lucide-react/icons/save';
-import BookOpen from 'lucide-react/icons/book-open';
-import DollarSign from 'lucide-react/dist/esm/icons/dollar-sign';
-import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
-import CheckCircle2 from 'lucide-react/dist/esm/icons/check-circle-2';
-import TrendingUp from 'lucide-react/dist/esm/icons/trending-up';
-import Stethoscope from 'lucide-react/dist/esm/icons/stethoscope';
-import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
-import RefreshCcw from 'lucide-react/dist/esm/icons/refresh-ccw';
-import Briefcase from 'lucide-react/dist/esm/icons/briefcase';
-import Coins from 'lucide-react/dist/esm/icons/coins';
-import X from 'lucide-react/dist/esm/icons/x';
-import Save from 'lucide-react/dist/esm/icons/save';
-import BookOpen from 'lucide-react/dist/esm/icons/book-open';
+import { DollarSign, AlertCircle, CheckCircle2, TrendingUp, Stethoscope, Loader2, RefreshCcw, Briefcase, Coins, X, Save, BookOpen } from 'lucide-react';
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
+import { solveDtiScenario } from '../services/geminiService';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { useToast } from './Toast';
 import { Client } from '../types';
 import { AGENCY_GUIDELINES, VA_RESIDUAL_INCOME_TABLE, VA_REGIONS, VA_ADDITIONAL_MEMBER_AMOUNT } from '../constants';
-
-const loadLoanToolsService = () => import('../services/gemini/loanToolsService');
 
 const DEFAULT_INCOME = { baseSalary: 25000, bonus: 5000, rsu: 8000, other: 0 };
 const DEFAULT_DEBTS = { creditCards: 500, carLoans: 1200, studentLoans: 0, otherRealEstate: 2500, otherLoans: 0 };
@@ -129,7 +105,6 @@ export const DtiAnalysis: React.FC = () => {
                 hasAusApproval,
                 requiredResidual: selectedLoanType === 'VA' ? requiredResidual : undefined
             };
-            const { solveDtiScenario } = await loadLoanToolsService();
             const advice = await solveDtiScenario(financials);
             setDealDoctorAdvice(advice);
         } catch (e) {
