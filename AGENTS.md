@@ -72,3 +72,25 @@ All system instructions must follow this sequence to ensure protocol adherence:
 ### C. Data Integrity
 *   **Sanitization**: All PII is processed in-memory.
 *   **Verification**: The "Auditor" function (`verifyFactualClaims`) acts as a secondary check on all generated market data.
+
+---
+
+## 🧭 Repository Working Map (for all Agents)
+
+To keep refactors aligned with the current codebase, follow this source-of-truth map when adding or updating functionality:
+
+* **Gemini services** are split into feature modules under `services/gemini/`, all sharing `geminiCore.ts` (API client, MIRROR prompt, safety settings, caching, prompt builders).
+  * Assistant/chat: `assistantService.ts`
+  * Market intel + campaigns: `marketIntelligenceService.ts`
+  * Client workspace tools (summary, drafts, OCR, gifts, scratchpad): `clientWorkspaceService.ts`
+  * Scheduling: `scheduleService.ts`
+  * Loan tools (DTI, scenario streaming): `loanToolsService.ts`
+  * Compensation: `compensationService.ts`
+  * Briefings (morning memo, audio): `briefingService.ts`
+  * Barrel: `services/geminiService.ts` re-exports all feature modules; `services/index.ts` re-exports the barrel.
+* **Dynamic imports**: Cold-path AI actions in components should use `const loadXService = () => import('...')` before calling the needed function. Keep hot-path helpers as static imports for responsiveness.
+* **Icon imports**: Use per-icon paths (e.g., `import Users from 'lucide-react/icons/users';`)—do not use named imports from `lucide-react`.
+* **Bundling**: `vite.config.ts` is configured with manual vendor chunks (`vendor-react`, `vendor-ai`, `vendor-charts`, `vendor-icons`). Maintain or extend this pattern intentionally when adding heavy deps.
+* **Environment**: Gemini API key reads from `VITE_GEMINI_API_KEY`, `GEMINI_API_KEY`, or `API_KEY`. Keep docs consistent.
+
+These guardrails are mandatory for any new work within this repository. Deviations require explicit justification in PR notes.
