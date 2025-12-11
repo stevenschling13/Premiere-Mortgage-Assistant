@@ -1,5 +1,5 @@
 import React, { useCallback, memo } from 'react';
-import { Users, Calculator, Sparkles, Building2, LogOut, Megaphone, FileText, PieChart, X, TrendingUp, Download, Calendar } from 'lucide-react';
+import { Users, Calculator, Sparkles, Building2, LogOut, Megaphone, FileText, PieChart, X, TrendingUp, Download, Calendar, BookOpen } from 'lucide-react';
 import { AppView } from '../types';
 
 interface SidebarProps {
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { id: AppView.CALCULATOR, label: 'Jumbo Calculator', icon: Calculator },
   { id: AppView.DTI_ANALYSIS, label: 'Affordability & DTI', icon: PieChart },
   { id: AppView.RATES_NOTES, label: 'Rates & Commentary', icon: FileText },
+  { id: AppView.GEMINI_GUIDE, label: 'Gemini API Guide', icon: BookOpen },
   { id: AppView.COMPENSATION, label: 'Wealth & Performance', icon: TrendingUp },
   { id: AppView.ASSISTANT, label: 'Virtual Analyst', icon: Sparkles },
 ];
