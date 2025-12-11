@@ -28,6 +28,7 @@ export interface Client {
   referralSource?: string; 
   referralEmail?: string;  
   loanAmount: number;
+  currentRate?: number; // Tracking for Refi Opportunities
   propertyAddress: string;
   estimatedPropertyValue?: number; 
   status: string; 
@@ -137,7 +138,7 @@ export enum AppView {
 }
 
 // AI Command Types
-export type CommandAction = 'CREATE_CLIENT' | 'UPDATE_STATUS' | 'UPDATE_CLIENT' | 'ADD_NOTE' | 'ADD_TASK' | 'UNKNOWN';
+export type CommandAction = 'CREATE_CLIENT' | 'UPDATE_STATUS' | 'UPDATE_CLIENT' | 'ADD_NOTE' | 'ADD_TASK' | 'SCAN_PIPELINE' | 'UNKNOWN';
 
 export interface CommandIntent {
   action: CommandAction;
@@ -145,6 +146,7 @@ export interface CommandIntent {
   payload: {
     name?: string;
     loanAmount?: number;
+    rate?: number; // New: Rate updates
     status?: string;
     phone?: string;
     email?: string;

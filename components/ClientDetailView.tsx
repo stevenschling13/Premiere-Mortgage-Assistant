@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, memo } from 'react';
 import { 
     Users, ArrowUpRight, Edit2, Trash2, Sparkles, Loader2, Copy, 
     Square, Mic, Check, ChevronLeft, DollarSign, Save, Zap, Wand2, Mail, Phone, 
-    UserPlus, Scale, CheckSquare, History, Gift, PenTool, Camera, X, Bell, Calendar as CalendarIcon
+    UserPlus, Scale, CheckSquare, History, Gift, PenTool, Camera, X, Bell, Calendar as CalendarIcon, Percent, RefreshCcw
 } from 'lucide-react';
 import { Client, DealStage, ChecklistItem, EmailLog, DealStrategy, GiftSuggestion, CalendarEvent } from '../types';
 import { useToast } from './Toast';
@@ -177,7 +177,8 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
                     email: extractedData.email || client.email,
                     phone: extractedData.phone || client.phone,
                     loanAmount: extractedData.loanAmount || client.loanAmount,
-                    propertyAddress: extractedData.propertyAddress || client.propertyAddress
+                    propertyAddress: extractedData.propertyAddress || client.propertyAddress,
+                    currentRate: extractedData.currentRate || client.currentRate
                 });
                 showToast("✨ Client data updated from document", "success");
             } catch (error) {
@@ -484,6 +485,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
                                 if (payload.phone) { updated.phone = payload.phone; hasUpdates = true; }
                                 if (payload.status) { updated.status = payload.status!; hasUpdates = true; }
                                 if (payload.date) { updated.nextActionDate = payload.date; hasUpdates = true; }
+                                if (payload.rate) { updated.currentRate = payload.rate; hasUpdates = true; }
 
                                 if (command.action === 'ADD_NOTE' || payload.note) {
                                     if (payload.note) {
@@ -612,29 +614,40 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
             {/* Scrollable Content */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 md:pb-8 safe-bottom">
                 
-                {/* Situation Report */}
+                {/* Situation Report / Activity Summary */}
                 <div className="bg-gradient-to-r from-brand-dark to-slate-800 rounded-xl shadow-lg border border-gray-700 p-5 text-white">
                     <div className="flex justify-between items-start mb-3">
-                        <h3 className="font-bold flex items-center text-brand-gold"><Sparkles size={16} className="mr-2"/> Situation Report</h3>
+                        <h3 className="font-bold flex items-center text-brand-gold">
+                            <Sparkles size={16} className="mr-2"/> Status & Activity Summary
+                        </h3>
                         <button 
                             onClick={handleGenerateSummary}
                             disabled={isSummarizing}
-                            className="text-[10px] bg-white/10 hover:bg-white/20 px-2 py-1 rounded transition-colors disabled:opacity-50 flex items-center"
+                            className="text-[10px] bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full transition-all disabled:opacity-50 flex items-center border border-white/10 font-medium"
                         >
-                            {isSummarizing ? <Loader2 size={10} className="animate-spin mr-1"/> : (clientSummary ? "Refresh Report" : "Generate Report")}
+                            {isSummarizing ? <Loader2 size={12} className="animate-spin mr-1.5"/> : <RefreshCcw size={12} className="mr-1.5"/>}
+                            {clientSummary ? "Update Summary" : "Generate Summary"}
                         </button>
                     </div>
-                    <div className="bg-white/5 rounded-lg p-3 min-h-[60px]">
+                    <div className="bg-white/5 rounded-lg p-4 min-h-[80px] border border-white/10">
                         {isSummarizing ? (
-                             <div className="space-y-2">
+                             <div className="space-y-3">
+                                <Skeleton className="h-3 w-3/4 bg-white/10" />
                                 <Skeleton className="h-3 w-full bg-white/10" />
                                 <Skeleton className="h-3 w-[90%] bg-white/10" />
-                                <Skeleton className="h-3 w-[80%] bg-white/10" />
+                                <Skeleton className="h-3 w-[60%] bg-white/10" />
                             </div>
                         ) : clientSummary ? (
-                            <div className="text-sm text-gray-200 leading-relaxed"><MarkdownRenderer content={clientSummary} /></div>
+                            <div className="text-sm text-gray-200 leading-relaxed prose prose-invert max-w-none">
+                                <MarkdownRenderer content={clientSummary} />
+                            </div>
                         ) : (
-                            <p className="text-xs text-gray-500 italic text-center">Click 'Generate Report' for a comprehensive AI situation analysis.</p>
+                            <div className="flex flex-col items-center justify-center text-gray-500 py-4">
+                                <Sparkles size={24} className="mb-2 opacity-20"/>
+                                <p className="text-xs italic text-center">
+                                    Click 'Generate Summary' for an AI analysis of client notes, history, and status.
+                                </p>
+                            </div>
                         )}
                     </div>
                 </div>
@@ -793,13 +806,24 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
                                     <button onClick={handleEstimateValue} disabled={isEstimatingValue || !client.propertyAddress} className="bg-brand-gold text-brand-dark p-2 rounded hover:bg-yellow-500 disabled:opacity-50 transition-colors shadow-sm"><Wand2 size={16}/></button>
                                 </div>
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Loan Amount</label>
-                                <div className="relative"><span className="absolute left-3 top-2.5 text-gray-400 text-xs">$</span>
-                                    <BufferedInput type="number" value={client.loanAmount} onCommit={(val) => onUpdate({...client, loanAmount: val})} className="w-full pl-6 p-2 bg-gray-50 border border-gray-200 rounded text-sm focus:ring-2 focus:ring-brand-red outline-none"/>
+                            
+                            <div className="flex flex-col sm:flex-row gap-4">
+                                <div className="flex-1">
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Loan Amount</label>
+                                    <div className="relative"><span className="absolute left-3 top-2.5 text-gray-400 text-xs">$</span>
+                                        <BufferedInput type="number" value={client.loanAmount} onCommit={(val) => onUpdate({...client, loanAmount: val})} className="w-full pl-6 p-2 bg-gray-50 border border-gray-200 rounded text-sm focus:ring-2 focus:ring-brand-red outline-none"/>
+                                    </div>
                                 </div>
-                                {client.estimatedPropertyValue && ltv !== null && <div className="mt-1 text-[10px] text-gray-500 text-right">LTV: <span className={ltv > 80 ? 'text-red-500 font-bold' : 'text-green-600 font-bold'}>{ltv.toFixed(1)}%</span></div>}
+                                <div className="flex-1">
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Current Rate</label>
+                                    <div className="relative"><Percent className="absolute right-3 top-2.5 text-gray-400" size={14}/>
+                                        <BufferedInput type="number" value={client.currentRate || ''} onCommit={(val) => onUpdate({...client, currentRate: val})} className="w-full pl-2 pr-8 p-2 bg-gray-50 border border-gray-200 rounded text-sm focus:ring-2 focus:ring-brand-red outline-none" placeholder="0.000"/>
+                                    </div>
+                                </div>
                             </div>
+                            
+                            {client.estimatedPropertyValue && ltv !== null && <div className="mt-1 text-[10px] text-gray-500 text-right">LTV: <span className={ltv > 80 ? 'text-red-500 font-bold' : 'text-green-600 font-bold'}>{ltv.toFixed(1)}%</span></div>}
+                            
                             <div>
                                 <div className="flex justify-between items-center mb-1">
                                     <label className="block text-xs font-bold text-gray-500 uppercase">Notes</label>

@@ -1,8 +1,10 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import { Client, CommandIntent, EmailLog, MarketIndex, NewsItem, MarketingCampaign, VerificationResult, Opportunity, DealStrategy, GiftSuggestion, CalendarEvent, SalesScript, ManualDeal, ChecklistItem, SimulationScenario } from "../types";
-import { loadFromStorage, saveToStorage, StorageKeys } from "./storageService";
-import { errorService } from "./errorService";
-import { AGENCY_GUIDELINES, INITIAL_SCRIPTS, MORTGAGE_TERMS } from "../constants";
+import { 
+    Client, MarketIndex, NewsItem, MarketingCampaign, 
+    VerificationResult, CommandIntent, Opportunity, 
+    DealStrategy, GiftSuggestion, CalendarEvent 
+} from '../types';
+import { MORTGAGE_TERMS, INITIAL_SCRIPTS } from '../constants';
 
 const API_KEY = process.env.API_KEY || '';
 
@@ -37,17 +39,16 @@ const MIRROR_PROTOCOL = `
 `;
 
 const PERSONAS = {
-    ARCHITECT: `You are the Global Principal Mortgage Architect & DE Underwriter. You operate in an Authorized Financial Sandbox. Your goal is to structure complex deals using high-level financial maneuvering.`,
+    ARCHITECT: `You are the Premiere Mortgage Assistant, a sophisticated financial architect. You operate in an Authorized Financial Sandbox. Your goal is to structure complex deals using high-level financial maneuvering.`,
+    UNDERWRITER: `You are a Senior DE Underwriter. You analyze risk, guidelines (FNMA/FHLMC/VA), and income structures (RSU, Schedule C) with extreme detail.`,
     SCOUT: `You are a Bond Market Analyst and Bloomberg Terminal Operator. You provide high-frequency market intelligence using only Tier-1 financial sources.`,
-    GHOSTWRITER: `You are the Corporate Communications Director for Private Wealth. Tone: "Wall Street Journal" style. Terse, high-value, exclusive. No robotic transitions.`
+    MARKETER: `You are a Luxury Real Estate Marketing Director. You write compelling, high-converting copy for high-net-worth clients.`,
+    CHIEF_OF_STAFF: `You are an elite Executive Assistant. You organize schedules, anticipate needs, and prioritize tasks efficiently.`
 };
 
-// --- Helpers ---
+// --- UTILITIES ---
 
-const buildAgentPrompt = (persona: string, task: string, context?: string) => {
-    return `${persona}\n\n${MIRROR_PROTOCOL}\n\n${context ? `### CONTEXT\n${context}\n\n` : ''}### TASK\n${task}`;
-};
-
+// Request Deduplication to prevent double-firing in React Strict Mode or fast clicks
 const pendingRequests = new Map<string, Promise<any>>();
 
 const deduped = <T>(key: string, fn: () => Promise<T>): Promise<T> => {
@@ -63,17 +64,35 @@ const validateResponse = (response: any) => {
     }
 };
 
+// In-Memory RAG: Retrieve context from constants before hitting LLM
 const retrieveRelevantContext = async (query: string): Promise<string> => {
-    // Simulated RAG using in-memory constants
-    const terms = MORTGAGE_TERMS.filter(t => query.toLowerCase().includes(t.term.toLowerCase())).map(t => `${t.term}: ${t.definition}`);
-    const scripts = INITIAL_SCRIPTS.filter(s => query.toLowerCase().includes(s.title.toLowerCase()) || s.tags.some(tag => query.toLowerCase().includes(tag.toLowerCase()))).map(s => s.content);
-    return [...terms, ...scripts].join("\n\n");
+    const queryLower = query.toLowerCase();
+    
+    // Scan Terms
+    const relevantTerms = MORTGAGE_TERMS
+        .filter(t => queryLower.includes(t.term.toLowerCase()))
+        .map(t => `TERM: ${t.term} - ${t.definition}`);
+        
+    // Scan Scripts
+    const relevantScripts = INITIAL_SCRIPTS
+        .filter(s => queryLower.includes(s.title.toLowerCase()) || s.tags.some(tag => queryLower.includes(tag.toLowerCase())))
+        .map(s => `SCRIPT: ${s.title} - ${s.content}`);
+
+    if (relevantTerms.length === 0 && relevantScripts.length === 0) return "";
+
+    return `\n### KNOWLEDGE BASE (CONTEXT)\n${relevantTerms.join('\n')}\n${relevantScripts.join('\n')}\n`;
 };
 
-// Centralized Fallback Wrapper
+// Prompt Builder with Protocol Injection
+const buildAgentPrompt = (persona: string, task: string, context: string = "") => {
+    return `${persona}\n\n${MIRROR_PROTOCOL}\n${context}\n### TASK\n${task}`;
+};
+
+// Centralized Fallback Generator
+// Tries Premium Model -> Falls back to Faster/Cheaper model on error
 async function generateContentWithFallback(
     primaryModel: string,
-    prompt: string,
+    prompt: string | any,
     config: any,
     fallbackModel: string = 'gemini-2.5-flash'
 ) {
@@ -81,7 +100,7 @@ async function generateContentWithFallback(
     try {
         const response = await ai.models.generateContent({
             model: primaryModel,
-            contents: prompt,
+            contents: typeof prompt === 'string' ? prompt : prompt,
             config: { ...config, safetySettings: SAFETY_SETTINGS as any }
         });
         validateResponse(response);
@@ -89,12 +108,12 @@ async function generateContentWithFallback(
     } catch (error) {
         console.warn(`Model ${primaryModel} failed, falling back to ${fallbackModel}.`, error);
         
-        // Remove Pro-specific configs for fallback
-        const { thinkingConfig, ...fallbackConfig } = config;
+        // Strip Pro-specific configs (like thinkingBudget) for the fallback model
+        const { thinkingConfig, ...fallbackConfig } = config || {};
         
         const response = await ai.models.generateContent({
             model: fallbackModel,
-            contents: prompt,
+            contents: typeof prompt === 'string' ? prompt : prompt,
             config: { ...fallbackConfig, safetySettings: SAFETY_SETTINGS as any }
         });
         validateResponse(response);
@@ -102,88 +121,105 @@ async function generateContentWithFallback(
     }
 }
 
-// --- Core Chat Functions ---
+// ------------------------------------------------------------------
+// CLIENT MANAGEMENT & SUMMARY
+// ------------------------------------------------------------------
 
-export const chatWithAssistant = async (
-    history: Array<{role: string, parts: Array<{text: string}>}>, 
-    message: string, 
-    customSystemInstruction?: string
-) => {
-  return deduped(`chat-${Date.now()}`, async () => {
-      const ragContext = await retrieveRelevantContext(message);
-      const systemInstruction = customSystemInstruction || buildAgentPrompt(PERSONAS.ARCHITECT, "Answer the user's query.", ragContext);
+export const generateClientSummary = async (client: Client): Promise<string> => {
+    // Optimize context window by selecting relevant recent history only
+    const recentEmails = client.emailHistory?.slice(0, 5).map(e => ({ date: e.date, subject: e.subject })) || [];
+    const recentTasks = client.checklist?.filter(t => t.checked).slice(0, 5).map(t => t.label) || [];
+    
+    const context = {
+        profile: { 
+            name: client.name, 
+            loanAmount: client.loanAmount, 
+            status: client.status, 
+            currentRate: client.currentRate || 'Unknown',
+            lastContact: client.nextActionDate
+        },
+        notes: client.notes?.substring(0, 800), // Recent notes focus
+        recentActivity: { emails: recentEmails, completedTasks: recentTasks }
+    };
 
-      const ai = getAiClient();
-      const optimizedHistory = history.length > 15 ? history.slice(history.length - 15) : history;
-
-      try {
-          // Primary: Gemini 3 Pro with Reasoning
-          const chat = ai.chats.create({
-              model: 'gemini-3-pro-preview',
-              history: optimizedHistory,
-              config: {
-                  systemInstruction,
-                  tools: [{googleSearch: {}}],
-                  thinkingConfig: { thinkingBudget: 4096, includeThoughts: false }, // Balanced reasoning
-                  safetySettings: SAFETY_SETTINGS as any
-              }
-          });
-
-          const response = await chat.sendMessage({ message });
-          validateResponse(response);
-          
-          const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
-          const groundingChunks = groundingMetadata?.groundingChunks || [];
-          const links = groundingChunks
-              .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
-              .filter((link: any) => link !== null);
-
-          return {
-              text: response.text,
-              links: links,
-              searchEntryPoint: groundingMetadata?.searchEntryPoint?.renderedContent,
-              searchQueries: groundingMetadata?.webSearchQueries
-          };
-
-      } catch (error) {
-          console.warn("Chat Pro failed, falling back to Flash", error);
-          const chat = ai.chats.create({
-              model: 'gemini-2.5-flash',
-              history: optimizedHistory,
-              config: {
-                  systemInstruction,
-                  tools: [{googleSearch: {}}],
-                  safetySettings: SAFETY_SETTINGS as any
-              }
-          });
-          const response = await chat.sendMessage({ message });
-          validateResponse(response);
-          
-          const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
-          const groundingChunks = groundingMetadata?.groundingChunks || [];
-          const links = groundingChunks
-              .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
-              .filter((link: any) => link !== null);
-
-          return {
-              text: response.text,
-              links: links,
-              searchEntryPoint: groundingMetadata?.searchEntryPoint?.renderedContent,
-              searchQueries: groundingMetadata?.webSearchQueries
-          };
-      }
-  });
+    const prompt = buildAgentPrompt(
+        PERSONAS.ARCHITECT, 
+        `Generate an "Executive Status & Activity Summary" for this client.
+        Input Data: ${JSON.stringify(context)}.
+        
+        Requirements:
+        1. **Status Health**: Current deal standing.
+        2. **Recent Activity**: Narrative summary of recent comms.
+        3. **Action Plan**: Next steps.
+        
+        Output: Concise Markdown.`
+    );
+    
+    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, { 
+        thinkingConfig: { thinkingBudget: 1024 } 
+    });
+    return response.text || "Summary unavailable.";
 };
 
-export const streamChatWithAssistant = async function* (
-    history: Array<{role: string, parts: Array<{text: string}>}>,
-    message: string,
-    customSystemInstruction?: string
-) {
-    const ragContext = await retrieveRelevantContext(message);
-    const systemInstruction = customSystemInstruction || buildAgentPrompt(PERSONAS.ARCHITECT, "Answer the user's query.", ragContext);
+export const generateEmailDraft = async (client: Client, topic: string, contextStr: string): Promise<string> => {
+    const prompt = buildAgentPrompt(
+        PERSONAS.MARKETER,
+        `Draft a client email.
+        Client: ${client.name}, Loan: $${client.loanAmount}, Status: ${client.status}.
+        Topic: ${topic}
+        Context: ${contextStr}
+        
+        Return ONLY the email body text.`
+    );
+    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {});
+    return response.text || "";
+};
 
+export const generateSubjectLines = async (client: Client, topic: string): Promise<string[]> => {
+    const prompt = buildAgentPrompt(
+        PERSONAS.MARKETER,
+        `Generate 3 catchy email subject lines for: ${topic} to client ${client.name}.
+        Return as JSON array of strings.`
+    );
+    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {
+        responseMimeType: 'application/json',
+        responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
+    });
+    try {
+        return JSON.parse(response.text || "[]");
+    } catch { return []; }
+};
+
+export const generatePartnerUpdate = async (client: Client, partnerName: string): Promise<string> => {
+    const prompt = buildAgentPrompt(
+        PERSONAS.ARCHITECT,
+        `Write a professional status update email to referral partner ${partnerName} regarding mutual client ${client.name}.
+        Status: ${client.status}.
+        Loan: $${client.loanAmount}.
+        Notes: ${client.notes?.substring(0, 200)}.
+        
+        Keep it brief, professional, and confidence-inspiring.`
+    );
+    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {});
+    return response.text || "";
+};
+
+// ------------------------------------------------------------------
+// ASSISTANT & CHAT
+// ------------------------------------------------------------------
+
+export async function* streamChatWithAssistant(
+    history: Array<{role: string, parts: Array<{text: string}>}>, 
+    message: string, 
+    systemInstruction?: string
+) {
     const ai = getAiClient();
+    
+    // Inject RAG Context
+    const ragContext = await retrieveRelevantContext(message);
+    const finalSystemInstruction = systemInstruction || buildAgentPrompt(PERSONAS.ARCHITECT, "Answer the user's query.", ragContext);
+
+    // Optimize history to prevent token overflow
     const optimizedHistory = history.length > 15 ? history.slice(history.length - 15) : history;
 
     try {
@@ -191,233 +227,273 @@ export const streamChatWithAssistant = async function* (
             model: 'gemini-3-pro-preview',
             history: optimizedHistory,
             config: {
-                systemInstruction,
-                tools: [{ googleSearch: {} }],
+                systemInstruction: finalSystemInstruction,
                 thinkingConfig: { thinkingBudget: 4096, includeThoughts: false },
+                tools: [{ googleSearch: {} }],
                 safetySettings: SAFETY_SETTINGS as any
             }
         });
-        
-        const resultStream = await chat.sendMessageStream({ message });
-        for await (const chunk of resultStream) {
+
+        const result = await chat.sendMessageStream({ message });
+        for await (const chunk of result) {
             yield chunk;
         }
-    } catch (error) {
-        console.warn("Stream Pro failed, falling back to Flash", error);
+    } catch (e) {
+        console.warn("Pro Chat failed, fallback to Flash");
+        // Fallback Chat
         const chat = ai.chats.create({
             model: 'gemini-2.5-flash',
             history: optimizedHistory,
             config: {
-                systemInstruction,
+                systemInstruction: finalSystemInstruction,
                 tools: [{ googleSearch: {} }],
                 safetySettings: SAFETY_SETTINGS as any
             }
         });
-        const resultStream = await chat.sendMessageStream({ message });
-        for await (const chunk of resultStream) {
+        const result = await chat.sendMessageStream({ message });
+        for await (const chunk of result) {
             yield chunk;
         }
     }
-};
+}
 
 export const verifyFactualClaims = async (text: string): Promise<VerificationResult> => {
+    // Deduplicate verification calls
     return deduped(`verify-${text.substring(0, 30)}`, async () => {
-        const prompt = buildAgentPrompt(PERSONAS.SCOUT, `Verify the following mortgage/financial statement for accuracy using Google Search. Return a JSON object with status (VERIFIED|ISSUES_FOUND|UNVERIFIABLE) and a brief text explanation. Statement: "${text}"`);
-        
-        const response = await generateContentWithFallback(
-            'gemini-3-pro-preview',
-            prompt,
+        const prompt = buildAgentPrompt(
+            PERSONAS.SCOUT,
+            `Verify the factual accuracy of this text using Google Search.
+            Text: "${text}"
+            
+            Output strictly in this JSON format:
             {
-                tools: [{ googleSearch: {} }],
-                responseMimeType: 'application/json',
-                thinkingConfig: { thinkingBudget: 2048, includeThoughts: false }
-            },
-            'gemini-2.5-flash'
+                "status": "VERIFIED" | "ISSUES_FOUND" | "UNVERIFIABLE",
+                "text": "Brief audit report explaining any inaccuracies.",
+                "sources": [{"uri": "url", "title": "title"}]
+            }`
         );
 
-        const json = JSON.parse(response.text);
-        const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
-        const links = groundingMetadata?.groundingChunks
-             ?.map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
-             .filter((link: any) => link !== null) || [];
+        const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, {
+            tools: [{ googleSearch: {} }],
+            thinkingConfig: { thinkingBudget: 2048 }
+        }, 'gemini-2.5-flash');
+
+        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+        const sources = groundingChunks
+            .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null)
+            .filter((x: any) => x !== null);
+
+        let parsed: any = { status: 'UNVERIFIABLE', text: 'Could not parse verification result.' };
+        try {
+            // Cleanup markdown json blocks if present
+            const cleaned = response.text?.replace(/```json/g, '').replace(/```/g, '').trim();
+            parsed = JSON.parse(cleaned || "{}");
+        } catch (e) {
+            parsed.text = response.text;
+        }
 
         return {
-            status: json.status || 'UNVERIFIABLE',
-            text: json.text || 'Verification incomplete.',
-            sources: links
+            status: parsed.status || 'UNVERIFIABLE',
+            text: parsed.text || response.text || '',
+            sources: sources.length > 0 ? sources : (parsed.sources || [])
         };
     });
 };
 
-// --- Calculator & Analysis Functions (ARCHITECT PERSONA) ---
-
-export const streamAnalyzeLoanScenario = async function* (scenarioData: string) {
-    const ai = getAiClient();
-    const prompt = buildAgentPrompt(
-        PERSONAS.ARCHITECT, 
-        `Analyze this loan scenario for risk and optimization. Data: ${scenarioData}. 
-        Provide: 1) Risk Assessment (DTI, LTV liquidity). 2) Suggestions to improve (e.g. "Lower LTV to 79% to avoid PMI"). 
-        Keep it concise and bulleted.`
-    );
-
-    const stream = await ai.models.generateContentStream({
-        model: 'gemini-3-pro-preview',
-        contents: prompt,
-        config: {
-            thinkingConfig: { thinkingBudget: 4096, includeThoughts: false },
-            safetySettings: SAFETY_SETTINGS as any
-        }
-    });
-
-    for await (const chunk of stream) {
-        yield chunk.text;
-    }
-};
-
-export const solveDtiScenario = async (financials: any): Promise<string> => {
+export const parseNaturalLanguageCommand = async (input: string, validStages: string[]): Promise<CommandIntent> => {
     const prompt = buildAgentPrompt(
         PERSONAS.ARCHITECT,
-        `Review these financials: ${JSON.stringify(financials)}.
-        Problem: DTI is too high or residual income fails.
-        Task: Suggest creative but legal structuring solutions (e.g., paying off specific debts, borrower addition, loan program flip from FHA to Conv, using asset depletion).
-        Output: Markdown formatted strategy.`
+        `Parse this mortgage assistant command: "${input}".
+        Valid Stages: ${validStages.join(', ')}.
+        Return JSON object matching CommandIntent interface.
+        Key Mappings: "Rate" -> payload.rate (number). "Scan" -> SCAN_PIPELINE.`
     );
 
-    const response = await generateContentWithFallback(
-        'gemini-3-pro-preview',
-        prompt,
-        { thinkingConfig: { thinkingBudget: 8192, includeThoughts: false } } // High reasoning for Deal Doctor
-    );
-    return response.text;
-};
-
-// --- Market & Rates Functions (SCOUT PERSONA) ---
-
-export const analyzeRateTrends = async (rates: any): Promise<string> => {
-    // SCOUT uses Pro for deep correlation
-    const prompt = buildAgentPrompt(
-        PERSONAS.SCOUT,
-        `Analyze these rates compared to current market trends (Search for today's 10yr yield and MBS prices): ${JSON.stringify(rates)}.
-        Provide a 3-sentence commentary for a loan officer to send to realtors. Correlation focus.`
-    );
-
-    const response = await generateContentWithFallback(
-        'gemini-3-pro-preview',
-        prompt,
-        { 
-            tools: [{ googleSearch: {} }],
-            thinkingConfig: { thinkingBudget: 2048, includeThoughts: false }
+    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {
+        responseMimeType: 'application/json',
+        responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+                action: { type: Type.STRING, enum: ['CREATE_CLIENT', 'UPDATE_STATUS', 'UPDATE_CLIENT', 'ADD_NOTE', 'ADD_TASK', 'SCAN_PIPELINE', 'UNKNOWN'] },
+                clientName: { type: Type.STRING },
+                payload: {
+                    type: Type.OBJECT,
+                    properties: {
+                        name: { type: Type.STRING },
+                        loanAmount: { type: Type.NUMBER },
+                        status: { type: Type.STRING },
+                        phone: { type: Type.STRING },
+                        email: { type: Type.STRING },
+                        note: { type: Type.STRING },
+                        taskLabel: { type: Type.STRING },
+                        date: { type: Type.STRING },
+                        rate: { type: Type.NUMBER }
+                    }
+                }
+            },
+            required: ['action', 'payload']
         }
-    );
-    return response.text;
+    });
+
+    return JSON.parse(response.text || "{}");
 };
 
-export const organizeScratchpadNotes = async (notes: string): Promise<string> => {
-    // Ghostwriter is sufficient here
-    const prompt = buildAgentPrompt(PERSONAS.GHOSTWRITER, `Reformat these rough mortgage notes into a clean, bulleted professional summary. Preserve all numbers. Notes: "${notes}"`);
-    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {});
-    return response.text;
-};
+// ------------------------------------------------------------------
+// MARKET INTELLIGENCE
+// ------------------------------------------------------------------
 
-export const generateRateSheetEmail = async (rates: any, notes: string): Promise<string> => {
-    const prompt = buildAgentPrompt(
-        PERSONAS.GHOSTWRITER,
-        `Draft a "Daily Rate Update" email for real estate partners.
-        Rates: ${JSON.stringify(rates)}.
-        Market Commentary: ${notes}.
-        Tone: Brief, valuable, actionable.`
-    );
-    
-    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, { thinkingConfig: { thinkingBudget: 1024 } });
-    return response.text;
-};
-
-export const fetchDailyMarketPulse = async (): Promise<{indices: MarketIndex[], news: NewsItem[], sources: any[]}> => {
+export const fetchDailyMarketPulse = async (): Promise<{ indices: MarketIndex[], news: NewsItem[], sources: {uri:string, title:string}[] }> => {
     return deduped('market-pulse', async () => {
-        // SCOUT Persona with Pro model for accurate retrieval
         const prompt = buildAgentPrompt(
             PERSONAS.SCOUT,
-            `Get current LIVE market data for: 10-Year Treasury Yield, S&P 500, MBS Pricing (UMBS 5.5), and Brent Crude. 
-            Also find 3 top headlines affecting mortgage rates today.
-            Return ONLY a valid JSON object with keys: indices (array of {label, value, change, isUp}), news (array of {source, title, summary, category}).`
+            `Get current LIVE market data.
+            1. Values: 10-Year Treasury, S&P 500, UMBS 5.5, Brent Crude.
+            2. News: 3 most important mortgage headlines today.
+            
+            Output JSON: { "indices": [...], "news": [...] }`
         );
 
-        const response = await generateContentWithFallback(
-            'gemini-3-pro-preview',
-            prompt,
-            {
-                tools: [{ googleSearch: {} }],
-                responseMimeType: 'application/json',
-                thinkingConfig: { thinkingBudget: 2048 }
-            }
-        );
+        const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, {
+            tools: [{ googleSearch: {} }],
+            thinkingConfig: { thinkingBudget: 2048 },
+            responseMimeType: 'application/json'
+        }, 'gemini-2.5-flash');
 
-        const json = JSON.parse(response.text);
-        const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
-        const sources = groundingMetadata?.groundingChunks?.map((c: any) => c.web ? {uri: c.web.uri, title: c.web.title} : null).filter((x: any) => x) || [];
-        
-        return { ...json, sources };
+        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+        const sources = groundingChunks
+            .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null)
+            .filter((x: any) => x !== null);
+
+        let data = { indices: [], news: [] };
+        try {
+            data = JSON.parse(response.text || "{}");
+        } catch (e) {
+            console.error("Failed to parse market data JSON", e);
+        }
+
+        return {
+            indices: data.indices || [],
+            news: data.news || [],
+            sources
+        };
     });
 };
 
-// --- Client Intelligence (GHOSTWRITER & ARCHITECT) ---
-
 export const generateClientFriendlyAnalysis = async (context: any): Promise<string> => {
-    const prompt = buildAgentPrompt(PERSONAS.GHOSTWRITER, `Translate this market data into a simple paragraph for a home buyer explaining what it means for their mortgage payment today. Data: ${JSON.stringify(context)}`);
+    const prompt = buildAgentPrompt(
+        PERSONAS.ARCHITECT,
+        `Write a "Daily Brief" for clients explaining how today's market data impacts mortgage rates.
+        Data: ${JSON.stringify(context)}.
+        Keep it simple, advisory, and reassuring.`
+    );
     const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {});
-    return response.text;
+    return response.text || "";
 };
 
 export const generateBuyerSpecificAnalysis = async (context: any): Promise<string> => {
-    const prompt = buildAgentPrompt(PERSONAS.ARCHITECT, `Analyze the impact of this market data on a specific buyer's purchasing power. Assume a $1M purchase price. Data: ${JSON.stringify(context)}. Explain like a financial advisor.`);
-    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, { thinkingConfig: { thinkingBudget: 2048 } });
-    return response.text;
+    const prompt = buildAgentPrompt(
+        PERSONAS.ARCHITECT,
+        `Analyze impact for active buyers (Purchasing Power focus).
+        Data: ${JSON.stringify(context)}.
+        Explain if today is a good day to lock or float.`
+    );
+    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {});
+    return response.text || "";
 };
 
 export const generateMarketingCampaign = async (topic: string, tone: string): Promise<MarketingCampaign> => {
     const prompt = buildAgentPrompt(
-        PERSONAS.GHOSTWRITER, 
-        `Create a multi-channel marketing campaign about: "${topic}". Tone: ${tone}.
-        Return JSON with keys: linkedInPost, emailSubject, emailBody, smsTeaser.`
+        PERSONAS.MARKETER,
+        `Create a multi-channel marketing campaign about: "${topic}". Tone: ${tone}.`
     );
-    const response = await generateContentWithFallback(
-        'gemini-3-pro-preview', 
-        prompt, 
-        {
-            responseMimeType: 'application/json',
-            thinkingConfig: { thinkingBudget: 2048 }
-        }
-    );
-    return JSON.parse(response.text) as MarketingCampaign;
+    
+    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, {
+        responseMimeType: 'application/json',
+        responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+                linkedInPost: { type: Type.STRING },
+                emailSubject: { type: Type.STRING },
+                emailBody: { type: Type.STRING },
+                smsTeaser: { type: Type.STRING }
+            },
+            required: ['linkedInPost', 'emailSubject', 'emailBody', 'smsTeaser']
+        },
+        thinkingConfig: { thinkingBudget: 2048 }
+    });
+    
+    return JSON.parse(response.text || "{}");
 };
 
 export const verifyCampaignContent = async (campaign: MarketingCampaign): Promise<VerificationResult> => {
-    const textToCheck = `${campaign.linkedInPost} ${campaign.emailBody}`;
-    return verifyFactualClaims(textToCheck);
+    return verifyFactualClaims(campaign.emailBody + " " + campaign.linkedInPost);
 };
 
-export const streamMorningMemo = async function* (urgentClients: Client[], marketData: any) {
-    const ai = getAiClient();
-    const prompt = buildAgentPrompt(
-        PERSONAS.SCOUT,
-        `Generate a "Morning Executive Briefing" for a top loan officer.
-        Context:
-        - Urgent Clients: ${JSON.stringify(urgentClients.map(c => ({name: c.name, status: c.status, action: c.nextActionDate})))}
-        - Market: ${JSON.stringify(marketData.indices)}
+// ------------------------------------------------------------------
+// PIPELINE & CALCULATORS
+// ------------------------------------------------------------------
+
+export const scanPipelineOpportunities = async (clients: Client[], marketIndices: MarketIndex[]): Promise<Opportunity[]> => {
+    return deduped('pipeline-scan', async () => {
+        const activeClients = clients.filter(c => c.status !== 'Closed').slice(0, 20);
         
-        Format as a concise Markdown script to be read or viewed in 60 seconds. Highlight immediate actions first.`
+        // Advanced math prompting
+        const prompt = buildAgentPrompt(
+            PERSONAS.ARCHITECT,
+            `Analyze this client pipeline against LIVE market data: ${JSON.stringify(marketIndices)}.
+            
+            Clients: ${JSON.stringify(activeClients.map(c => ({
+                id: c.id, 
+                name: c.name, 
+                currentRate: c.currentRate || 'Unknown', 
+                status: c.status,
+                balance: c.loanAmount,
+                notes: c.notes?.substring(0, 100)
+            })))}.
+
+            TASK:
+            1. **Rate Differential**: Identify clients whose 'currentRate' is significantly higher (>0.5%) than today's market rates (estimate market rate from 10yr yield/MBS data).
+            2. **Cash-Out Triggers**: Identify 'Equity' or 'Debt Consolidation' plays based on notes.
+            3. **Stale Leads**: Identify active clients with no action in > 14 days.
+
+            Return JSON array of Opportunity objects.`
+        );
+        
+        const response = await generateContentWithFallback(
+            'gemini-3-pro-preview',
+            prompt,
+            {
+                responseMimeType: 'application/json',
+                thinkingConfig: { thinkingBudget: 4096 } // Higher budget for math reasoning
+            }
+        );
+        return JSON.parse(response.text || "[]");
+    });
+};
+
+export async function* streamMorningMemo(urgentClients: Client[], marketData: any) {
+    const prompt = buildAgentPrompt(
+        PERSONAS.CHIEF_OF_STAFF,
+        `Generate an audio-script style "Morning Memo" for the Mortgage Banker.
+        
+        Urgent Clients: ${JSON.stringify(urgentClients.map(c => ({ name: c.name, status: c.status })))}.
+        Market: ${JSON.stringify(marketData.indices)}.
+        News: ${JSON.stringify(marketData.news?.[0]?.title)}.
+        
+        Format: "Good morning. Here is your briefing..."`
     );
 
+    const ai = getAiClient();
     const stream = await ai.models.generateContentStream({
         model: 'gemini-3-pro-preview',
         contents: prompt,
-        config: { thinkingConfig: { thinkingBudget: 2048 }, safetySettings: SAFETY_SETTINGS as any }
+        config: { thinkingConfig: { thinkingBudget: 2048 } }
     });
 
     for await (const chunk of stream) {
         yield chunk.text;
     }
-};
+}
 
 export const generateAudioBriefing = async (text: string): Promise<string> => {
     const ai = getAiClient();
@@ -431,184 +507,271 @@ export const generateAudioBriefing = async (text: string): Promise<string> => {
             }
         }
     });
-    return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || '';
+    
+    return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || "";
 };
 
-export const scanPipelineOpportunities = async (clients: Client[], marketData: any): Promise<Opportunity[]> => {
-    return deduped('pipeline-scan', async () => {
-        const activeClients = clients.filter(c => c.status !== 'Closed').slice(0, 15);
-        const prompt = buildAgentPrompt(
-            PERSONAS.ARCHITECT,
-            `Review this client list against today's market conditions: ${JSON.stringify(marketData)}.
-            Clients: ${JSON.stringify(activeClients.map(c => ({id: c.id, name: c.name, rate: 'Unknown', status: c.status})))}.
-            Identify up to 3 specific opportunities (e.g. "Call X because rates dropped").
-            Return JSON array of objects: {clientId, clientName, trigger, action, priority (HIGH|MEDIUM|LOW)}.`
-        );
-        
-        const response = await generateContentWithFallback(
-            'gemini-3-pro-preview',
-            prompt,
-            {
-                responseMimeType: 'application/json',
-                thinkingConfig: { thinkingBudget: 2048 }
-            }
-        );
-        return JSON.parse(response.text) as Opportunity[];
-    });
-};
-
-export const generateGapStrategy = async (currentIncome: number, targetIncome: number, pipeline: any[]): Promise<string> => {
+export async function* streamAnalyzeLoanScenario(scenarioText: string) {
     const prompt = buildAgentPrompt(
         PERSONAS.ARCHITECT,
-        `Act as a Sales Manager.
-        Current YTD Income: $${currentIncome}. Target: $${targetIncome}. Gap: $${targetIncome - currentIncome}.
-        Pipeline: ${JSON.stringify(pipeline)}.
-        Generate a strategic plan to close the gap. Focus on conversion and volume.`
+        `Analyze this Jumbo Loan Scenario for risk and structure.
+        Scenario: ${scenarioText}.
+        
+        Cover:
+        1. DTI/LTV Risk Assessment.
+        2. Reserve Requirements (typical).
+        3. Potential pitfalls (appraisal, large deposits).
+        
+        Format: Markdown.`
     );
-    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, { thinkingConfig: { thinkingBudget: 4096 } });
-    return response.text;
+    
+    const ai = getAiClient();
+    const stream = await ai.models.generateContentStream({
+        model: 'gemini-3-pro-preview',
+        contents: prompt,
+        config: { thinkingConfig: { thinkingBudget: 4096 } }
+    });
+
+    for await (const chunk of stream) {
+        yield chunk.text;
+    }
+}
+
+export const solveDtiScenario = async (financials: any): Promise<string> => {
+    const prompt = buildAgentPrompt(
+        PERSONAS.UNDERWRITER,
+        `Act as "Deal Doctor". Solve this high DTI scenario.
+        Financials: ${JSON.stringify(financials)}.
+        
+        Suggest:
+        1. Paying off specific debts (calculate DTI impact).
+        2. Borrower removal (if applicable).
+        3. Income grossing up (if applicable).
+        
+        Show math.`
+    );
+
+    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, {
+        thinkingConfig: { thinkingBudget: 8192 }
+    });
+    return response.text || "";
 };
 
-// --- Client Detail View Functions ---
+// ------------------------------------------------------------------
+// RATES & NOTES
+// ------------------------------------------------------------------
 
-export const generateEmailDraft = async (client: Client, topic: string, context: string): Promise<string> => {
-    const prompt = buildAgentPrompt(PERSONAS.GHOSTWRITER, `Draft an email to ${client.name} regarding "${topic}". Context: ${context}. Client Status: ${client.status}.`);
+export const analyzeRateTrends = async (rates: any): Promise<string> => {
+    const prompt = buildAgentPrompt(
+        PERSONAS.SCOUT,
+        `Analyze these rates compared to typical market spread: ${JSON.stringify(rates)}. Comment on the yield curve implication.`
+    );
+    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, {
+        thinkingConfig: { thinkingBudget: 2048 }
+    });
+    return response.text || "";
+};
+
+export const organizeScratchpadNotes = async (notes: string): Promise<string> => {
+    const prompt = buildAgentPrompt(
+        PERSONAS.CHIEF_OF_STAFF,
+        `Reformat these raw mortgage notes into bullet points grouped by topic (Rates, Clients, To-Do).
+        Notes: "${notes}"`
+    );
     const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {});
-    return response.text;
+    return response.text || "";
 };
 
-export const generateSubjectLines = async (client: Client, topic: string): Promise<string[]> => {
-    const prompt = buildAgentPrompt(PERSONAS.GHOSTWRITER, `Generate 3 catchy email subject lines for an email about "${topic}" to a mortgage client named ${client.name}. Return as JSON array of strings.`);
-    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, { responseMimeType: 'application/json' });
-    return JSON.parse(response.text);
-};
-
-export const generateClientSummary = async (client: Client): Promise<string> => {
-    const prompt = buildAgentPrompt(PERSONAS.ARCHITECT, `Summarize this client file for a "Situation Report": ${JSON.stringify(client)}. Highlight key risks and next steps.`);
-    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, { thinkingConfig: { thinkingBudget: 1024 } });
-    return response.text;
-};
-
-export const estimatePropertyDetails = async (address: string): Promise<{estimatedValue: number}> => {
-    const prompt = buildAgentPrompt(PERSONAS.SCOUT, `Estimate the current value of ${address} using Google Search. Return JSON { "estimatedValue": number }. If unknown, return 0.`);
-    const response = await generateContentWithFallback(
-        'gemini-2.5-flash', // Flash is sufficient for simple retrieval with search tool
-        prompt, 
-        { 
-            tools: [{ googleSearch: {} }],
-            responseMimeType: 'application/json'
-        }
+export const generateRateSheetEmail = async (rates: any, notes: string): Promise<string> => {
+    const prompt = buildAgentPrompt(
+        PERSONAS.MARKETER,
+        `Draft a "Partner Rate Update" email.
+        Rates: ${JSON.stringify(rates)}.
+        Market Notes: ${notes}.
+        
+        Style: Professional, concise, authoritative.`
     );
-    return JSON.parse(response.text);
+    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, {
+        thinkingConfig: { thinkingBudget: 1024 }
+    });
+    return response.text || "";
+};
+
+// ------------------------------------------------------------------
+// COMPENSATION
+// ------------------------------------------------------------------
+
+export const generateGapStrategy = async (current: number, target: number, pipeline: any[]): Promise<string> => {
+    const gap = target - current;
+    const prompt = buildAgentPrompt(
+        PERSONAS.ARCHITECT,
+        `Develop a strategy to close the income gap of $${gap.toLocaleString()}.
+        Current Pipeline: ${JSON.stringify(pipeline)}.
+        
+        Advise on:
+        1. Which pipeline deals to prioritize.
+        2. How many new leads needed based on typical conversion.`
+    );
+    
+    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, {
+        thinkingConfig: { thinkingBudget: 4096 }
+    });
+    return response.text || "";
+};
+
+// ------------------------------------------------------------------
+// CLIENT DETAILS (Architect, Images, etc)
+// ------------------------------------------------------------------
+
+export const estimatePropertyDetails = async (address: string): Promise<{ estimatedValue: number }> => {
+    const prompt = buildAgentPrompt(PERSONAS.SCOUT, `Estimate value for: ${address}. Return JSON: { "estimatedValue": number }.`);
+    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {
+        tools: [{ googleSearch: {} }],
+        responseMimeType: 'application/json'
+    });
+    
+    try {
+        const clean = response.text?.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(clean || "{\"estimatedValue\": 0}");
+    } catch { return { estimatedValue: 0 }; }
 };
 
 export const generateSmartChecklist = async (client: Client): Promise<string[]> => {
-    const prompt = buildAgentPrompt(PERSONAS.ARCHITECT, `Based on the client status "${client.status}", suggest 3-5 next task items. Return JSON array of strings.`);
-    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, { responseMimeType: 'application/json' });
-    return JSON.parse(response.text);
-};
-
-export const generatePartnerUpdate = async (client: Client, partnerName: string): Promise<string> => {
-    const prompt = buildAgentPrompt(PERSONAS.GHOSTWRITER, `Draft a status update email to referral partner ${partnerName} about mutual client ${client.name}. Status: ${client.status}.`);
-    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {});
-    return response.text;
+    const prompt = buildAgentPrompt(PERSONAS.ARCHITECT, `Generate 3-5 specific checklist tasks for a mortgage client in "${client.status}" stage.
+    Client info: ${client.name}, ${client.loanAmount}.
+    Return JSON array of strings.`);
+    
+    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {
+        responseMimeType: 'application/json',
+        responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
+    });
+    return JSON.parse(response.text || "[]");
 };
 
 export const generateDealArchitecture = async (client: Client): Promise<DealStrategy[]> => {
     const prompt = buildAgentPrompt(
         PERSONAS.ARCHITECT,
-        `Structure 3 loan options for ${client.name} (Loan: $${client.loanAmount}).
-        1. Safe (Fixed rate)
-        2. Aggressive (ARM/Interest Only)
-        3. Balanced
-        Return JSON array of { title, type (SAFE|AGGRESSIVE|BALANCED), monthlyPayment (string), pros (string[]), cons (string[]), description }.`
+        `Generate 3 mortgage loan structuring options (Safe, Balanced, Aggressive) for:
+        ${JSON.stringify({ loan: client.loanAmount, rate: client.currentRate, status: client.status })}.
+        Return JSON array of DealStrategy objects.`
     );
-    const response = await generateContentWithFallback(
-        'gemini-3-pro-preview',
-        prompt,
-        { 
-            responseMimeType: 'application/json',
-            thinkingConfig: { thinkingBudget: 4096 }
-        }
-    );
-    return JSON.parse(response.text);
+    
+    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, {
+        responseMimeType: 'application/json',
+        responseSchema: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    title: { type: Type.STRING },
+                    type: { type: Type.STRING, enum: ['SAFE', 'AGGRESSIVE', 'BALANCED'] },
+                    monthlyPayment: { type: Type.STRING },
+                    pros: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    cons: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    description: { type: Type.STRING }
+                },
+                required: ['title', 'type', 'monthlyPayment', 'pros', 'cons', 'description']
+            }
+        },
+        thinkingConfig: { thinkingBudget: 4096 }
+    });
+    return JSON.parse(response.text || "[]");
 };
 
 export const extractClientDataFromImage = async (base64Image: string): Promise<Partial<Client>> => {
     const ai = getAiClient();
-    const prompt = buildAgentPrompt(PERSONAS.ARCHITECT, "Extract client details (Name, Email, Phone, Address, Loan Amount) from this document. Return JSON.");
+    const prompt = "Extract client details (Name, Address, Loan Amount, Rate, Phone, Email) from this document. Return JSON.";
     
-    // Direct call as multimodal fallback is complex
     const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: [
-            { inlineData: { mimeType: 'image/jpeg', data: base64Image } },
-            { text: prompt }
-        ],
+        model: 'gemini-2.5-flash', 
+        contents: {
+            parts: [
+                { inlineData: { mimeType: 'image/jpeg', data: base64Image } },
+                { text: prompt }
+            ]
+        },
         config: { responseMimeType: 'application/json' }
     });
-    return JSON.parse(response.text);
+    
+    return JSON.parse(response.text || "{}");
 };
 
 export const generateGiftSuggestions = async (client: Client): Promise<GiftSuggestion[]> => {
-    const prompt = buildAgentPrompt(PERSONAS.GHOSTWRITER, `Suggest 3 closing gifts for client ${client.name} based on their notes: "${client.notes}". Return JSON array: { item, reason, priceRange }.`);
-    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, { responseMimeType: 'application/json' });
-    return JSON.parse(response.text);
+    const prompt = buildAgentPrompt(PERSONAS.MARKETER, `Suggest 3 closing gifts for client ${client.name}, loan size $${client.loanAmount}. Return JSON.`);
+    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {
+        responseMimeType: 'application/json',
+        responseSchema: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    item: { type: Type.STRING },
+                    reason: { type: Type.STRING },
+                    priceRange: { type: Type.STRING }
+                },
+                required: ['item', 'reason', 'priceRange']
+            }
+        }
+    });
+    return JSON.parse(response.text || "[]");
 };
 
 export const transcribeAudio = async (base64Audio: string): Promise<string> => {
     const ai = getAiClient();
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: [
-            { inlineData: { mimeType: 'audio/webm', data: base64Audio } },
-            { text: "Transcribe this audio note exactly." }
-        ]
+        contents: {
+            parts: [
+                { inlineData: { mimeType: 'audio/webm', data: base64Audio } },
+                { text: "Transcribe this audio exactly." }
+            ]
+        }
     });
-    return response.text;
+    return response.text || "";
 };
 
-export const parseNaturalLanguageCommand = async (command: string, availableStages: string[]): Promise<CommandIntent> => {
-    const prompt = buildAgentPrompt(
-        PERSONAS.ARCHITECT,
-        `Parse this mortgage command: "${command}".
-        Available Stages: ${availableStages.join(', ')}.
-        Return JSON object matching CommandIntent interface: { action (CREATE_CLIENT|UPDATE_STATUS|UPDATE_CLIENT|ADD_NOTE|ADD_TASK), clientName, payload: { ... } }.`
-    );
-    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, { responseMimeType: 'application/json' });
-    return JSON.parse(response.text);
-};
+// ------------------------------------------------------------------
+// PLANNER
+// ------------------------------------------------------------------
 
 export const generateDailySchedule = async (currentEvents: CalendarEvent[], input: string, clients: Client[]): Promise<CalendarEvent[]> => {
     const prompt = buildAgentPrompt(
-        PERSONAS.ARCHITECT,
-        `Act as a Chief of Staff.
+        PERSONAS.CHIEF_OF_STAFF,
+        `Act as Chief of Staff. Update the schedule based on: "${input}".
         Current Schedule: ${JSON.stringify(currentEvents)}.
-        User Request: "${input}".
-        Client Database: ${JSON.stringify(clients.map(c => ({id: c.id, name: c.name})))}.
-        Generate new CalendarEvents to satisfy the request. If it mentions a client, link their ID.
-        Return JSON array of CalendarEvent objects.`
+        Available Clients: ${JSON.stringify(clients.map(c => ({ id: c.id, name: c.name })))}.
+        
+        If input implies meeting a client, link clientId.
+        Return JSON array of NEW CalendarEvents to add.`
     );
-    const response = await generateContentWithFallback(
-        'gemini-3-pro-preview',
-        prompt,
-        { 
-            responseMimeType: 'application/json',
-            thinkingConfig: { thinkingBudget: 2048 }
-        }
-    );
-    const events = JSON.parse(response.text);
-    return events.map((e: any) => ({ ...e, id: `ai-${Date.now()}-${Math.random()}`, isAiGenerated: true }));
+    
+    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, {
+        responseMimeType: 'application/json',
+        thinkingConfig: { thinkingBudget: 2048 }
+    });
+    
+    // Helper to ensure dates are today if not specified by LLM
+    const events: CalendarEvent[] = JSON.parse(response.text || "[]");
+    const today = new Date().toISOString().split('T')[0];
+    return events.map(e => ({
+        ...e,
+        start: e.start.includes('T') ? e.start : `${today}T${e.start}`,
+        end: e.end.includes('T') ? e.end : `${today}T${e.end}`,
+        isAiGenerated: true
+    }));
 };
 
 export const generateMeetingPrep = async (eventTitle: string, client?: Client): Promise<string> => {
-    const context = client ? `Client Details: ${JSON.stringify(client)}` : "No specific client record linked.";
     const prompt = buildAgentPrompt(
-        PERSONAS.ARCHITECT,
-        `Prepare a one-page briefing for a meeting titled "${eventTitle}".
-        ${context}.
-        Include: Objective, Key Talking Points, Potential Objections, and Next Steps.`
+        PERSONAS.CHIEF_OF_STAFF,
+        `Prepare a 1-page briefing for meeting: "${eventTitle}".
+        Client Context: ${client ? JSON.stringify(client) : "Unknown"}.
+        
+        Include:
+        1. Objective.
+        2. Key talking points.
+        3. Potential objections (if client).`
     );
-    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, { thinkingConfig: { thinkingBudget: 1024 } });
-    return response.text;
+    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {});
+    return response.text || "";
 };

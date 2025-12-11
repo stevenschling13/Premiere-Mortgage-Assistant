@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect, useTransition, memo, useCallback } from 'react';
-import { Send, Bot, User as UserIcon, Loader2, ExternalLink, Mic, Trash2, ShieldCheck, AlertTriangle, Swords, XCircle, Globe } from 'lucide-react';
-import { ChatMessage, SimulationScenario } from '../types';
-import { streamChatWithAssistant, verifyFactualClaims } from '../services/geminiService';
+import { Send, Bot, User as UserIcon, Loader2, ExternalLink, Mic, Trash2, ShieldCheck, AlertTriangle, Swords, XCircle, Globe, Radar } from 'lucide-react';
+import { ChatMessage, SimulationScenario, Client } from '../types';
+import { streamChatWithAssistant, verifyFactualClaims, parseNaturalLanguageCommand, fetchDailyMarketPulse, scanPipelineOpportunities } from '../services/geminiService';
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
-import { SIMULATION_SCENARIOS, SUGGESTED_PROMPTS } from '../constants';
+import { SIMULATION_SCENARIOS, SUGGESTED_PROMPTS, DEFAULT_DEAL_STAGES } from '../constants';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { useToast } from './Toast';
 
@@ -213,6 +213,8 @@ const ChatInput = memo(({
 });
 
 export const Assistant: React.FC = () => {
+  const { showToast } = useToast();
+  // Load State from storage to give Assistant context
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     const saved = loadFromStorage<any[]>(StorageKeys.CHAT_HISTORY, []);
     if (Array.isArray(saved) && saved.length > 0) {
@@ -228,6 +230,8 @@ export const Assistant: React.FC = () => {
       timestamp: new Date()
     }];
   });
+
+  const [clients, setClients] = useState<Client[]>(() => loadFromStorage(StorageKeys.CLIENTS, []));
 
   const [isLoading, setIsLoading] = useState(false);
   const [verifyingMsgIds, setVerifyingMsgIds] = useState<Set<string>>(new Set());
@@ -318,10 +322,63 @@ export const Assistant: React.FC = () => {
       }
   }, []);
 
+  // --- AUTO-TOOL EXECUTION: PIPELINE SCAN ---
+  const executePipelineScan = async (promptId: string) => {
+      if (!isMountedRef.current) return;
+      
+      const systemMsgId = `sys-${Date.now()}`;
+      setMessages(prev => [...prev, {
+          id: systemMsgId,
+          role: 'model',
+          text: `**[SYSTEM]** Scanning pipeline against live market data...`,
+          timestamp: new Date()
+      }]);
+
+      try {
+          const marketData = await fetchDailyMarketPulse();
+          const opportunities = await scanPipelineOpportunities(clients, marketData.indices);
+          
+          // Inject findings as system context for the final answer
+          const report = `**SCAN RESULTS:**\nFound ${opportunities.length} urgent opportunities.\n${opportunities.map(o => `- **${o.clientName}**: ${o.trigger} (${o.action}) [Priority: ${o.priority}]`).join('\n')}`;
+          
+          if (isMountedRef.current) {
+              setMessages(prev => prev.filter(m => m.id !== systemMsgId)); // Remove loading msg
+              
+              // Proceed with standard generation, but now with the report in history
+              const contextHistory = [
+                  ...messagesRef.current,
+                  { role: 'user', text: "Scan pipeline." }, // Ensure user intent is clear
+                  { role: 'model', text: report }
+              ];
+              
+              const stream = streamChatWithAssistant(
+                  contextHistory.map(m => ({ role: m.role, parts: [{ text: m.text }] })),
+                  "Summarize these findings and suggest next steps.",
+                  undefined
+              );
+
+              // Standard stream handling from here...
+              let textBuffer = "";
+              const aiMsgId = (Date.now() + 1).toString();
+              setMessages(prev => [...prev, { id: aiMsgId, role: 'model', text: '', timestamp: new Date() }]);
+              
+              for await (const chunk of stream) {
+                  if (chunk.text) textBuffer += chunk.text;
+                  setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: textBuffer } : m));
+              }
+          }
+
+      } catch (e) {
+          console.error(e);
+          setMessages(prev => prev.filter(m => m.id !== systemMsgId));
+          showToast("Failed to execute pipeline scan", "error");
+      } finally {
+          setIsLoading(false);
+      }
+  };
+
   // --- OPTIMIZED STREAMING CHAT HANDLER ---
   const handleSendMessage = useCallback(async (textToSend: string) => {
-    // Check ref for loading state to avoid stale closure (though loading is usually fast)
-    // We mainly use useCallback to stabilize the 'onSend' prop for ChatInput
     if (!textToSend.trim()) return;
 
     startTransition(() => {
@@ -331,25 +388,43 @@ export const Assistant: React.FC = () => {
           text: textToSend,
           timestamp: new Date()
         };
-
-        const aiMsgId = (Date.now() + 1).toString();
-        const aiMsgPlaceholder: ChatMessage = {
-          id: aiMsgId,
-          role: 'model',
-          text: '', // Start empty
-          timestamp: new Date()
-        };
-
-        if (isSimulationMode) {
-            setSimulationMessages(prev => [...prev, userMsg, aiMsgPlaceholder]);
-        } else {
-            setMessages(prev => [...prev, userMsg, aiMsgPlaceholder]);
-        }
         
+        if (isSimulationMode) {
+            setSimulationMessages(prev => [...prev, userMsg]);
+        } else {
+            setMessages(prev => [...prev, userMsg]);
+        }
         setIsLoading(true);
     });
 
+    // 1. Check for Command Intents FIRST (Middleware)
+    if (!isSimulationMode) {
+        try {
+            const command = await parseNaturalLanguageCommand(textToSend, DEFAULT_DEAL_STAGES.map(s => s.name));
+            if (command.action === 'SCAN_PIPELINE') {
+                await executePipelineScan(textToSend);
+                return; // Stop standard chat flow, the tool took over
+            }
+        } catch (e) {
+            // Ignore parsing errors, fall back to chat
+        }
+    }
+
+    // 2. Standard Chat Flow
     const aiMsgId = (Date.now() + 1).toString();
+    const aiMsgPlaceholder: ChatMessage = {
+        id: aiMsgId,
+        role: 'model',
+        text: '',
+        timestamp: new Date()
+    };
+
+    if (isSimulationMode) {
+        setSimulationMessages(prev => [...prev, aiMsgPlaceholder]);
+    } else {
+        setMessages(prev => [...prev, aiMsgPlaceholder]);
+    }
+
     let textBuffer = "";
     let linksBuffer: any[] = [];
     let streamActive = true;
@@ -381,7 +456,6 @@ export const Assistant: React.FC = () => {
     rafId = requestAnimationFrame(renderLoop);
 
     try {
-        // Access history via refs to ensure we get the latest state without breaking useCallback stability
         const currentHistory = isSimulationMode ? simulationMessagesRef.current : messagesRef.current;
         const apiHistory = currentHistory.map(m => ({
             role: m.role,
@@ -433,7 +507,7 @@ export const Assistant: React.FC = () => {
             }
         }
     }
-  }, [isSimulationMode, selectedScenario]);
+  }, [isSimulationMode, selectedScenario, clients]); // Add clients dependency
 
   const activeMessages = isSimulationMode ? simulationMessages : messages;
 
@@ -503,6 +577,18 @@ export const Assistant: React.FC = () => {
                          <div className="text-xs text-gray-500 mt-1 line-clamp-2">{scen.description}</div>
                      </button>
                  ))}
+             </div>
+             
+             {/* Quick Action: Scan Pipeline */}
+             <div className="mt-4 pt-4 border-t border-gray-100">
+                 <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Instant Actions</h3>
+                 <button 
+                    onClick={() => handleSendMessage("Scan pipeline for urgent opportunities")}
+                    className="flex items-center space-x-2 text-sm text-brand-dark bg-gray-50 hover:bg-white border border-gray-200 hover:border-brand-gold px-3 py-2 rounded-lg transition-all shadow-sm w-full md:w-auto"
+                 >
+                     <Radar size={16} className="text-brand-red" />
+                     <span>Scan Pipeline for Urgent Opportunities</span>
+                 </button>
              </div>
           </div>
       )}
