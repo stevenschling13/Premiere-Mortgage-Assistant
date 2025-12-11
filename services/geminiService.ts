@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type, Modality } from "@google/genai";
+import { GoogleGenAI, Type, Modality, ThinkingLevel } from "@google/genai";
 import { Client, CommandIntent, EmailLog, MarketIndex, NewsItem, MarketingCampaign, VerificationResult, Opportunity, DealStrategy, GiftSuggestion, CalendarEvent, SalesScript, ManualDeal, ChecklistItem } from "../types";
 import { loadFromStorage, saveToStorage, StorageKeys } from "./storageService";
 import { errorService } from "./errorService";
@@ -217,10 +217,11 @@ async function withRetry<T>(operation: () => Promise<T>, retries = 3, baseDelay 
   throw lastError || new AIError(AIErrorCodes.UNEXPECTED_ERROR, 'Operation failed after retries.');
 }
 
-const parseJson = <T>(text: string, fallback: T): T => {
-  if (!text) return fallback;
-  try { return JSON.parse(text) as T; } catch (e) { /* continue */ }
-  const match = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+const parseJson = <T>(text: string | undefined, fallback: T): T => {
+  const safeText = typeof text === 'string' ? text : '';
+  if (!safeText) return fallback;
+  try { return JSON.parse(safeText) as T; } catch (e) { /* continue */ }
+  const match = safeText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
   if (match) {
       try { return JSON.parse(match[1]) as T; } catch (e) { /* continue */ }
   }
@@ -246,7 +247,7 @@ export const chatWithAssistant = async (
               config: {
                 systemInstruction: customSystemInstruction || SYSTEM_INSTRUCTION,
                 tools: [{googleSearch: {}}],
-                thinkingConfig: { thinkingLevel: "low", includeThoughts: false }
+                thinkingConfig: { thinkingLevel: ThinkingLevel.LOW, includeThoughts: false }
               }
             });
 
@@ -303,7 +304,7 @@ export const streamChatWithAssistant = async function* (
             config: {
                 systemInstruction: customSystemInstruction || SYSTEM_INSTRUCTION,
                 tools: [{ googleSearch: {} }],
-                thinkingConfig: { thinkingLevel: "low", includeThoughts: false }
+                thinkingConfig: { thinkingLevel: ThinkingLevel.LOW, includeThoughts: false }
             }
         });
         
@@ -417,7 +418,7 @@ export const generateClientSummary = async (client: Client) => {
             thinkingConfig: { thinkingBudget: 1024 }
         }
       });
-      return response.text;
+      return response.text || "";
   }));
 };
 
@@ -440,7 +441,7 @@ export const generateEmailDraft = async (client: Client, topic: string, specific
         temperature: 0.7,
       }
     });
-    return response.text;
+    return response.text || "";
   });
 };
 
@@ -462,7 +463,7 @@ export const generatePartnerUpdate = async (client: Client, partnerName: string)
         temperature: 0.7,
       }
     });
-    return response.text;
+    return response.text || "";
   });
 };
 
@@ -516,7 +517,7 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
         const chunks = grounding?.groundingChunks || [];
         const realSources = chunks
             .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null)
-            .filter((x: any) => x !== null);
+            .filter((link): link is { uri: string; title: string } => link !== null);
             
         const result = parseJson<VerificationResult>(response.text || "{}", { status: 'UNVERIFIABLE', text: "Could not parse verification.", sources: [] });
         
@@ -596,7 +597,7 @@ export const generateMorningMemo = async (urgentClients: Client[], marketData: a
             model: 'gemini-2.5-flash',
             contents: prompt
         });
-        return response.text;
+        return response.text || "";
     }));
 };
 
@@ -743,7 +744,7 @@ export const solveDtiScenario = async (financials: any): Promise<string> => {
             contents: prompt,
             config: { thinkingConfig: { thinkingBudget: 2048 } }
         });
-        return response.text;
+        return response.text || "";
     });
 };
 
@@ -756,7 +757,7 @@ export const analyzeRateTrends = async (rates: any): Promise<string> => {
             Rates: ${JSON.stringify(rates)}
             Provide a short, punchy commentary for a rate sheet.`
         });
-        return response.text;
+        return response.text || "";
     });
 };
 
@@ -768,7 +769,7 @@ export const organizeScratchpadNotes = async (notes: string): Promise<string> =>
             contents: `Reformat these rough market notes into a clean, professional bulleted list for a partner email.
             Notes: ${notes}`
         });
-        return response.text;
+        return response.text || "";
     });
 };
 
@@ -783,7 +784,7 @@ export const generateRateSheetEmail = async (rates: any, notes: string): Promise
             
             Format: Plain text. Professional, concise, high-value.`
         });
-        return response.text;
+        return response.text || "";
     });
 };
 
@@ -797,7 +798,7 @@ export const generateClientFriendlyAnalysis = async (context: any): Promise<stri
             
             Keep it reassuring but factual. Focus on "Marry the house, date the rate".`
         });
-        return response.text;
+        return response.text || "";
     });
 };
 
@@ -811,7 +812,7 @@ export const generateBuyerSpecificAnalysis = async (context: any): Promise<strin
             
             Use math examples (e.g. "A 0.5% rate bump costs $X/mo on a $1M loan").`
         });
-        return response.text;
+        return response.text || "";
     });
 };
 
@@ -858,7 +859,7 @@ export const generateGapStrategy = async (currentIncome: number, targetIncome: n
             model: 'gemini-3-pro-preview',
             contents: prompt
         });
-        return response.text;
+        return response.text || "";
     });
 };
 
@@ -1007,6 +1008,6 @@ export const generateMeetingPrep = async (eventTitle: string, client?: Client): 
             model: 'gemini-2.5-flash',
             contents: prompt
         });
-        return response.text;
+        return response.text || "";
     });
 };
