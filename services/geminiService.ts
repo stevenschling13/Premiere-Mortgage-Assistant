@@ -3,7 +3,7 @@ import { GoogleGenAI, Type, Modality, ThinkingLevel } from "@google/genai";
 // Vite injects import.meta.env at build time; declare a minimal process fallback for type safety in the browser bundle.
 declare const process: { env?: Record<string, string | undefined> } | undefined;
 import { Client, CommandIntent, EmailLog, MarketIndex, NewsItem, MarketingCampaign, VerificationResult, Opportunity, DealStrategy, GiftSuggestion, CalendarEvent, SalesScript, ManualDeal, ChecklistItem } from "../types";
-import { loadFromStorage, saveToStorage, StorageKeys } from "./storageService";
+import { hasStorageAccess, loadFromStorage, saveToStorage, StorageKeys } from "./storageService";
 import { errorService } from "./errorService";
 import { AGENCY_GUIDELINES } from "../constants";
 
@@ -55,10 +55,15 @@ const CIRCUIT_BREAKER = {
 
 // --- Cache & Deduplication State ---
 const CACHE_TTL = 1000 * 60 * 15; // 15 minutes
-const marketDataCache: { timestamp: number; data: any } = loadFromStorage(StorageKeys.MARKET_DATA, { timestamp: 0, data: null });
+const storageAvailable = hasStorageAccess();
+const marketDataCache: { timestamp: number; data: any } = storageAvailable
+    ? loadFromStorage(StorageKeys.MARKET_DATA, { timestamp: 0, data: null })
+    : { timestamp: 0, data: null };
 
 // Valuation Cache: Address -> { value, source, timestamp }
-const valuationCache: Record<string, { estimatedValue: number; source: string; timestamp: number }> = loadFromStorage(StorageKeys.VALUATIONS, {});
+const valuationCache: Record<string, { estimatedValue: number; source: string; timestamp: number }> = storageAvailable
+    ? loadFromStorage(StorageKeys.VALUATIONS, {})
+    : {};
 
 // In-flight Promise Deduplication Map
 const inflightRequests = new Map<string, Promise<any>>();
@@ -220,9 +225,8 @@ async function withRetry<T>(operation: () => Promise<T>, retries = 3, baseDelay 
   throw lastError || new AIError(AIErrorCodes.UNEXPECTED_ERROR, 'Operation failed after retries.');
 }
 
-const parseJson = <T>(text: string | undefined, fallback: T): T => {
-  const safeText = text ?? "";
-  const safeText = typeof text === 'string' ? text : '';
+  const parseJson = <T>(text: string | undefined, fallback: T): T => {
+    const safeText = typeof text === 'string' ? text : '';
   if (!safeText) return fallback;
   try { return JSON.parse(safeText) as T; } catch (e) { /* continue */ }
   const match = safeText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
@@ -520,11 +524,9 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
         const grounding = response.candidates?.[0]?.groundingMetadata;
         const chunks = grounding?.groundingChunks || [];
         type SourceLink = { uri: string; title: string };
-        const realSources = chunks
-            .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } as SourceLink : null)
-            .filter((x): x is SourceLink => x !== null);
-            .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null)
-            .filter((link): link is { uri: string; title: string } => link !== null);
+        const realSources: SourceLink[] = chunks
+            .map((c: any) => (c.web ? { uri: c.web.uri, title: c.web.title } as SourceLink : null))
+            .filter((link): link is SourceLink => link !== null);
             
         const result = parseJson<VerificationResult>(response.text || "{}", { status: 'UNVERIFIABLE', text: "Could not parse verification.", sources: [] });
         
