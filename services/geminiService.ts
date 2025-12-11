@@ -1,4 +1,7 @@
 import { GoogleGenAI, Type, Modality, ThinkingLevel } from "@google/genai";
+
+// Vite injects import.meta.env at build time; declare a minimal process fallback for type safety in the browser bundle.
+declare const process: { env?: Record<string, string | undefined> } | undefined;
 import { Client, CommandIntent, EmailLog, MarketIndex, NewsItem, MarketingCampaign, VerificationResult, Opportunity, DealStrategy, GiftSuggestion, CalendarEvent, SalesScript, ManualDeal, ChecklistItem } from "../types";
 import { loadFromStorage, saveToStorage, StorageKeys } from "./storageService";
 import { errorService } from "./errorService";
@@ -142,8 +145,8 @@ const normalizeError = (error: any): AIError => {
 };
 
 const getAiClient = () => {
-  const env = (typeof process !== 'undefined' && process.env) ? process.env : {};
-  const apiKey = env.API_KEY;
+  const apiKey = (typeof import.meta !== 'undefined' ? import.meta.env?.VITE_API_KEY : undefined)
+    ?? (typeof process !== 'undefined' ? process.env?.API_KEY : undefined);
   
   if (!apiKey || apiKey.trim() === '') {
     throw new AIError(AIErrorCodes.INVALID_API_KEY, "API Key is missing. Please connect a billing-enabled key.");
@@ -218,6 +221,7 @@ async function withRetry<T>(operation: () => Promise<T>, retries = 3, baseDelay 
 }
 
 const parseJson = <T>(text: string | undefined, fallback: T): T => {
+  const safeText = text ?? "";
   const safeText = typeof text === 'string' ? text : '';
   if (!safeText) return fallback;
   try { return JSON.parse(safeText) as T; } catch (e) { /* continue */ }
@@ -242,7 +246,7 @@ export const chatWithAssistant = async (
             const optimizedHistory = history.length > 20 ? history.slice(history.length - 20) : history;
 
             const chat = ai.chats.create({
-              model: 'gemini-3-pro-preview', 
+              model: 'gemini-3-pro-preview',
               history: optimizedHistory,
               config: {
                 systemInstruction: customSystemInstruction || SYSTEM_INSTRUCTION,
@@ -515,7 +519,10 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
         
         const grounding = response.candidates?.[0]?.groundingMetadata;
         const chunks = grounding?.groundingChunks || [];
+        type SourceLink = { uri: string; title: string };
         const realSources = chunks
+            .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } as SourceLink : null)
+            .filter((x): x is SourceLink => x !== null);
             .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null)
             .filter((link): link is { uri: string; title: string } => link !== null);
             
@@ -781,7 +788,7 @@ export const generateRateSheetEmail = async (rates: any, notes: string): Promise
             contents: `Write a professional "Daily Rate Update" email for real estate partners.
             Rates: ${JSON.stringify(rates)}
             Commentary: ${notes}
-            
+
             Format: Plain text. Professional, concise, high-value.`
         });
         return response.text || "";
@@ -795,7 +802,7 @@ export const generateClientFriendlyAnalysis = async (context: any): Promise<stri
             model: 'gemini-2.5-flash',
             contents: `Explain this market data to a nervous homebuyer.
             Data: ${JSON.stringify(context)}
-            
+
             Keep it reassuring but factual. Focus on "Marry the house, date the rate".`
         });
         return response.text || "";
@@ -809,7 +816,7 @@ export const generateBuyerSpecificAnalysis = async (context: any): Promise<strin
             model: 'gemini-2.5-flash',
             contents: `Analyze how this market data impacts a buyer's purchasing power.
             Data: ${JSON.stringify(context)}
-            
+
             Use math examples (e.g. "A 0.5% rate bump costs $X/mo on a $1M loan").`
         });
         return response.text || "";

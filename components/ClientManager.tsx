@@ -3,7 +3,7 @@ import {
     Users, Search, Plus, Filter, Settings, Trash2, X, Sparkles, Loader2, 
     CheckSquare, Square, Radar, XCircle, Briefcase, Headphones, Pause
 } from 'lucide-react';
-import { FixedSizeList as List, areEqual } from 'react-window';
+import { FixedSizeList as List } from 'react-window';
 import { Client, DealStage, Opportunity } from '../types';
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
 import { 
@@ -64,8 +64,7 @@ interface ClientListItemProps {
     style?: React.CSSProperties;
 }
 
-// Optimization: Removed `areEqual` from here. React.memo's default shallow compare is correct for these specific props.
-// `areEqual` from react-window expects { data, index, style }, which this component does not have.
+// Optimization: Rely on React.memo's default shallow compare for these props.
 const ClientListItem = memo(({ client, isSelected, isMultiSelected, onSelect, onToggle, onPrefetch, stageColor, stageProgress, style }: ClientListItemProps) => {
     const leadScore = useMemo(() => calculateLeadScore(client, stageProgress), [client, stageProgress]);
     
@@ -126,7 +125,7 @@ const ClientRow = memo(({ index, style, data }: any) => {
             stageProgress={getStageProgress(client.status)}
         />
     );
-}, areEqual);
+});
 
 // --- SUB-COMPONENT: Pipeline Results (Memoized) ---
 const PipelineResults = memo(({ 
