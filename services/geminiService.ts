@@ -279,9 +279,10 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
         }, 'gemini-2.5-flash');
 
         const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-        const sources = groundingChunks
-            .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null)
-            .filter((x: any) => x !== null);
+        const sources = groundingChunks.flatMap((c: any) => {
+            if (!c.web) return [];
+            return [{ uri: String(c.web.uri || ""), title: String(c.web.title || "") }];
+        });
 
         let parsed: any = { status: 'UNVERIFIABLE', text: 'Could not parse verification result.' };
         try {
@@ -360,9 +361,10 @@ export const fetchDailyMarketPulse = async (): Promise<{ indices: MarketIndex[],
         }, 'gemini-2.5-flash');
 
         const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-        const sources = groundingChunks
-            .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null)
-            .filter((x: any) => x !== null);
+        const sources = groundingChunks.flatMap((c: any) => {
+            if (!c.web) return [];
+            return [{ uri: String(c.web.uri || ""), title: String(c.web.title || "") }];
+        });
 
         let data = { indices: [], news: [] };
         try {
