@@ -1,12 +1,16 @@
 import React, { useState, useMemo, useEffect, useDeferredValue, useRef, memo, useCallback } from 'react';
 import { LoanScenario } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
-import { RefreshCcw, Info, BrainCircuit, RotateCcw } from 'lucide-react';
-import { streamAnalyzeLoanScenario } from '../services/geminiService';
+import RefreshCcw from 'lucide-react/dist/esm/icons/refresh-ccw';
+import Info from 'lucide-react/dist/esm/icons/info';
+import BrainCircuit from 'lucide-react/dist/esm/icons/brain-circuit';
+import RotateCcw from 'lucide-react/dist/esm/icons/rotate-ccw';
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { Skeleton } from './Skeleton';
+
+const loadLoanToolsService = () => import('../services/gemini/loanToolsService');
 
 const DEFAULT_SCENARIO: LoanScenario = {
     purchasePrice: 2500000,
@@ -288,8 +292,9 @@ export const Calculator: React.FC = () => {
 
     try {
       const dataStr = `Jumbo Loan Scenario. Price: $${currentScenario.purchasePrice}, Loan: $${currentLoanAmount}, IO: ${currentScenario.isInterestOnly}, Rate: ${currentScenario.interestRate}%, Dwn: ${currentScenario.downPaymentPercent}%`;
+      const { streamAnalyzeLoanScenario } = await loadLoanToolsService();
       const stream = streamAnalyzeLoanScenario(dataStr);
-      
+
       for await (const chunk of stream) {
           if (chunk) {
               textBuffer.current += chunk;
