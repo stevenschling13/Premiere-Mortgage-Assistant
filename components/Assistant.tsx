@@ -1,11 +1,26 @@
 import React, { useState, useRef, useEffect, useTransition, memo, useCallback } from 'react';
-import { Send, Bot, User as UserIcon, Loader2, ExternalLink, Mic, Trash2, ShieldCheck, AlertTriangle, Swords, XCircle, Globe, Radar } from 'lucide-react';
+import Send from 'lucide-react/dist/esm/icons/send';
+import Bot from 'lucide-react/dist/esm/icons/bot';
+import UserIcon from 'lucide-react/dist/esm/icons/user';
+import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
+import Mic from 'lucide-react/dist/esm/icons/mic';
+import Trash2 from 'lucide-react/dist/esm/icons/trash-2';
+import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check';
+import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
+import Swords from 'lucide-react/dist/esm/icons/swords';
+import XCircle from 'lucide-react/dist/esm/icons/x-circle';
+import Globe from 'lucide-react/dist/esm/icons/globe';
+import Radar from 'lucide-react/dist/esm/icons/radar';
 import { ChatMessage, SimulationScenario, Client } from '../types';
-import { streamChatWithAssistant, verifyFactualClaims, parseNaturalLanguageCommand, fetchDailyMarketPulse, scanPipelineOpportunities } from '../services/geminiService';
+import { fetchDailyMarketPulse } from '../services/gemini/marketIntelligenceService';
+import { streamChatWithAssistant, verifyFactualClaims, parseNaturalLanguageCommand } from '../services/gemini/assistantService';
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
 import { SIMULATION_SCENARIOS, SUGGESTED_PROMPTS, DEFAULT_DEAL_STAGES } from '../constants';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { useToast } from './Toast';
+
+const loadAssistantService = () => import('../services/gemini/assistantService');
 
 // ... (MessageBubble and MessageList components remain same)
 
@@ -336,6 +351,7 @@ export const Assistant: React.FC = () => {
 
       try {
           const marketData = await fetchDailyMarketPulse();
+          const { scanPipelineOpportunities } = await loadAssistantService();
           const opportunities = await scanPipelineOpportunities(clients, marketData.indices);
           
           // Inject findings as system context for the final answer
