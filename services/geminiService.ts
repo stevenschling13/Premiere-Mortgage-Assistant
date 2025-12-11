@@ -222,6 +222,7 @@ async function withRetry<T>(operation: () => Promise<T>, retries = 3, baseDelay 
 
 const parseJson = <T>(text: string | undefined, fallback: T): T => {
   const safeText = text ?? "";
+  const safeText = typeof text === 'string' ? text : '';
   if (!safeText) return fallback;
   try { return JSON.parse(safeText) as T; } catch (e) { /* continue */ }
   const match = safeText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
@@ -421,7 +422,7 @@ export const generateClientSummary = async (client: Client) => {
             thinkingConfig: { thinkingBudget: 1024 }
         }
       });
-      return response.text;
+      return response.text || "";
   }));
 };
 
@@ -444,7 +445,7 @@ export const generateEmailDraft = async (client: Client, topic: string, specific
         temperature: 0.7,
       }
     });
-    return response.text;
+    return response.text || "";
   });
 };
 
@@ -466,7 +467,7 @@ export const generatePartnerUpdate = async (client: Client, partnerName: string)
         temperature: 0.7,
       }
     });
-    return response.text;
+    return response.text || "";
   });
 };
 
@@ -522,6 +523,8 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
         const realSources = chunks
             .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } as SourceLink : null)
             .filter((x): x is SourceLink => x !== null);
+            .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null)
+            .filter((link): link is { uri: string; title: string } => link !== null);
             
         const result = parseJson<VerificationResult>(response.text || "{}", { status: 'UNVERIFIABLE', text: "Could not parse verification.", sources: [] });
         
