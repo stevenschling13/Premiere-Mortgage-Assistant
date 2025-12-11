@@ -15,6 +15,17 @@ View your app in AI Studio: https://ai.studio/apps/drive/186_Uuec2HzFHN-DoXsysBS
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Set `VITE_GEMINI_API_KEY` (preferred) or `GEMINI_API_KEY`/`API_KEY` in [.env.local](.env.local) to your Gemini API key.
 3. Run the app:
    `npm run dev`
+
+## Codebase Map (Gemini + Bundling)
+
+* **Gemini feature services** live under `services/gemini/` and share `geminiCore.ts` for client setup, MIRROR prompt, safety settings, and caching. The barrel `services/geminiService.ts` re-exports all feature modules.
+* **Dynamic imports** are used in components to load cold-path AI actions on demand (e.g., marketing campaign generation, audio briefings).
+* **Icon imports** use per-icon paths (`lucide-react/icons/*`) to keep bundles lean.
+* **Vite** is configured with manual vendor chunks for React, Gemini, Recharts, and Lucide in `vite.config.ts`.
+
+## Testing & Validation
+
+Run `npm run build` for the combined type-check and production bundle. For full manual coverage of every Gemini feature and UI flow, follow the matrix in [TESTING.md](TESTING.md).
