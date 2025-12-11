@@ -25,32 +25,10 @@ export const StorageKeys = {
 // In-memory write cache to prevent redundant disk I/O
 const writeCache = new Map<string, string>();
 
-// In-memory fallback for non-browser environments
-const memoryStorage = new Map<string, string>();
-
 // Debounce State
 const pendingWrites = new Map<string, any>();
 const writeTimers = new Map<string, any>();
 const DEBOUNCE_DELAY = 300; // ms
-
-const getStorage = (): Storage | null => {
-    // Avoid ReferenceErrors in SSR/Node by never directly touching window/localStorage without guards
-    try {
-        if (typeof window === 'undefined') {
-            return typeof (globalThis as any).localStorage !== 'undefined'
-                ? ((globalThis as any).localStorage as Storage)
-                : null;
-        }
-        if (typeof localStorage !== 'undefined') {
-            return localStorage;
-        }
-    } catch {
-        // Accessing localStorage can throw in some sandboxed contexts; fall through to memory
-    }
-    return null;
-};
-
-export const hasStorageAccess = (): boolean => getStorage() !== null;
 
 // Helper: Recursively clean data to try and fit into storage (e.g. remove large Base64 images)
 const sanitizeForStorage = (data: any, depth = 0): any => {
@@ -79,48 +57,38 @@ const sanitizeForStorage = (data: any, depth = 0): any => {
 };
 
 const performWrite = (key: string, data: any) => {
-    const serialized = JSON.stringify(data);
-
-    // Performance: Skip write if data hasn't changed since last save
-    if (writeCache.get(key) === serialized) {
-        return;
-    }
-
-    const storage = getStorage();
-
-    // If no persistent storage, fall back to in-memory map for SSR/tests
-    if (!storage) {
-        memoryStorage.set(key, serialized);
-        writeCache.set(key, serialized);
-        pendingWrites.delete(key);
-        const timer = writeTimers.get(key);
-        if (timer) {
-            clearTimeout(timer);
-        }
-        writeTimers.delete(key);
-        return;
-    }
-
     try {
-        storage.setItem(key, serialized);
-        writeCache.set(key, serialized);
+        const serialized = JSON.stringify(data);
+        
+        // Performance: Skip write if data hasn't changed since last save
+        if (writeCache.get(key) === serialized) {
+            return;
+        }
 
+        localStorage.setItem(key, serialized);
+        writeCache.set(key, serialized);
+        
         // Cleanup pending state after successful write
         pendingWrites.delete(key);
+        if (writeTimers.has(key)) {
+            clearTimeout(writeTimers.get(key));
+            writeTimers.delete(key);
+        }
+
     } catch (error: any) {
-        if (error?.name === 'QuotaExceededError' || error?.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+        if (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
             console.warn('LocalStorage Quota Exceeded. Attempting to sanitize data...', key);
             try {
                 // Attempt fallback: Remove heavy artifacts and retry
                 const sanitized = sanitizeForStorage(data);
                 const serializedSanitized = JSON.stringify(sanitized);
-
+                
                 // Check cache again for sanitized version
                 if (writeCache.get(key) === serializedSanitized) return;
 
-                storage.setItem(key, serializedSanitized);
+                localStorage.setItem(key, serializedSanitized);
                 writeCache.set(key, serializedSanitized);
-
+                
                 pendingWrites.delete(key);
             } catch (retryError) {
                 console.error('Failed to save even after sanitization.', retryError);
@@ -128,12 +96,6 @@ const performWrite = (key: string, data: any) => {
         } else {
             console.error('Error saving to storage', error);
         }
-    } finally {
-        const timer = writeTimers.get(key);
-        if (timer) {
-            clearTimeout(timer);
-        }
-        writeTimers.delete(key);
     }
 };
 
@@ -157,12 +119,6 @@ export const saveToStorage = (key: string, data: any, immediate = false) => {
     }
 };
 
-export const flushPendingWrites = () => {
-    pendingWrites.forEach((data, key) => {
-        performWrite(key, data);
-    });
-};
-
 export const loadFromStorage = <T>(key: string, fallback: T): T => {
   // 1. Check dirty memory state first (pending writes)
   if (pendingWrites.has(key)) {
@@ -170,8 +126,7 @@ export const loadFromStorage = <T>(key: string, fallback: T): T => {
   }
 
   try {
-    const storage = getStorage();
-    const item = storage ? storage.getItem(key) : (memoryStorage.get(key) ?? null);
+    const item = localStorage.getItem(key);
     // Populate cache on read to ensure consistency
     if (item) {
         writeCache.set(key, item);
@@ -179,6 +134,7 @@ export const loadFromStorage = <T>(key: string, fallback: T): T => {
             return JSON.parse(item);
         } catch (parseError) {
             console.error(`Malformed JSON in storage for key: ${key}. Resetting to fallback.`, parseError);
+            // Optional: Backup corrupted data for debug? localStorage.setItem(key + '_corrupt', item);
             return fallback;
         }
     }
@@ -192,15 +148,8 @@ export const loadFromStorage = <T>(key: string, fallback: T): T => {
 // Safety Flush on Page Unload to prevent data loss
 if (typeof window !== 'undefined') {
     window.addEventListener('beforeunload', () => {
-        flushPendingWrites();
+        pendingWrites.forEach((data, key) => {
+            performWrite(key, data);
+        });
     });
 }
-
-// Test-only helper to reset module state between runs
-export const __resetStorageStateForTests = () => {
-    pendingWrites.clear();
-    writeTimers.forEach(timer => clearTimeout(timer));
-    writeTimers.clear();
-    writeCache.clear();
-    memoryStorage.clear();
-};

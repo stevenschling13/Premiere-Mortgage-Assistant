@@ -15,7 +15,6 @@ const RatesNotes = React.lazy(() => import('./components/RatesNotes').then(modul
 const MarketingStudio = React.lazy(() => import('./components/MarketInsights').then(module => ({ default: module.MarketingStudio })));
 const CompensationTracker = React.lazy(() => import('./components/CompensationTracker').then(module => ({ default: module.CompensationTracker })));
 const DailyPlanner = React.lazy(() => import('./components/DailyPlanner').then(module => ({ default: module.DailyPlanner })));
-const GeminiGuide = React.lazy(() => import('./components/GeminiGuide').then(module => ({ default: module.GeminiGuide })));
 
 // Loading Fallback for Suspense
 const ViewLoader = () => (
@@ -88,7 +87,6 @@ const AppContent: React.FC = () => {
         {currentView === AppView.DTI_ANALYSIS && <DtiAnalysis />}
         {currentView === AppView.RATES_NOTES && <RatesNotes />}
         {currentView === AppView.MARKETING && <MarketingStudio />}
-        {currentView === AppView.GEMINI_GUIDE && <GeminiGuide />}
         {currentView === AppView.COMPENSATION && <CompensationTracker />}
         {currentView === AppView.ASSISTANT && <Assistant />}
       </Suspense>

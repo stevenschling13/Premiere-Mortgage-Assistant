@@ -3,8 +3,6 @@ import { ErrorLog } from '../types';
 const MAX_LOGS = 50;
 const STORAGE_KEY = 'premiere_debug_logs';
 
-const hasBrowserStorage = () => typeof localStorage !== 'undefined';
-
 class ErrorService {
   private logs: ErrorLog[] = [];
 
@@ -13,7 +11,6 @@ class ErrorService {
   }
 
   private loadLogs() {
-    if (!hasBrowserStorage()) return;
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
@@ -25,7 +22,6 @@ class ErrorService {
   }
 
   private saveLogs() {
-    if (!hasBrowserStorage()) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.logs));
     } catch (e) {
@@ -67,13 +63,10 @@ class ErrorService {
 
   public clearLogs() {
     this.logs = [];
-    if (hasBrowserStorage()) {
-      localStorage.removeItem(STORAGE_KEY);
-    }
+    localStorage.removeItem(STORAGE_KEY);
   }
 
   public exportLogs() {
-    if (typeof window === 'undefined') return;
     const dataStr = JSON.stringify(this.logs, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);

@@ -133,7 +133,6 @@ export enum AppView {
   RATES_NOTES = 'RATES_NOTES', // Rates & Notes
   MARKETING = 'MARKETING', // Marketing Studio
   ASSISTANT = 'ASSISTANT',
-  GEMINI_GUIDE = 'GEMINI_GUIDE', // Gemini API Guide
   COMPENSATION = 'COMPENSATION' // Wealth & Performance
 }
 
