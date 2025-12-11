@@ -93,10 +93,11 @@ const performWrite = (key: string, data: any) => {
         memoryStorage.set(key, serialized);
         writeCache.set(key, serialized);
         pendingWrites.delete(key);
-        if (writeTimers.has(key)) {
-            clearTimeout(writeTimers.get(key));
-            writeTimers.delete(key);
+        const timer = writeTimers.get(key);
+        if (timer) {
+            clearTimeout(timer);
         }
+        writeTimers.delete(key);
         return;
     }
 
@@ -106,11 +107,6 @@ const performWrite = (key: string, data: any) => {
 
         // Cleanup pending state after successful write
         pendingWrites.delete(key);
-        if (writeTimers.has(key)) {
-            clearTimeout(writeTimers.get(key));
-            writeTimers.delete(key);
-        }
-
     } catch (error: any) {
         if (error?.name === 'QuotaExceededError' || error?.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
             console.warn('LocalStorage Quota Exceeded. Attempting to sanitize data...', key);
@@ -132,6 +128,12 @@ const performWrite = (key: string, data: any) => {
         } else {
             console.error('Error saving to storage', error);
         }
+    } finally {
+        const timer = writeTimers.get(key);
+        if (timer) {
+            clearTimeout(timer);
+        }
+        writeTimers.delete(key);
     }
 };
 
@@ -153,6 +155,12 @@ export const saveToStorage = (key: string, data: any, immediate = false) => {
         }, DEBOUNCE_DELAY);
         writeTimers.set(key, timer);
     }
+};
+
+export const flushPendingWrites = () => {
+    pendingWrites.forEach((data, key) => {
+        performWrite(key, data);
+    });
 };
 
 export const loadFromStorage = <T>(key: string, fallback: T): T => {
@@ -184,9 +192,7 @@ export const loadFromStorage = <T>(key: string, fallback: T): T => {
 // Safety Flush on Page Unload to prevent data loss
 if (typeof window !== 'undefined') {
     window.addEventListener('beforeunload', () => {
-        pendingWrites.forEach((data, key) => {
-            performWrite(key, data);
-        });
+        flushPendingWrites();
     });
 }
 
