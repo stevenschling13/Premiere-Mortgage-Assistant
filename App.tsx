@@ -3,7 +3,8 @@ import { Sidebar } from './components/Sidebar';
 import { ToastProvider, useToast } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AppView } from './types';
-import { Menu, Building2 } from 'lucide-react';
+import Menu from 'lucide-react/icons/menu';
+import Building2 from 'lucide-react/icons/building-2';
 import { errorService } from './services/errorService';
 
 // Lazy Load View Components for Performance Optimization

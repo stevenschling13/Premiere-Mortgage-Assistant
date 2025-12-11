@@ -1,6 +1,10 @@
 import React, { useEffect, createContext, useContext, useState, useCallback, ReactNode, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from 'lucide-react';
+import X from 'lucide-react/icons/x';
+import CheckCircle from 'lucide-react/icons/check-circle';
+import AlertCircle from 'lucide-react/icons/alert-circle';
+import Info from 'lucide-react/icons/info';
+import AlertTriangle from 'lucide-react/icons/alert-triangle';
 import { ToastMessage, ToastType } from '../types';
 
 // Context Definition

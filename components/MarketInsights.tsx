@@ -1,23 +1,35 @@
 
 import React, { useState, useEffect, memo } from 'react';
-import { 
-    TrendingUp, Megaphone, BrainCircuit, RefreshCw, 
-    Linkedin, Mail, MessageSquare, 
-    Layers, Loader2, Sparkles, Copy, ExternalLink, 
-    Trash2, ShieldCheck, AlertTriangle, Link as LinkIcon, Home, Wallet
-} from 'lucide-react';
-import { 
-    fetchDailyMarketPulse, 
-    generateClientFriendlyAnalysis, 
-    generateBuyerSpecificAnalysis,
-    generateMarketingCampaign,
-    verifyCampaignContent
-} from '../services/geminiService';
+import TrendingUp from 'lucide-react/icons/trending-up';
+import Megaphone from 'lucide-react/icons/megaphone';
+import BrainCircuit from 'lucide-react/icons/brain-circuit';
+import RefreshCw from 'lucide-react/icons/refresh-cw';
+import Linkedin from 'lucide-react/icons/linkedin';
+import Mail from 'lucide-react/icons/mail';
+import MessageSquare from 'lucide-react/icons/message-square';
+import Layers from 'lucide-react/icons/layers';
+import Loader2 from 'lucide-react/icons/loader-2';
+import Sparkles from 'lucide-react/icons/sparkles';
+import Copy from 'lucide-react/icons/copy';
+import ExternalLink from 'lucide-react/icons/external-link';
+import Trash2 from 'lucide-react/icons/trash-2';
+import ShieldCheck from 'lucide-react/icons/shield-check';
+import AlertTriangle from 'lucide-react/icons/alert-triangle';
+import LinkIcon from 'lucide-react/icons/link';
+import Home from 'lucide-react/icons/home';
+import Wallet from 'lucide-react/icons/wallet';
+import {
+    fetchDailyMarketPulse,
+    generateClientFriendlyAnalysis,
+    generateBuyerSpecificAnalysis
+} from '../services/gemini/marketIntelligenceService';
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
 import { MarketIndex, NewsItem, MarketingCampaign, VerificationResult } from '../types';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { Skeleton } from './Skeleton';
+
+const loadMarketIntelligenceService = () => import('../services/gemini/marketIntelligenceService');
 
 type Tab = 'PULSE' | 'CAMPAIGN';
 
@@ -564,6 +576,7 @@ export const MarketingStudio: React.FC = () => {
       setIsGeneratingCampaign(true);
       setVerificationResult(null);
       try {
+          const { generateMarketingCampaign } = await loadMarketIntelligenceService();
           const result = await generateMarketingCampaign(marketingState.campaignTopic, marketingState.campaignTone);
           updateMarketingState({ campaignResult: result });
       } catch (error) {
@@ -577,6 +590,7 @@ export const MarketingStudio: React.FC = () => {
       if (!marketingState.campaignResult) return;
       setIsVerifying(true);
       try {
+          const { verifyCampaignContent } = await loadMarketIntelligenceService();
           const result = await verifyCampaignContent(marketingState.campaignResult);
           setVerificationResult(result);
           showToast('Verification complete', 'success');
