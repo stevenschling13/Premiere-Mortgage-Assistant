@@ -1,4 +1,16 @@
 import React, { useState, useEffect } from 'react';
+import DollarSign from 'lucide-react/icons/dollar-sign';
+import AlertCircle from 'lucide-react/icons/alert-circle';
+import CheckCircle2 from 'lucide-react/icons/check-circle-2';
+import TrendingUp from 'lucide-react/icons/trending-up';
+import Stethoscope from 'lucide-react/icons/stethoscope';
+import Loader2 from 'lucide-react/icons/loader-2';
+import RefreshCcw from 'lucide-react/icons/refresh-ccw';
+import Briefcase from 'lucide-react/icons/briefcase';
+import Coins from 'lucide-react/icons/coins';
+import X from 'lucide-react/icons/x';
+import Save from 'lucide-react/icons/save';
+import BookOpen from 'lucide-react/icons/book-open';
 import DollarSign from 'lucide-react/dist/esm/icons/dollar-sign';
 import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
 import CheckCircle2 from 'lucide-react/dist/esm/icons/check-circle-2';

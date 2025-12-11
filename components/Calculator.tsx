@@ -1,6 +1,10 @@
 import React, { useState, useMemo, useEffect, useDeferredValue, useRef, memo, useCallback } from 'react';
 import { LoanScenario } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
+import RefreshCcw from 'lucide-react/icons/refresh-ccw';
+import Info from 'lucide-react/icons/info';
+import BrainCircuit from 'lucide-react/icons/brain-circuit';
+import RotateCcw from 'lucide-react/icons/rotate-ccw';
 import RefreshCcw from 'lucide-react/dist/esm/icons/refresh-ccw';
 import Info from 'lucide-react/dist/esm/icons/info';
 import BrainCircuit from 'lucide-react/dist/esm/icons/brain-circuit';

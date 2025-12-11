@@ -1,4 +1,13 @@
 import React, { useState } from 'react';
+import Save from 'lucide-react/icons/save';
+import Calendar from 'lucide-react/icons/calendar';
+import PenTool from 'lucide-react/icons/pen-tool';
+import Sparkles from 'lucide-react/icons/sparkles';
+import Loader2 from 'lucide-react/icons/loader-2';
+import Copy from 'lucide-react/icons/copy';
+import AlertCircle from 'lucide-react/icons/alert-circle';
+import Wand2 from 'lucide-react/icons/wand-2';
+import Mail from 'lucide-react/icons/mail';
 import Save from 'lucide-react/dist/esm/icons/save';
 import Calendar from 'lucide-react/dist/esm/icons/calendar';
 import PenTool from 'lucide-react/dist/esm/icons/pen-tool';

@@ -1,5 +1,10 @@
 import React, { useEffect, createContext, useContext, useState, useCallback, ReactNode, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import X from 'lucide-react/icons/x';
+import CheckCircle from 'lucide-react/icons/check-circle';
+import AlertCircle from 'lucide-react/icons/alert-circle';
+import Info from 'lucide-react/icons/info';
+import AlertTriangle from 'lucide-react/icons/alert-triangle';
 import X from 'lucide-react/dist/esm/icons/x';
 import CheckCircle from 'lucide-react/dist/esm/icons/check-circle';
 import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';

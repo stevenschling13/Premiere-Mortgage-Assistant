@@ -1,4 +1,17 @@
 import React, { useState, useRef, useEffect, useTransition, memo, useCallback } from 'react';
+import Send from 'lucide-react/icons/send';
+import Bot from 'lucide-react/icons/bot';
+import UserIcon from 'lucide-react/icons/user';
+import Loader2 from 'lucide-react/icons/loader-2';
+import ExternalLink from 'lucide-react/icons/external-link';
+import Mic from 'lucide-react/icons/mic';
+import Trash2 from 'lucide-react/icons/trash-2';
+import ShieldCheck from 'lucide-react/icons/shield-check';
+import AlertTriangle from 'lucide-react/icons/alert-triangle';
+import Swords from 'lucide-react/icons/swords';
+import XCircle from 'lucide-react/icons/x-circle';
+import Globe from 'lucide-react/icons/globe';
+import Radar from 'lucide-react/icons/radar';
 import Send from 'lucide-react/dist/esm/icons/send';
 import Bot from 'lucide-react/dist/esm/icons/bot';
 import UserIcon from 'lucide-react/dist/esm/icons/user';
