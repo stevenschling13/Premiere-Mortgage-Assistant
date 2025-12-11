@@ -133,8 +133,7 @@ const getAiClient = (): GoogleGenAI => {
     return aiClient;
   }
 
-  const env = (typeof process !== 'undefined' && process.env) ? process.env : {};
-  const apiKey = env.API_KEY;
+  const apiKey = import.meta.env.VITE_API_KEY;
 
   if (!apiKey || apiKey.trim() === '') {
     throw new AIError(AIErrorCodes.INVALID_API_KEY, "API Key is missing. Please connect a billing-enabled key.");
