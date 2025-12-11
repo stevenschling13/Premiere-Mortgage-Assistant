@@ -6,16 +6,6 @@ export default defineConfig({
   root: '.',
   build: {
     outDir: 'dist',
-    sourcemap: false,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom'],
-          'vendor-ai': ['@google/genai'],
-          'vendor-charts': ['recharts'],
-          'vendor-icons': ['lucide-react']
-        }
-      }
-    }
+    sourcemap: false
   }
 });

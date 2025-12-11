@@ -5,33 +5,19 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview",
-    "lint": "echo \"No linting configured yet\"",
-    "format": "echo \"No formatter configured yet\"",
-    "typecheck": "tsc --noEmit",
-    "test": "echo \"No tests configured yet\""
+    "preview": "vite preview"
   },
   "dependencies": {
     "@google/genai": "^1.31.0",
     "lucide-react": "^0.344.0",
-    "react": "^19.2.2",
-    "react-dom": "^18.3.1",
-    "react-window": "^1.8.9",
-    "recharts": "^2.12.0"
-    "lucide-react": "^0.560.0",
     "react": "^18.3.1",
-    "react-dom": "^19.2.2",
-    "recharts": "^3.5.1"
+    "react-dom": "^18.3.1",
+    "recharts": "^2.12.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",
-    "@types/react-dom": "^19.2.3",
-    "@types/react": "^19.2.7",
     "@types/react-dom": "^18.3.0",
-    "@types/react-window": "^1.8.8",
     "@vitejs/plugin-react": "^4.2.1",
-    "rollup-plugin-visualizer": "^6.0.5",
-    "@vitejs/plugin-react": "^5.1.2",
     "typescript": "^5.2.2",
     "vite": "^5.2.0"
   }
