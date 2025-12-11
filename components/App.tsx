@@ -1,14 +1,14 @@
 import React, { useState, createContext, useContext, useCallback } from 'react';
-import { Sidebar } from './components/Sidebar';
-import { Calculator } from './components/Calculator';
-import { ClientManager } from './components/ClientManager';
-import { Assistant } from './components/Assistant';
-import { DtiAnalysis } from './components/DtiAnalysis';
-import { RatesNotes } from './components/RatesNotes';
-import { MarketingStudio } from './components/MarketInsights';
-import { CompensationTracker } from './components/CompensationTracker';
-import { ToastContainer } from './components/Toast';
-import { AppView, ToastMessage, ToastType } from './types';
+import { Sidebar } from './Sidebar';
+import { Calculator } from './Calculator';
+import { ClientManager } from './ClientManager';
+import { Assistant } from './Assistant';
+import { DtiAnalysis } from './DtiAnalysis';
+import { RatesNotes } from './RatesNotes';
+import { MarketingStudio } from './MarketInsights';
+import { CompensationTracker } from './CompensationTracker';
+import { ToastContainer } from './Toast';
+import { AppView, ToastMessage, ToastType } from '../types';
 import { Menu, Building2 } from 'lucide-react';
 
 // Context
@@ -74,12 +74,12 @@ const App: React.FC = () => {
         )}
 
         {/* Sidebar Navigation */}
-        <Sidebar 
-          currentView={currentView} 
-          onChangeView={(view) => {
+        <Sidebar
+          currentView={currentView}
+          onChangeView={(view: AppView) => {
             setCurrentView(view);
             setIsSidebarOpen(false);
-          }} 
+          }}
           isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
         />

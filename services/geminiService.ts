@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, Type, Modality } from "@google/genai";
+import { GoogleGenAI, Type, Modality, ThinkingLevel } from "@google/genai";
 import { Client, CommandIntent, EmailLog, MarketIndex, NewsItem, MarketingCampaign, VerificationResult, Opportunity, DealStrategy, GiftSuggestion, CalendarEvent, SalesScript } from "../types";
 import { loadFromStorage, saveToStorage, StorageKeys } from "./storageService";
 import { errorService } from "./errorService";
@@ -66,6 +66,7 @@ const VALUATION_TTL = 1000 * 60 * 60 * 24 * 7; // 7 Days
 // In-flight promise tracking
 let activeMarketPulsePromise: Promise<{ indices: MarketIndex[], news: NewsItem[], sources?: any[] }> | null = null;
 const activeValuationPromises = new Map<string, Promise<{ estimatedValue: number, source: string }>>();
+const inflightRequests = new Map<string, Promise<any>>();
 
 // --- Reliability Utilities ---
 
@@ -125,19 +126,34 @@ const normalizeError = (error: any): AIError => {
   return new AIError(AIErrorCodes.UNEXPECTED_ERROR, 'An unexpected AI service error occurred.', error);
 };
 
-const getAiClient = () => {
+let aiClient: GoogleGenAI | null = null;
+
+const getAiClient = (): GoogleGenAI => {
+  if (aiClient) {
+    return aiClient;
+  }
+
   const env = (typeof process !== 'undefined' && process.env) ? process.env : {};
   const apiKey = env.API_KEY;
-  
+
   if (!apiKey || apiKey.trim() === '') {
     throw new AIError(AIErrorCodes.INVALID_API_KEY, "API Key is missing. Please connect a billing-enabled key.");
   }
-  return new GoogleGenAI({ apiKey });
+
+  aiClient = new GoogleGenAI({ apiKey });
+  return aiClient;
 };
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function withRetry<T>(operation: () => Promise<T>, retries = 5, baseDelay = 1000): Promise<T> {
+const withTimeout = async <T>(promise: Promise<T>, ms: number): Promise<T> => {
+  return Promise.race<T>([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('TimeoutError')), ms)),
+  ]);
+};
+
+async function withRetry<T>(operation: () => Promise<T>, retries = 5, baseDelay = 1000, timeout = 60000): Promise<T> {
   if (CIRCUIT_BREAKER.failures >= CIRCUIT_BREAKER.THRESHOLD) {
       const timeSinceFailure = Date.now() - CIRCUIT_BREAKER.lastFailure;
       if (timeSinceFailure < CIRCUIT_BREAKER.COOLDOWN) {
@@ -154,7 +170,7 @@ async function withRetry<T>(operation: () => Promise<T>, retries = 5, baseDelay 
   
   for (let i = 0; i < retries; i++) {
     try {
-      const result = await operation();
+      const result = await withTimeout(operation(), timeout);
       CIRCUIT_BREAKER.failures = 0;
       return result;
     } catch (rawError: any) {
@@ -209,50 +225,147 @@ const parseJson = <T>(text: string, fallback: T): T => {
   return fallback;
 };
 
+// Lightweight, deterministic hash for dedupe keys
+const hashString = (input: string): string => {
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    const char = input.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
+};
+
+// Request deduplication to avoid redundant calls
+const deduped = <T>(key: string, fn: () => Promise<T>): Promise<T> => {
+  if (inflightRequests.has(key)) {
+    return inflightRequests.get(key) as Promise<T>;
+  }
+
+  const promise = fn().finally(() => inflightRequests.delete(key));
+  inflightRequests.set(key, promise);
+  return promise;
+};
+
+// Tuned retry profiles for interactive vs background work
+const withInteractiveRetry = <T>(operation: () => Promise<T>): Promise<T> =>
+  withRetry(operation, 1, 500, 15000);
+
+const withBackgroundRetry = <T>(operation: () => Promise<T>): Promise<T> =>
+  withRetry(operation, 3, 1000, 60000);
+
 // --- Text Generation & Chat ---
 
 export const chatWithAssistant = async (
-    history: Array<{role: string, parts: Array<{text: string}>}>, 
-    message: string, 
+    history: Array<{role: string, parts: Array<{text: string}>}>,
+    message: string,
     customSystemInstruction?: string
 ) => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    const optimizedHistory = history.length > 30 ? history.slice(history.length - 30) : history;
+  const cacheKey = `chat-${history.length}-${hashString(message)}`;
 
+  return deduped(cacheKey, async () => {
+    try {
+      return await withInteractiveRetry(async () => {
+        const ai = getAiClient();
+        const optimizedHistory = history.length > 30 ? history.slice(history.length - 30) : history;
+
+        const chat = ai.chats.create({
+          model: 'gemini-3-pro-preview',
+          history: optimizedHistory,
+          config: {
+            systemInstruction: customSystemInstruction || SYSTEM_INSTRUCTION,
+            tools: [{googleSearch: {}}],
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          }
+        });
+
+        const response = await chat.sendMessage({ message });
+
+        if (!response.candidates || response.candidates.length === 0) {
+            throw new AIError(AIErrorCodes.SAFETY_VIOLATION, "The model blocked the response due to safety filters.");
+        }
+        const candidate = response.candidates[0];
+        if (candidate.finishReason === 'SAFETY') {
+             throw new AIError(AIErrorCodes.SAFETY_VIOLATION, "The model blocked the response due to safety filters.");
+        }
+
+        const groundingMetadata = candidate?.groundingMetadata;
+        const groundingChunks = groundingMetadata?.groundingChunks || [];
+
+        const links = groundingChunks
+          .map((chunk: any) => chunk.web ? { uri: String(chunk.web.uri), title: String(chunk.web.title) } : null)
+          .filter((link): link is { uri: string; title: string } => Boolean(link));
+
+        return {
+          text: response.text ?? '',
+          links: links,
+          searchEntryPoint: groundingMetadata?.searchEntryPoint?.renderedContent,
+          searchQueries: groundingMetadata?.webSearchQueries
+        };
+      });
+    } catch (error: any) {
+      const ai = getAiClient();
+      const optimizedHistory = history.length > 30 ? history.slice(history.length - 30) : history;
+
+      const chat = ai.chats.create({
+        model: 'gemini-2.5-flash',
+        history: optimizedHistory,
+        config: {
+          systemInstruction: customSystemInstruction || SYSTEM_INSTRUCTION,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
+        }
+      });
+
+      const response = await chat.sendMessage({ message });
+
+      return {
+        text: response.text ?? '',
+        links: [],
+        searchEntryPoint: undefined,
+        searchQueries: []
+      };
+    }
+  });
+};
+
+export const streamChatWithAssistant = async function* (
+  history: Array<{ role: string; parts: Array<{ text: string }> }>,
+  message: string,
+  customSystemInstruction?: string,
+) {
+  const ai = getAiClient();
+  const optimizedHistory = history.length > 30 ? history.slice(history.length - 30) : history;
+
+  try {
     const chat = ai.chats.create({
-      model: 'gemini-3-pro-preview', 
+      model: 'gemini-3-pro-preview',
       history: optimizedHistory,
       config: {
         systemInstruction: customSystemInstruction || SYSTEM_INSTRUCTION,
-        tools: [{googleSearch: {}}] 
+        tools: [{ googleSearch: {} }],
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       }
     });
 
-    const response = await chat.sendMessage({ message });
-    
-    if (!response.candidates || response.candidates.length === 0) {
-        throw new AIError(AIErrorCodes.SAFETY_VIOLATION, "The model blocked the response due to safety filters.");
+    const resultStream = await chat.sendMessageStream({ message });
+    for await (const chunk of resultStream) {
+      yield chunk;
     }
-    const candidate = response.candidates[0];
-    if (candidate.finishReason === 'SAFETY') {
-         throw new AIError(AIErrorCodes.SAFETY_VIOLATION, "The model blocked the response due to safety filters.");
+  } catch (error) {
+    const fallbackChat = ai.chats.create({
+      model: 'gemini-2.5-flash',
+      history: optimizedHistory,
+      config: {
+        systemInstruction: customSystemInstruction || SYSTEM_INSTRUCTION,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      }
+    });
+
+    const resultStream = await fallbackChat.sendMessageStream({ message });
+    for await (const chunk of resultStream) {
+      yield chunk;
     }
-
-    const groundingMetadata = candidate?.groundingMetadata;
-    const groundingChunks = groundingMetadata?.groundingChunks || [];
-    
-    const links = groundingChunks
-      .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
-      .filter((link: any) => link !== null);
-
-    return {
-      text: response.text,
-      links: links,
-      searchEntryPoint: groundingMetadata?.searchEntryPoint?.renderedContent,
-      searchQueries: groundingMetadata?.webSearchQueries
-    };
-  });
+  }
 };
 
 export const generateGiftSuggestions = async (client: Client): Promise<GiftSuggestion[]> => {
@@ -341,7 +454,7 @@ export const generateClientSummary = async (client: Client) => {
         model: 'gemini-3-pro-preview',
         contents: prompt,
         config: {
-          thinkingConfig: { thinkingBudget: 2048 }
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
         }
       });
       return response.text;
@@ -435,7 +548,7 @@ export const generateRateSheetEmail = async (rates: any, rawNotes: string) => {
       model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
-        thinkingConfig: { thinkingBudget: 2048 }
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
       }
     });
     return response.text;
@@ -603,7 +716,7 @@ export const analyzeLoanScenario = async (scenarioData: string) => {
       - Cite any live market data found.`,
       config: {
         tools: [{ googleSearch: {} }],
-        thinkingConfig: { thinkingBudget: 32768 }
+        thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH, includeThoughts: false }
       }
     });
     return response.text;
@@ -642,7 +755,7 @@ export const compareLoanScenarios = async (scenarioA: any, scenarioB: any) => {
       model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
-        thinkingConfig: { thinkingBudget: 4096 }
+        thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH, includeThoughts: false }
       }
     });
     return response.text;
@@ -692,7 +805,7 @@ export const solveDtiScenario = async (financials: any) => {
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
-        thinkingConfig: { thinkingBudget: 4096 }
+        thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH, includeThoughts: false }
       }
     });
     return response.text;
@@ -788,7 +901,10 @@ export const fetchDailyMarketPulse = async (): Promise<{ indices: MarketIndex[],
 // --- Morning Briefing Service ---
 
 export const generateMorningMemo = async (urgentClients: Client[], marketData: any) => {
-  return withRetry(async () => {
+  const today = new Date().toISOString().split('T')[0];
+  const cacheKey = `morning-memo-${today}`;
+
+  return deduped(cacheKey, () => withBackgroundRetry(async () => {
     const ai = getAiClient();
     
     const clientContext = urgentClients.map(c => 
@@ -818,11 +934,11 @@ export const generateMorningMemo = async (urgentClients: Client[], marketData: a
       model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
-        thinkingConfig: { thinkingBudget: 2048 }
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
       }
     });
     return response.text;
-  });
+  }));
 };
 
 export const generateClientFriendlyAnalysis = async (marketData: any) => {
@@ -847,10 +963,10 @@ export const generateClientFriendlyAnalysis = async (marketData: any) => {
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview', 
+      model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
-        thinkingConfig: { thinkingBudget: 2048 } 
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
       }
     });
     return response.text;
@@ -882,7 +998,7 @@ export const generateBuyerSpecificAnalysis = async (marketData: any) => {
       model: 'gemini-3-pro-preview', 
       contents: prompt,
       config: {
-        thinkingConfig: { thinkingBudget: 2048 }
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
       }
     });
     return response.text;
@@ -995,7 +1111,7 @@ export const generateGapStrategy = async (currentTotalIncome: number, targetInco
       model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
-        thinkingConfig: { thinkingBudget: 2048 }
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
       }
     });
     return response.text;
@@ -1044,8 +1160,8 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
     const candidate = response.candidates?.[0];
     const groundingChunks = candidate?.groundingMetadata?.groundingChunks || [];
     const sources = groundingChunks
-      .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
-      .filter((link: any) => link !== null);
+      .map((chunk: any) => chunk.web ? { uri: String(chunk.web.uri), title: String(chunk.web.title) } : null)
+      .filter((link): link is { uri: string; title: string } => Boolean(link));
 
     // Determine status based on text content (simple heuristic for UI color coding)
     const textLower = response.text?.toLowerCase() || "";
@@ -1380,7 +1496,7 @@ export const generateDealArchitecture = async (client: Client): Promise<DealStra
                         }
                     }
                 },
-                thinkingConfig: { thinkingBudget: 4096 }
+                thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH, includeThoughts: false }
             }
         });
 
@@ -1488,7 +1604,7 @@ export const generateMeetingPrep = async (clientName: string, clientData?: Clien
             model: 'gemini-3-pro-preview',
             contents: prompt,
             config: {
-                thinkingConfig: { thinkingBudget: 2048 }
+                thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
             }
         });
         return response.text;

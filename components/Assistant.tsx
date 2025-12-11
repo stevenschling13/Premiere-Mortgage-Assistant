@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Send, Bot, User as UserIcon, Loader2, Link as LinkIcon, ExternalLink, Mic, MicOff, Trash2, Search, ShieldCheck, AlertTriangle, Swords, XCircle, PlayCircle, Trophy, Beaker } from 'lucide-react';
 import { ChatMessage, SimulationScenario } from '../types';
 import { chatWithAssistant, verifyFactualClaims, loadFromStorage, saveToStorage, StorageKeys } from '../services';
@@ -25,6 +25,167 @@ const base64ToUint8Array = (base64: string) => {
   }
   return bytes;
 };
+
+interface MessageListProps {
+  messages: ChatMessage[];
+  isSimulationMode: boolean;
+  verifyingMsgIds: Set<string>;
+  onVerify: (msgId: string, text: string) => void;
+  isLoading: boolean;
+  bottomRef: React.RefObject<HTMLDivElement>;
+}
+
+const MessageList: React.FC<MessageListProps> = React.memo(({ messages, isSimulationMode, verifyingMsgIds, onVerify, isLoading, bottomRef }) => (
+  <div className={`flex-1 overflow-y-auto p-4 md:p-6 space-y-4 md:space-y-6 ${isSimulationMode ? 'bg-indigo-50/30' : 'bg-gray-50/50'}`}>
+    {messages.map((msg) => (
+      <div
+        key={msg.id}
+        className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+      >
+        <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'} items-start gap-2 md:gap-3`}>
+
+          <div className={`w-6 h-6 md:w-8 md:h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm ${
+            msg.role === 'user'
+                ? (isSimulationMode ? 'bg-indigo-600 text-white' : 'bg-brand-red text-white')
+                : (isSimulationMode ? 'bg-indigo-950 text-indigo-200' : 'bg-brand-dark text-brand-gold')
+          }`}>
+            {msg.role === 'user' ? <UserIcon size={14} /> : <Bot size={14} />}
+          </div>
+
+          <div className={`bg-white/80 backdrop-blur-sm px-3 md:px-4 py-2.5 md:py-3 rounded-2xl shadow-sm transition-all ${
+              msg.role === 'user'
+                  ? (isSimulationMode ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-brand-red text-white rounded-tr-none')
+                  : msg.isError
+                      ? 'bg-red-50 text-red-800 border border-red-200 rounded-tl-none'
+                      : 'bg-white text-gray-800 border border-gray-200 rounded-tl-none'
+          }`}>
+            {msg.role === 'user' ? (
+                 <div className="whitespace-pre-wrap">{msg.text}</div>
+            ) : (
+                 <>
+                    <MarkdownRenderer content={msg.text} />
+
+                    {/* Verification Button (Only in Assistant Mode) */}
+                    {!isSimulationMode && !msg.isError && !msg.verificationResult && (
+                        <div className="mt-3 pt-2 border-t border-gray-100 flex justify-end">
+                            <button
+                                onClick={() => onVerify(msg.id, msg.text)}
+                                disabled={verifyingMsgIds.has(msg.id)}
+                                className="flex items-center space-x-1.5 px-3 py-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-full text-xs font-semibold text-gray-600 transition-colors disabled:opacity-50"
+                            >
+                                {verifyingMsgIds.has(msg.id) ? (
+                                    <Loader2 size={12} className="animate-spin text-brand-red" />
+                                ) : (
+                                    <ShieldCheck size={12} className="text-gray-400" />
+                                )}
+                                <span>{verifyingMsgIds.has(msg.id) ? 'Verifying...' : 'Verify Data'}</span>
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Verification Result Card */}
+                    {msg.verificationResult && (
+                        <div className={`mt-3 pt-3 border-t-2 border-dashed ${
+                            msg.verificationResult.status === 'VERIFIED' ? 'border-green-200' : 'border-red-200'
+                        }`}>
+                            <div className={`p-3 rounded-lg text-xs border mb-2 ${
+                                msg.verificationResult.status === 'VERIFIED'
+                                    ? 'bg-green-50 border-green-200 text-green-800'
+                                    : 'bg-red-50 border-red-200 text-red-800'
+                            }`}>
+                                <div className="flex items-center font-bold mb-2 uppercase tracking-wide">
+                                    {msg.verificationResult.status === 'VERIFIED' ? (
+                                        <ShieldCheck size={14} className="mr-1.5" />
+                                    ) : (
+                                        <AlertTriangle size={14} className="mr-1.5" />
+                                    )}
+                                    Audit Report: {msg.verificationResult.status === 'VERIFIED' ? 'Verified Accurate' : 'Issues Found'}
+                                </div>
+                                <div className="prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1">
+                                    <MarkdownRenderer content={msg.verificationResult.text} />
+                                </div>
+                            </div>
+
+                            {/* Sources from Verification */}
+                            {msg.verificationResult.sources.length > 0 && (
+                                <div className="flex flex-wrap gap-2">
+                                    {msg.verificationResult.sources.slice(0, 3).map((s, idx) => (
+                                        <a
+                                            key={idx}
+                                            href={s.uri}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="flex items-center px-2 py-1 bg-white border border-gray-200 rounded text-[10px] text-gray-500 hover:text-brand-dark hover:border-brand-gold transition-colors"
+                                        >
+                                            <LinkIcon size={10} className="mr-1 opacity-50"/>
+                                            <span className="truncate max-w-[120px]">{s.title}</span>
+                                        </a>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                 </>
+            )}
+
+            {/* Grounding Info (Original Generation) */}
+            {((msg.groundingLinks?.length || 0) > 0 || (msg.searchQueries?.length || 0) > 0) && !isSimulationMode && (
+              <div className="mt-3 pt-3 border-t border-dashed border-gray-300/50">
+                {/* Source Links */}
+                {msg.groundingLinks && msg.groundingLinks.length > 0 && (
+                    <>
+                        <p className="text-[10px] font-bold uppercase tracking-wider opacity-60 mb-2 flex items-center text-gray-600">
+                        <LinkIcon size={10} className="mr-1" /> Original Sources
+                        </p>
+                        <div className="flex flex-wrap gap-2 mb-2">
+                        {msg.groundingLinks.slice(0, 4).map((link, idx) => (
+                            <a
+                            key={idx}
+                            href={link.uri}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[10px] bg-white border border-gray-200 hover:border-brand-gold hover:bg-yellow-50 px-2 py-1 rounded-md flex items-center transition-all text-brand-dark no-underline shadow-sm group"
+                            >
+                            <span className="max-w-[150px] truncate">{link.title}</span>
+                            <ExternalLink size={10} className="ml-1 opacity-30 group-hover:opacity-100" />
+                            </a>
+                        ))}
+                        </div>
+                    </>
+                )}
+
+                {/* Search Entry Point Compliance Footer */}
+                {msg.searchEntryPoint && (
+                    <div
+                        className="mt-2 text-[10px] text-gray-400 [&_a]:text-gray-500 [&_a]:underline"
+                        dangerouslySetInnerHTML={{ __html: msg.searchEntryPoint }}
+                    />
+                )}
+              </div>
+            )}
+          </div>
+          <span className="text-[10px] text-gray-400 mt-1 px-1">
+              {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </div>
+      </div>
+    ))}
+    {isLoading && (
+        <div className="flex justify-start">
+             <div className="flex flex-row items-center gap-3 animate-pulse">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${isSimulationMode ? 'bg-indigo-950 text-indigo-200' : 'bg-brand-dark text-brand-gold'}`}>
+                    <Bot size={16} />
+                </div>
+                <div className="bg-white px-4 py-3 rounded-2xl rounded-tl-none border border-gray-200 shadow-sm flex items-center gap-2">
+                    <Loader2 className={`w-4 h-4 animate-spin ${isSimulationMode ? 'text-indigo-500' : 'text-brand-red'}`} />
+                    <span className="text-sm text-gray-500">{isSimulationMode ? 'Opponent thinking...' : 'Searching market data...'}</span>
+                </div>
+             </div>
+        </div>
+    )}
+    <div ref={bottomRef} />
+  </div>
+));
 
 export const Assistant: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
@@ -59,6 +220,8 @@ export const Assistant: React.FC = () => {
   const [isLiveConnecting, setIsLiveConnecting] = useState(false);
   const [visualizerData, setVisualizerData] = useState<number[]>(new Array(5).fill(10));
 
+  const activeMessages = useMemo(() => (isSimulationMode ? simulationMessages : messages), [isSimulationMode, simulationMessages, messages]);
+
   // Live Audio Refs
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -81,7 +244,7 @@ export const Assistant: React.FC = () => {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, simulationMessages, isSimulationMode]);
+  }, [activeMessages, isSimulationMode]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -126,15 +289,15 @@ export const Assistant: React.FC = () => {
       stopLiveSession(); // Safety stop
   };
 
-  const handleVerifyMessage = async (msgId: string, text: string) => {
+  const handleVerifyMessage = useCallback(async (msgId: string, text: string) => {
       if (verifyingMsgIds.has(msgId)) return;
-      
+
       setVerifyingMsgIds(prev => new Set(prev).add(msgId));
-      
+
       try {
           if (!text) throw new Error("No text to verify");
           const result = await verifyFactualClaims(text);
-          setMessages(prev => prev.map(m => 
+          setMessages(prev => prev.map(m =>
               m.id === msgId ? { ...m, verificationResult: result } : m
           ));
       } catch (e) {
@@ -146,7 +309,7 @@ export const Assistant: React.FC = () => {
               return next;
           });
       }
-  };
+  }, [verifyingMsgIds]);
 
   const handleSend = async (textOverride?: string) => {
     const textToSend = textOverride || input;
@@ -187,9 +350,11 @@ export const Assistant: React.FC = () => {
       const aiMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        text: response.text,
+        text: response.text ?? '',
         timestamp: new Date(),
-        groundingLinks: response.links,
+        groundingLinks: (response.links || []).filter(
+          (link): link is { uri: string; title: string } => Boolean(link?.uri && link?.title)
+        ),
         searchEntryPoint: response.searchEntryPoint,
         searchQueries: response.searchQueries
       };
@@ -275,7 +440,11 @@ export const Assistant: React.FC = () => {
 
       mediaStreamRef.current = stream;
 
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const apiKey = import.meta.env.VITE_API_KEY || process.env?.API_KEY || '';
+      if (!apiKey) {
+        throw new Error('Missing Gemini API key');
+      }
+      const ai = new GoogleGenAI({ apiKey });
       
       // Select Instruction based on mode
       const instruction = isSimulationMode && selectedScenario
@@ -576,160 +745,14 @@ export const Assistant: React.FC = () => {
           </div>
       )}
 
-      {/* Messages Area */}
-      <div className={`flex-1 overflow-y-auto p-4 md:p-6 space-y-4 md:space-y-6 ${isSimulationMode ? 'bg-indigo-50/30' : 'bg-gray-50/50'}`}>
-        {(isSimulationMode ? simulationMessages : messages).map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'} items-start gap-2 md:gap-3`}>
-              
-              <div className={`w-6 h-6 md:w-8 md:h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm ${
-                msg.role === 'user' 
-                    ? (isSimulationMode ? 'bg-indigo-600 text-white' : 'bg-brand-red text-white') 
-                    : (isSimulationMode ? 'bg-indigo-950 text-indigo-200' : 'bg-brand-dark text-brand-gold')
-              }`}>
-                {msg.role === 'user' ? <UserIcon size={14} /> : <Bot size={14} />}
-              </div>
-
-              <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                <div
-                    className={`px-4 py-2 md:px-5 md:py-3 rounded-2xl shadow-sm text-sm leading-relaxed relative ${
-                    msg.role === 'user'
-                        ? (isSimulationMode ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-brand-red text-white rounded-tr-none')
-                        : msg.isError 
-                            ? 'bg-red-50 text-red-800 border border-red-200 rounded-tl-none'
-                            : 'bg-white text-gray-800 border border-gray-200 rounded-tl-none'
-                    }`}
-                >
-                    {msg.role === 'user' ? (
-                         <div className="whitespace-pre-wrap">{msg.text}</div>
-                    ) : (
-                         <>
-                            <MarkdownRenderer content={msg.text} />
-                            
-                            {/* Verification Button (Only in Assistant Mode) */}
-                            {!isSimulationMode && !msg.isError && !msg.verificationResult && (
-                                <div className="mt-3 pt-2 border-t border-gray-100 flex justify-end">
-                                    <button 
-                                        onClick={() => handleVerifyMessage(msg.id, msg.text)}
-                                        disabled={verifyingMsgIds.has(msg.id)}
-                                        className="flex items-center space-x-1.5 px-3 py-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-full text-xs font-semibold text-gray-600 transition-colors disabled:opacity-50"
-                                    >
-                                        {verifyingMsgIds.has(msg.id) ? (
-                                            <Loader2 size={12} className="animate-spin text-brand-red" />
-                                        ) : (
-                                            <ShieldCheck size={12} className="text-gray-400" />
-                                        )}
-                                        <span>{verifyingMsgIds.has(msg.id) ? 'Verifying...' : 'Verify Data'}</span>
-                                    </button>
-                                </div>
-                            )}
-
-                            {/* Verification Result Card */}
-                            {msg.verificationResult && (
-                                <div className={`mt-3 pt-3 border-t-2 border-dashed ${
-                                    msg.verificationResult.status === 'VERIFIED' ? 'border-green-200' : 'border-red-200'
-                                }`}>
-                                    <div className={`p-3 rounded-lg text-xs border mb-2 ${
-                                        msg.verificationResult.status === 'VERIFIED' 
-                                            ? 'bg-green-50 border-green-200 text-green-800' 
-                                            : 'bg-red-50 border-red-200 text-red-800'
-                                    }`}>
-                                        <div className="flex items-center font-bold mb-2 uppercase tracking-wide">
-                                            {msg.verificationResult.status === 'VERIFIED' ? (
-                                                <ShieldCheck size={14} className="mr-1.5" />
-                                            ) : (
-                                                <AlertTriangle size={14} className="mr-1.5" />
-                                            )}
-                                            Audit Report: {msg.verificationResult.status === 'VERIFIED' ? 'Verified Accurate' : 'Issues Found'}
-                                        </div>
-                                        <div className="prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1">
-                                            <MarkdownRenderer content={msg.verificationResult.text} />
-                                        </div>
-                                    </div>
-                                    
-                                    {/* Sources from Verification */}
-                                    {msg.verificationResult.sources.length > 0 && (
-                                        <div className="flex flex-wrap gap-2">
-                                            {msg.verificationResult.sources.slice(0, 3).map((s, idx) => (
-                                                <a 
-                                                    key={idx}
-                                                    href={s.uri}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                    className="flex items-center px-2 py-1 bg-white border border-gray-200 rounded text-[10px] text-gray-500 hover:text-brand-dark hover:border-brand-gold transition-colors"
-                                                >
-                                                    <LinkIcon size={10} className="mr-1 opacity-50"/>
-                                                    <span className="truncate max-w-[120px]">{s.title}</span>
-                                                </a>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                         </>
-                    )}
-                    
-                    {/* Grounding Info (Original Generation) */}
-                    {((msg.groundingLinks?.length || 0) > 0 || (msg.searchQueries?.length || 0) > 0) && !isSimulationMode && (
-                      <div className="mt-3 pt-3 border-t border-dashed border-gray-300/50">
-                        {/* Source Links */}
-                        {msg.groundingLinks && msg.groundingLinks.length > 0 && (
-                            <>
-                                <p className="text-[10px] font-bold uppercase tracking-wider opacity-60 mb-2 flex items-center text-gray-600">
-                                <LinkIcon size={10} className="mr-1" /> Original Sources
-                                </p>
-                                <div className="flex flex-wrap gap-2 mb-2">
-                                {msg.groundingLinks.slice(0, 4).map((link, idx) => (
-                                    <a 
-                                    key={idx} 
-                                    href={link.uri} 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="text-[10px] bg-white border border-gray-200 hover:border-brand-gold hover:bg-yellow-50 px-2 py-1 rounded-md flex items-center transition-all text-brand-dark no-underline shadow-sm group"
-                                    >
-                                    <span className="max-w-[150px] truncate">{link.title}</span>
-                                    <ExternalLink size={10} className="ml-1 opacity-30 group-hover:opacity-100" />
-                                    </a>
-                                ))}
-                                </div>
-                            </>
-                        )}
-
-                        {/* Search Entry Point Compliance Footer */}
-                        {msg.searchEntryPoint && (
-                            <div 
-                                className="mt-2 text-[10px] text-gray-400 [&_a]:text-gray-500 [&_a]:underline"
-                                dangerouslySetInnerHTML={{ __html: msg.searchEntryPoint }}
-                            />
-                        )}
-                      </div>
-                    )}
-                </div>
-                <span className="text-[10px] text-gray-400 mt-1 px-1">
-                    {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </div>
-            </div>
-          </div>
-        ))}
-        {isLoading && (
-            <div className="flex justify-start">
-                 <div className="flex flex-row items-center gap-3 animate-pulse">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${isSimulationMode ? 'bg-indigo-950 text-indigo-200' : 'bg-brand-dark text-brand-gold'}`}>
-                        <Bot size={16} />
-                    </div>
-                    <div className="bg-white px-4 py-3 rounded-2xl rounded-tl-none border border-gray-200 shadow-sm flex items-center gap-2">
-                        <Loader2 className={`w-4 h-4 animate-spin ${isSimulationMode ? 'text-indigo-500' : 'text-brand-red'}`} />
-                        <span className="text-sm text-gray-500">{isSimulationMode ? 'Opponent thinking...' : 'Searching market data...'}</span>
-                    </div>
-                 </div>
-            </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
+      <MessageList
+        messages={activeMessages}
+        isSimulationMode={isSimulationMode}
+        verifyingMsgIds={verifyingMsgIds}
+        onVerify={handleVerifyMessage}
+        isLoading={isLoading}
+        bottomRef={messagesEndRef}
+      />
 
       {/* Suggested Prompts (Visible when limited history) */}
       {!isLiveMode && !isSimulationMode && (
