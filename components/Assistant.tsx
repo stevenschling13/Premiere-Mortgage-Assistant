@@ -111,7 +111,7 @@ const MessageList: React.FC<MessageListProps> = React.memo(({ messages, isSimula
                                 <div className="flex flex-wrap gap-2">
                                     {msg.verificationResult.sources.slice(0, 3).map((s, idx) => (
                                         <a
-                                            key={idx}
+                                            key={s.uri}
                                             href={s.uri}
                                             target="_blank"
                                             rel="noreferrer"
