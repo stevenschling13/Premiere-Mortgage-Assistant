@@ -1,18 +1,19 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import { 
-    Client, MarketIndex, NewsItem, MarketingCampaign, 
-    VerificationResult, CommandIntent, Opportunity, 
-    DealStrategy, GiftSuggestion, CalendarEvent 
+import {
+    Client, MarketIndex, NewsItem, MarketingCampaign,
+    VerificationResult, CommandIntent, Opportunity,
+    DealStrategy, GiftSuggestion, CalendarEvent
 } from '../types';
 import { MORTGAGE_TERMS, INITIAL_SCRIPTS } from '../constants';
 
-const API_KEY = process.env.API_KEY || '';
-
 const getAiClient = () => {
-  if (!API_KEY) {
-    throw new Error("API Key is missing. Please set API_KEY environment variable.");
+  const apiKey = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_API_KEY)
+    || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined);
+
+  if (!apiKey || apiKey.trim() === '') {
+    throw new Error("API Key is missing. Please set VITE_GEMINI_API_KEY environment variable.");
   }
-  return new GoogleGenAI({ apiKey: API_KEY });
+  return new GoogleGenAI({ apiKey });
 };
 
 // --- AGENTS.md PROTOCOLS ---
@@ -25,17 +26,31 @@ const SAFETY_SETTINGS = [
 ];
 
 const MIRROR_PROTOCOL = `
-### CORE COGNITIVE PROTOCOL (MIRROR)
-1. Modular Decomposition: Break requests into atomic financial components (Income, Assets, Credit, Collateral).
-2. Internal Reasoning: Simulate the outcome before generating text.
-3. Reflection: Audit against FNMA/FHA/VA guidelines.
-4. Orchestration: Structure the response strategically.
-5. Response: Output professional, white-glove Markdown.
+### MANDATORY COGNITIVE PROTOCOL (MIRROR v2.0)
 
-### CONSTRAINTS (STRICT)
-- NO TRUNCATION. Complete all calculations.
-- NO GENERIC ADVICE. You are the underwriter.
-- CITE SOURCES. Reference specific guidelines (e.g., "FNMA B3-3.1") where applicable.
+You MUST complete every phase before responding:
+
+## Phase 1: MODULAR DECOMPOSITION (think first)
+- Break the request into atomic components: Income, Assets, Credit, Collateral, Guidelines.
+
+## Phase 2: INTERNAL REASONING (simulate paths)
+- Propose 2-3 solution paths.
+- For each path, simulate "If we do X, then Y" and note failure modes.
+
+## Phase 3: REFLECTION (Guideline Audit)
+- Cross-check against FNMA/FHA/VA/USDA/VA guidelines and risk factors (DTI, LTV, reserves).
+- Identify hard stops immediately.
+
+## Phase 4: ORCHESTRATION
+- Organize into: 1) Executive Summary, 2) Technical Implementation, 3) Risk Mitigation.
+
+## Phase 5: RESPONSE
+- Produce professional Markdown with headings and bullets. Cite specific guideline sections where relevant.
+
+### ANTI-LAZINESS MANDATE (STRICT)
+- NO truncation or placeholders ("...", "// rest of code", "See above").
+- NO generic advice ("check with your underwriter"). You ARE the underwriter.
+- If response would exceed limits, stop at a logical boundary and indicate continuation is required.
 `;
 
 const PERSONAS = {
@@ -48,19 +63,84 @@ const PERSONAS = {
 
 // --- UTILITIES ---
 
-// Request Deduplication to prevent double-firing in React Strict Mode or fast clicks
-const pendingRequests = new Map<string, Promise<any>>();
+// Request Deduplication with TTL + observability to prevent double-firing
+interface CacheEntry<T> {
+    data: Promise<T>;
+    timestamp: number;
+    hits: number;
+}
 
-const deduped = <T>(key: string, fn: () => Promise<T>): Promise<T> => {
-    if (pendingRequests.has(key)) return pendingRequests.get(key) as Promise<T>;
-    const promise = fn().finally(() => pendingRequests.delete(key));
-    pendingRequests.set(key, promise);
+class SmartCache {
+    private cache = new Map<string, CacheEntry<any>>();
+    readonly TTL = {
+        MARKET_DATA: 5 * 60 * 1000,
+        CLIENT_ANALYSIS: 15 * 60 * 1000,
+        GENERAL: 10 * 60 * 1000
+    } as const;
+
+    get<T>(key: string, ttl: number): Promise<T> | null {
+        const entry = this.cache.get(key);
+        if (!entry) return null;
+
+        const age = Date.now() - entry.timestamp;
+        if (age > ttl) {
+            this.cache.delete(key);
+            return null;
+        }
+
+        entry.hits += 1;
+        return entry.data as Promise<T>;
+    }
+
+    set<T>(key: string, promise: Promise<T>): void {
+        this.cache.set(key, {
+            data: promise,
+            timestamp: Date.now(),
+            hits: 0
+        });
+
+        promise.finally(() => {
+            setTimeout(() => this.cache.delete(key), this.TTL.GENERAL);
+        });
+    }
+
+    getStats() {
+        return Array.from(this.cache.entries()).map(([key, entry]) => ({
+            key,
+            ageMs: Date.now() - entry.timestamp,
+            hits: entry.hits
+        }));
+    }
+}
+
+const smartCache = new SmartCache();
+
+const dedupedWithTTL = <T>(key: string, fn: () => Promise<T>, ttl: number = smartCache.TTL.GENERAL): Promise<T> => {
+    const cached = smartCache.get<T>(key, ttl);
+    if (cached) return cached;
+
+    const promise = fn();
+    smartCache.set(key, promise);
     return promise;
 };
 
 const validateResponse = (response: any) => {
     if (!response || (!response.text && !response.candidates?.[0]?.content)) {
         throw new Error("Empty or blocked response from Gemini.");
+    }
+};
+
+const safeParseJson = <T>(input: string | undefined, fallback: T): T => {
+    if (!input) return fallback;
+    const trimmed = input.trim();
+    const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    const toParse = fencedMatch ? fencedMatch[1] : trimmed;
+
+    try {
+        return JSON.parse(toParse) as T;
+    } catch (error) {
+        console.warn('Failed to parse JSON payload', error, { preview: toParse?.slice(0, 200) });
+        return fallback;
     }
 };
 
@@ -185,9 +265,7 @@ export const generateSubjectLines = async (client: Client, topic: string): Promi
         responseMimeType: 'application/json',
         responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
     });
-    try {
-        return JSON.parse(response.text || "[]");
-    } catch { return []; }
+    return safeParseJson<string[]>(response.text, []);
 };
 
 export const generatePartnerUpdate = async (client: Client, partnerName: string): Promise<string> => {
@@ -259,7 +337,7 @@ export async function* streamChatWithAssistant(
 
 export const verifyFactualClaims = async (text: string): Promise<VerificationResult> => {
     // Deduplicate verification calls
-    return deduped(`verify-${text.substring(0, 30)}`, async () => {
+    return dedupedWithTTL(`verify-${text.substring(0, 30)}`, async () => {
         const prompt = buildAgentPrompt(
             PERSONAS.SCOUT,
             `Verify the factual accuracy of this text using Google Search.
@@ -278,26 +356,22 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
             thinkingConfig: { thinkingBudget: 2048 }
         }, 'gemini-2.5-flash');
 
-        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-        const sources = groundingChunks
-            .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null)
-            .filter((x: any) => x !== null);
-
-        let parsed: any = { status: 'UNVERIFIABLE', text: 'Could not parse verification result.' };
-        try {
-            // Cleanup markdown json blocks if present
-            const cleaned = response.text?.replace(/```json/g, '').replace(/```/g, '').trim();
-            parsed = JSON.parse(cleaned || "{}");
-        } catch (e) {
-            parsed.text = response.text;
+    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const sources: { uri: string; title: string }[] = groundingChunks.reduce((acc: { uri: string; title: string }[], chunk: any) => {
+        if (chunk?.web?.uri && chunk?.web?.title) {
+            acc.push({ uri: chunk.web.uri, title: chunk.web.title });
         }
+        return acc;
+    }, []);
+
+        const parsed = safeParseJson<any>(response.text, { status: 'UNVERIFIABLE', text: response.text });
 
         return {
             status: parsed.status || 'UNVERIFIABLE',
             text: parsed.text || response.text || '',
             sources: sources.length > 0 ? sources : (parsed.sources || [])
         };
-    });
+    }, smartCache.TTL.CLIENT_ANALYSIS);
 };
 
 export const parseNaturalLanguageCommand = async (input: string, validStages: string[]): Promise<CommandIntent> => {
@@ -335,7 +409,7 @@ export const parseNaturalLanguageCommand = async (input: string, validStages: st
         }
     });
 
-    return JSON.parse(response.text || "{}");
+    return safeParseJson<CommandIntent>(response.text, { action: 'UNKNOWN', payload: {} as any } as CommandIntent);
 };
 
 // ------------------------------------------------------------------
@@ -343,7 +417,7 @@ export const parseNaturalLanguageCommand = async (input: string, validStages: st
 // ------------------------------------------------------------------
 
 export const fetchDailyMarketPulse = async (): Promise<{ indices: MarketIndex[], news: NewsItem[], sources: {uri:string, title:string}[] }> => {
-    return deduped('market-pulse', async () => {
+    return dedupedWithTTL('market-pulse', async () => {
         const prompt = buildAgentPrompt(
             PERSONAS.SCOUT,
             `Get current LIVE market data.
@@ -360,23 +434,21 @@ export const fetchDailyMarketPulse = async (): Promise<{ indices: MarketIndex[],
         }, 'gemini-2.5-flash');
 
         const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-        const sources = groundingChunks
-            .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null)
-            .filter((x: any) => x !== null);
+        const sources: { uri: string; title: string }[] = groundingChunks.reduce((acc: { uri: string; title: string }[], chunk: any) => {
+            if (chunk?.web?.uri && chunk?.web?.title) {
+                acc.push({ uri: chunk.web.uri, title: chunk.web.title });
+            }
+            return acc;
+        }, []);
 
-        let data = { indices: [], news: [] };
-        try {
-            data = JSON.parse(response.text || "{}");
-        } catch (e) {
-            console.error("Failed to parse market data JSON", e);
-        }
+        const data = safeParseJson<{ indices?: MarketIndex[]; news?: NewsItem[] }>(response.text, { indices: [], news: [] });
 
         return {
             indices: data.indices || [],
             news: data.news || [],
             sources
         };
-    });
+    }, smartCache.TTL.MARKET_DATA);
 };
 
 export const generateClientFriendlyAnalysis = async (context: any): Promise<string> => {
@@ -421,8 +493,13 @@ export const generateMarketingCampaign = async (topic: string, tone: string): Pr
         },
         thinkingConfig: { thinkingBudget: 2048 }
     });
-    
-    return JSON.parse(response.text || "{}");
+
+    return safeParseJson<MarketingCampaign>(response.text, {
+        linkedInPost: '',
+        emailSubject: '',
+        emailBody: '',
+        smsTeaser: ''
+    });
 };
 
 export const verifyCampaignContent = async (campaign: MarketingCampaign): Promise<VerificationResult> => {
@@ -434,7 +511,7 @@ export const verifyCampaignContent = async (campaign: MarketingCampaign): Promis
 // ------------------------------------------------------------------
 
 export const scanPipelineOpportunities = async (clients: Client[], marketIndices: MarketIndex[]): Promise<Opportunity[]> => {
-    return deduped('pipeline-scan', async () => {
+    return dedupedWithTTL('pipeline-scan', async () => {
         const activeClients = clients.filter(c => c.status !== 'Closed').slice(0, 20);
         
         // Advanced math prompting
@@ -467,8 +544,8 @@ export const scanPipelineOpportunities = async (clients: Client[], marketIndices
                 thinkingConfig: { thinkingBudget: 4096 } // Higher budget for math reasoning
             }
         );
-        return JSON.parse(response.text || "[]");
-    });
+        return safeParseJson<Opportunity[]>(response.text, []);
+    }, smartCache.TTL.CLIENT_ANALYSIS);
 };
 
 export async function* streamMorningMemo(urgentClients: Client[], marketData: any) {
@@ -629,11 +706,8 @@ export const estimatePropertyDetails = async (address: string): Promise<{ estima
         tools: [{ googleSearch: {} }],
         responseMimeType: 'application/json'
     });
-    
-    try {
-        const clean = response.text?.replace(/```json/g, '').replace(/```/g, '').trim();
-        return JSON.parse(clean || "{\"estimatedValue\": 0}");
-    } catch { return { estimatedValue: 0 }; }
+
+    return safeParseJson<{ estimatedValue: number }>(response.text, { estimatedValue: 0 });
 };
 
 export const generateSmartChecklist = async (client: Client): Promise<string[]> => {
@@ -645,7 +719,7 @@ export const generateSmartChecklist = async (client: Client): Promise<string[]> 
         responseMimeType: 'application/json',
         responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
     });
-    return JSON.parse(response.text || "[]");
+    return safeParseJson<string[]>(response.text, []);
 };
 
 export const generateDealArchitecture = async (client: Client): Promise<DealStrategy[]> => {
@@ -675,7 +749,7 @@ export const generateDealArchitecture = async (client: Client): Promise<DealStra
         },
         thinkingConfig: { thinkingBudget: 4096 }
     });
-    return JSON.parse(response.text || "[]");
+    return safeParseJson<DealStrategy[]>(response.text, []);
 };
 
 export const extractClientDataFromImage = async (base64Image: string): Promise<Partial<Client>> => {
@@ -683,7 +757,7 @@ export const extractClientDataFromImage = async (base64Image: string): Promise<P
     const prompt = "Extract client details (Name, Address, Loan Amount, Rate, Phone, Email) from this document. Return JSON.";
     
     const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash', 
+        model: 'gemini-2.5-flash',
         contents: {
             parts: [
                 { inlineData: { mimeType: 'image/jpeg', data: base64Image } },
@@ -692,8 +766,8 @@ export const extractClientDataFromImage = async (base64Image: string): Promise<P
         },
         config: { responseMimeType: 'application/json' }
     });
-    
-    return JSON.parse(response.text || "{}");
+
+    return safeParseJson<Partial<Client>>(response.text, {});
 };
 
 export const generateGiftSuggestions = async (client: Client): Promise<GiftSuggestion[]> => {
@@ -713,7 +787,7 @@ export const generateGiftSuggestions = async (client: Client): Promise<GiftSugge
             }
         }
     });
-    return JSON.parse(response.text || "[]");
+    return safeParseJson<GiftSuggestion[]>(response.text, []);
 };
 
 export const transcribeAudio = async (base64Audio: string): Promise<string> => {
@@ -749,9 +823,9 @@ export const generateDailySchedule = async (currentEvents: CalendarEvent[], inpu
         responseMimeType: 'application/json',
         thinkingConfig: { thinkingBudget: 2048 }
     });
-    
+
     // Helper to ensure dates are today if not specified by LLM
-    const events: CalendarEvent[] = JSON.parse(response.text || "[]");
+    const events: CalendarEvent[] = safeParseJson<CalendarEvent[]>(response.text, []);
     const today = new Date().toISOString().split('T')[0];
     return events.map(e => ({
         ...e,
