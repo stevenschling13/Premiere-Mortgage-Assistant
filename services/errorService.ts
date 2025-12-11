@@ -1,4 +1,3 @@
-
 import { ErrorLog } from '../types';
 
 const MAX_LOGS = 50;

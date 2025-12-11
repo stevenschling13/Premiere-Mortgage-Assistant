@@ -1,7 +1,7 @@
-
 import React, { useState } from 'react';
 import { Save, Calendar, PenTool, Sparkles, Loader2, Copy, AlertCircle, Wand2, Mail } from 'lucide-react';
-import { analyzeRateTrends, organizeScratchpadNotes, generateRateSheetEmail, loadFromStorage, saveToStorage, StorageKeys } from '../services';
+import { analyzeRateTrends, organizeScratchpadNotes, generateRateSheetEmail } from '../services/geminiService';
+import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
 

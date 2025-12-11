@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, memo } from 'react';
 import { Users, Calculator, Sparkles, Building2, LogOut, Megaphone, FileText, PieChart, X, TrendingUp, Download, Calendar } from 'lucide-react';
 import { AppView } from '../types';
 
@@ -9,30 +9,61 @@ interface SidebarProps {
   onClose: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isOpen, onClose }) => {
-  
-  const navItems = [
-    { id: AppView.DASHBOARD, label: 'Client Dashboard', icon: Users },
-    { id: AppView.PLANNER, label: 'Daily Planner', icon: Calendar },
-    { id: AppView.MARKETING, label: 'Market Intelligence', icon: Megaphone },
-    { id: AppView.CALCULATOR, label: 'Jumbo Calculator', icon: Calculator },
-    { id: AppView.DTI_ANALYSIS, label: 'Affordability & DTI', icon: PieChart },
-    { id: AppView.RATES_NOTES, label: 'Rates & Commentary', icon: FileText },
-    { id: AppView.COMPENSATION, label: 'Wealth & Performance', icon: TrendingUp },
-    { id: AppView.ASSISTANT, label: 'Virtual Analyst', icon: Sparkles },
-  ];
+// Static config hoisted outside component to ensure referential stability
+const NAV_ITEMS = [
+  { id: AppView.DASHBOARD, label: 'Client Dashboard', icon: Users },
+  { id: AppView.PLANNER, label: 'Daily Planner', icon: Calendar },
+  { id: AppView.MARKETING, label: 'Market Intelligence', icon: Megaphone },
+  { id: AppView.CALCULATOR, label: 'Jumbo Calculator', icon: Calculator },
+  { id: AppView.DTI_ANALYSIS, label: 'Affordability & DTI', icon: PieChart },
+  { id: AppView.RATES_NOTES, label: 'Rates & Commentary', icon: FileText },
+  { id: AppView.COMPENSATION, label: 'Wealth & Performance', icon: TrendingUp },
+  { id: AppView.ASSISTANT, label: 'Virtual Analyst', icon: Sparkles },
+];
 
-  const handleSignOut = () => {
+interface NavItemProps {
+  item: typeof NAV_ITEMS[0];
+  isActive: boolean;
+  onClick: (id: AppView) => void;
+}
+
+// Optimization: Memoized NavItem to prevent re-renders of the entire list when Sidebar state (e.g., open/close) changes.
+// Only the item changing 'isActive' state will re-render.
+const NavItem = memo(({ item, isActive, onClick }: NavItemProps) => {
+  // Optimization: Stabilize handler to ensure prop equality for strict mode compliance and prevent button re-renders
+  const handleClick = useCallback(() => {
+    onClick(item.id);
+  }, [onClick, item.id]);
+
+  return (
+    <button
+      onClick={handleClick}
+      title={item.label}
+      className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 group ${
+        isActive 
+          ? 'bg-brand-red text-white shadow-lg' 
+          : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+      }`}
+    >
+      <item.icon className={`w-5 h-5 shrink-0 transition-transform ${isActive ? 'scale-110' : 'group-hover:scale-110'}`} />
+      <span className="font-medium text-sm truncate">{item.label}</span>
+    </button>
+  );
+});
+
+NavItem.displayName = 'NavItem';
+
+export const Sidebar: React.FC<SidebarProps> = memo(({ currentView, onChangeView, isOpen, onClose }) => {
+  
+  const handleSignOut = useCallback(() => {
     if (confirm("Sign out? This will clear your local session data.")) {
        localStorage.clear();
        window.location.reload();
     }
-  };
+  }, []);
 
-  const handleExportData = () => {
+  const handleExportData = useCallback(() => {
       const data: Record<string, any> = {};
-      // Iterate over known keys or all local storage
-      // Only export app-specific keys
       for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
           if (key && key.startsWith('premiere_mortgage_')) {
@@ -53,7 +84,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isO
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-  };
+  }, []);
+
+  // Optimization: Stable handler for the Market Pulse shortcut to prevent inline arrow function creation in render
+  const handleMarketPulseClick = useCallback(() => {
+    onChangeView(AppView.MARKETING);
+  }, [onChangeView]);
 
   return (
     <div 
@@ -79,20 +115,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isO
       </div>
 
       <nav className="flex-1 py-6 px-3 space-y-2 overflow-y-auto scrollbar-hide">
-        {navItems.map((item) => (
-          <button
+        {NAV_ITEMS.map((item) => (
+          <NavItem 
             key={item.id}
-            onClick={() => onChangeView(item.id)}
-            title={item.label}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 group ${
-              currentView === item.id 
-                ? 'bg-brand-red text-white shadow-lg' 
-                : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-            }`}
-          >
-            <item.icon className={`w-5 h-5 shrink-0 transition-transform ${currentView === item.id ? 'scale-110' : 'group-hover:scale-110'}`} />
-            <span className="font-medium text-sm truncate">{item.label}</span>
-          </button>
+            item={item}
+            isActive={currentView === item.id}
+            onClick={onChangeView}
+          />
         ))}
       </nav>
 
@@ -102,7 +131,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isO
                 <TrendingUp size={10} className="mr-1"/> Market Pulse
              </div>
              <button 
-                onClick={() => onChangeView(AppView.MARKETING)}
+                onClick={handleMarketPulseClick}
                 className="w-full bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white text-xs py-2 px-3 rounded border border-white/10 flex items-center justify-between transition-colors group"
              >
                 <span>View Live Data</span>
@@ -133,4 +162,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isO
       </div>
     </div>
   );
-};
+});
+
+Sidebar.displayName = 'Sidebar';

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 import { 
     TrendingUp, Megaphone, BrainCircuit, RefreshCw, 
     Linkedin, Mail, MessageSquare, 
@@ -11,14 +11,13 @@ import {
     generateClientFriendlyAnalysis, 
     generateBuyerSpecificAnalysis,
     generateMarketingCampaign,
-    verifyCampaignContent,
-    loadFromStorage, 
-    saveToStorage, 
-    StorageKeys 
-} from '../services';
+    verifyCampaignContent
+} from '../services/geminiService';
+import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
 import { MarketIndex, NewsItem, MarketingCampaign, VerificationResult } from '../types';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { Skeleton } from './Skeleton';
 
 type Tab = 'PULSE' | 'CAMPAIGN';
 
@@ -34,160 +33,49 @@ const DEFAULT_MARKETING_STATE: MarketingState = {
     campaignResult: null,
 };
 
-export const MarketingStudio: React.FC = () => {
-  const { showToast } = useToast();
-  const [activeTab, setActiveTab] = useState<Tab>('PULSE');
+// Memoized Sub-Component: Market Pulse View
+const MarketPulseView = memo(({
+    indices,
+    newsFeed,
+    marketSources,
+    isFetchingData,
+    onRefresh,
+    onLaunchCampaign
+}: {
+    indices: MarketIndex[],
+    newsFeed: NewsItem[],
+    marketSources: {uri: string, title: string}[],
+    isFetchingData: boolean,
+    onRefresh: () => void,
+    onLaunchCampaign: (news: NewsItem) => void
+}) => {
+    const [clientAnalysis, setClientAnalysis] = useState('');
+    const [analysisMode, setAnalysisMode] = useState<'GENERAL' | 'BUYER'>('GENERAL');
+    const [isThinking, setIsThinking] = useState(false);
+    const { showToast } = useToast();
 
-  // Load Persisted State
-  const [marketingState, setMarketingState] = useState<MarketingState>(() => 
-      loadFromStorage(StorageKeys.MARKETING_DATA, DEFAULT_MARKETING_STATE)
-  );
+    const handleGenerateAnalysis = async (mode: 'GENERAL' | 'BUYER') => {
+        setIsThinking(true);
+        setAnalysisMode(mode);
+        try {
+            const context = { indices, news: newsFeed.slice(0, 3) };
+            let analysis = '';
+            if (mode === 'GENERAL') {
+                analysis = await generateClientFriendlyAnalysis(context);
+            } else {
+                analysis = await generateBuyerSpecificAnalysis(context);
+            }
+            setClientAnalysis(analysis || "Analysis unavailable.");
+        } catch (error) {
+            console.error(error);
+            showToast('Analysis failed', 'error');
+        } finally {
+            setIsThinking(false);
+        }
+    };
 
-  // Helper to update specific fields in marketing state
-  const updateMarketingState = (updates: Partial<MarketingState>) => {
-      setMarketingState(prev => {
-          const newState = { ...prev, ...updates };
-          saveToStorage(StorageKeys.MARKETING_DATA, newState);
-          return newState;
-      });
-  };
-
-  const handleClearWorkspace = () => {
-      if(confirm('Clear current campaign draft?')) {
-          setMarketingState(DEFAULT_MARKETING_STATE);
-          setVerificationResult(null);
-          saveToStorage(StorageKeys.MARKETING_DATA, DEFAULT_MARKETING_STATE);
-          showToast('Workspace cleared', 'info');
-      }
-  };
-
-  // Market Pulse State (Not persisted, always fresh or default)
-  const [indices, setIndices] = useState<MarketIndex[]>([
-    { label: '10-Yr Treasury', value: '4.12%', change: '+0.05', isUp: true },
-    { label: 'S&P 500', value: '5,230', change: '-12.4', isUp: false },
-    { label: 'MBS (UMBS 5.5)', value: '98.42', change: '-0.15', isUp: false },
-    { label: 'Brent Crude', value: '$82.40', change: '+0.45', isUp: true },
-  ]);
-  const [newsFeed, setNewsFeed] = useState<NewsItem[]>([
-    {
-      id: '1',
-      source: 'Federal Reserve',
-      date: 'Today, 8:30 AM',
-      title: "Fed Signals 'Higher for Longer' After Strong Jobs Report",
-      summary: "Chairman Powell emphasized that while inflation is cooling, the labor market remains too tight to justify immediate rate cuts.",
-      category: 'Economy',
-    },
-    {
-      id: '2',
-      source: 'Housing Wire',
-      date: 'Yesterday',
-      title: "Luxury Inventory Tightens: Jumbo Listings Down 12% YoY",
-      summary: "High-end markets in SF, NY, and Miami are seeing a shortage of turnkey properties.",
-      category: 'Housing',
-    }
-  ]);
-  const [marketSources, setMarketSources] = useState<{uri: string, title: string}[]>([]);
-  const [isFetchingData, setIsFetchingData] = useState(false);
-  
-  const [clientAnalysis, setClientAnalysis] = useState('');
-  const [analysisMode, setAnalysisMode] = useState<'GENERAL' | 'BUYER'>('GENERAL');
-  const [isThinking, setIsThinking] = useState(false);
-
-  // Verification State
-  const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
-  const [isVerifying, setIsVerifying] = useState(false);
-
-  // Loading States
-  const [isGeneratingCampaign, setIsGeneratingCampaign] = useState(false);
-
-  // --- Handlers ---
-
-  const handleRefreshMarketData = async () => {
-      setIsFetchingData(true);
-      try {
-          showToast('Scanning live markets...', 'info');
-          const data = await fetchDailyMarketPulse();
-          if (data) {
-              setIndices(data.indices);
-              setNewsFeed(data.news);
-              setMarketSources(data.sources || []);
-              showToast('Market data updated', 'success');
-          }
-      } catch (error) {
-          console.error(error);
-          showToast('Failed to fetch live data', 'error');
-      } finally {
-          setIsFetchingData(false);
-      }
-  };
-
-  const handleGenerateAnalysis = async (mode: 'GENERAL' | 'BUYER') => {
-      setIsThinking(true);
-      setAnalysisMode(mode);
-      try {
-          const context = { indices, news: newsFeed.slice(0, 3) };
-          let analysis = '';
-          if (mode === 'GENERAL') {
-              analysis = await generateClientFriendlyAnalysis(context);
-          } else {
-              analysis = await generateBuyerSpecificAnalysis(context);
-          }
-          setClientAnalysis(analysis || "Analysis unavailable.");
-      } catch (error) {
-          console.error(error);
-          showToast('Analysis failed', 'error');
-      } finally {
-          setIsThinking(false);
-      }
-  };
-
-  const handleLaunchCampaign = (newsItem: NewsItem) => {
-      updateMarketingState({
-          campaignTopic: `Breaking News: ${newsItem.title}. ${newsItem.summary}`
-      });
-      setVerificationResult(null);
-      setActiveTab('CAMPAIGN');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleGenerateCampaign = async () => {
-      if (!marketingState.campaignTopic) return;
-      setIsGeneratingCampaign(true);
-      setVerificationResult(null);
-      try {
-          const result = await generateMarketingCampaign(marketingState.campaignTopic, marketingState.campaignTone);
-          updateMarketingState({ campaignResult: result });
-      } catch (error) {
-          showToast('Failed to generate campaign', 'error');
-      } finally {
-          setIsGeneratingCampaign(false);
-      }
-  };
-
-  const handleVerifyCampaign = async () => {
-      if (!marketingState.campaignResult) return;
-      setIsVerifying(true);
-      try {
-          const result = await verifyCampaignContent(marketingState.campaignResult);
-          setVerificationResult(result);
-          showToast('Verification complete', 'success');
-      } catch (e) {
-          console.error(e);
-          showToast('Verification failed', 'error');
-      } finally {
-          setIsVerifying(false);
-      }
-  };
-
-  const copyToClipboard = (text: string) => {
-      navigator.clipboard.writeText(text);
-      showToast('Copied to clipboard', 'info');
-  };
-
-  // --- Render Sections ---
-
-  const renderMarketPulse = () => (
-      <div className="space-y-6 animate-fade-in">
+    return (
+        <div className="space-y-6 animate-fade-in">
           <div className="flex flex-row justify-between items-end">
               <div>
                   <h3 className="font-bold text-gray-800 text-lg">Market Snapshot</h3>
@@ -199,7 +87,7 @@ export const MarketingStudio: React.FC = () => {
                   </div>
               </div>
               <button 
-                  onClick={handleRefreshMarketData}
+                  onClick={onRefresh}
                   disabled={isFetchingData}
                   className="flex items-center space-x-2 bg-white text-gray-700 border border-gray-200 hover:border-brand-red hover:text-brand-red px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all disabled:opacity-50 disabled:cursor-wait"
               >
@@ -210,17 +98,29 @@ export const MarketingStudio: React.FC = () => {
 
           {/* Ticker */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {indices.map((index, idx) => (
-                  <div key={idx} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">{index.label}</span>
-                      <div className="flex items-end justify-between">
-                          <span className="text-xl font-bold text-brand-dark">{index.value}</span>
-                          <span className={`text-xs font-medium ${index.isUp ? 'text-green-600' : 'text-red-600'}`}>
-                              {index.change}
-                          </span>
+              {isFetchingData ? (
+                  Array(4).fill(0).map((_, i) => (
+                      <div key={i} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                           <Skeleton className="h-3 w-20 mb-2" />
+                           <div className="flex items-end justify-between">
+                               <Skeleton className="h-6 w-16" />
+                               <Skeleton className="h-4 w-10" />
+                           </div>
                       </div>
-                  </div>
-              ))}
+                  ))
+              ) : (
+                  indices.map((index, idx) => (
+                      <div key={idx} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">{index.label}</span>
+                          <div className="flex items-end justify-between">
+                              <span className="text-xl font-bold text-brand-dark">{index.value}</span>
+                              <span className={`text-xs font-medium ${index.isUp ? 'text-green-600' : 'text-red-600'}`}>
+                                  {index.change}
+                              </span>
+                          </div>
+                      </div>
+                  ))
+              )}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -230,30 +130,45 @@ export const MarketingStudio: React.FC = () => {
                       <TrendingUp className="mr-2 text-brand-red" size={20}/>
                       Market Intelligence
                   </h3>
-                  {newsFeed.map((news, idx) => (
-                      <div key={idx} className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:shadow-md transition-shadow relative group">
-                          <div className="flex items-center justify-between mb-2">
-                              <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
-                                  news.category === 'Rates' ? 'bg-blue-100 text-blue-700' : 
-                                  news.category === 'Economy' ? 'bg-purple-100 text-purple-700' : 
-                                  'bg-orange-100 text-orange-700'
-                              }`}>
-                                  {news.category}
-                              </span>
-                              <span className="text-[10px] text-gray-400">{news.date}</span>
+                  {isFetchingData ? (
+                      Array(3).fill(0).map((_, i) => (
+                           <div key={i} className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                               <div className="flex justify-between mb-2">
+                                   <Skeleton className="h-4 w-16" />
+                                   <Skeleton className="h-3 w-20" />
+                               </div>
+                               <Skeleton className="h-5 w-3/4 mb-2" />
+                               <Skeleton className="h-3 w-full mb-1" />
+                               <Skeleton className="h-3 w-full mb-4" />
+                               <Skeleton className="h-8 w-full" />
+                           </div>
+                      ))
+                  ) : (
+                      newsFeed.map((news, idx) => (
+                          <div key={idx} className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:shadow-md transition-shadow relative group">
+                              <div className="flex items-center justify-between mb-2">
+                                  <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
+                                      news.category === 'Rates' ? 'bg-blue-100 text-blue-700' : 
+                                      news.category === 'Economy' ? 'bg-purple-100 text-purple-700' : 
+                                      'bg-orange-100 text-orange-700'
+                                  }`}>
+                                      {news.category}
+                                  </span>
+                                  <span className="text-[10px] text-gray-400">{news.date}</span>
+                              </div>
+                              <h4 className="font-bold text-gray-900 mb-2">{news.title}</h4>
+                              <p className="text-xs text-gray-600 leading-relaxed mb-4">{news.summary}</p>
+                              
+                              <button 
+                                  onClick={() => onLaunchCampaign(news)}
+                                  className="w-full py-2 bg-gray-50 hover:bg-brand-red hover:text-white text-gray-600 text-xs font-bold rounded-lg transition-colors flex items-center justify-center group-hover:bg-brand-red group-hover:text-white"
+                              >
+                                  <Layers size={14} className="mr-2"/>
+                                  Launch Campaign from this News
+                              </button>
                           </div>
-                          <h4 className="font-bold text-gray-900 mb-2">{news.title}</h4>
-                          <p className="text-xs text-gray-600 leading-relaxed mb-4">{news.summary}</p>
-                          
-                          <button 
-                              onClick={() => handleLaunchCampaign(news)}
-                              className="w-full py-2 bg-gray-50 hover:bg-brand-red hover:text-white text-gray-600 text-xs font-bold rounded-lg transition-colors flex items-center justify-center group-hover:bg-brand-red group-hover:text-white"
-                          >
-                              <Layers size={14} className="mr-2"/>
-                              Launch Campaign from this News
-                          </button>
-                      </div>
-                  ))}
+                      ))
+                  )}
               </div>
 
               {/* Deep Thinking Analysis */}
@@ -357,9 +272,36 @@ export const MarketingStudio: React.FC = () => {
             </div>
           )}
       </div>
-  );
+    );
+});
 
-  const renderCampaignDirector = () => (
+// Memoized Sub-Component: Campaign Director View
+const CampaignDirectorView = memo(({
+    marketingState,
+    updateMarketingState,
+    onClear,
+    onGenerate,
+    isGenerating,
+    onVerify,
+    isVerifying,
+    verificationResult
+}: {
+    marketingState: MarketingState,
+    updateMarketingState: (u: Partial<MarketingState>) => void,
+    onClear: () => void,
+    onGenerate: () => void,
+    isGenerating: boolean,
+    onVerify: () => void,
+    isVerifying: boolean,
+    verificationResult: VerificationResult | null
+}) => {
+    const { showToast } = useToast();
+    const copyToClipboard = (text: string) => {
+        navigator.clipboard.writeText(text);
+        showToast('Copied to clipboard', 'info');
+    };
+
+    return (
       <div className="animate-fade-in space-y-6">
           <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm relative">
               <div className="flex justify-between items-start mb-4">
@@ -368,7 +310,7 @@ export const MarketingStudio: React.FC = () => {
                     Campaign Configuration
                  </h3>
                  <button 
-                    onClick={handleClearWorkspace}
+                    onClick={onClear}
                     className="text-xs text-gray-400 hover:text-red-500 flex items-center px-2 py-1 hover:bg-gray-100 rounded transition-colors"
                  >
                     <Trash2 size={12} className="mr-1"/> Clear Workspace
@@ -401,16 +343,16 @@ export const MarketingStudio: React.FC = () => {
               </div>
               <div className="flex gap-2 mt-4">
                   <button 
-                      onClick={handleGenerateCampaign}
-                      disabled={isGeneratingCampaign || !marketingState.campaignTopic}
+                      onClick={onGenerate}
+                      disabled={isGenerating || !marketingState.campaignTopic}
                       className="flex-1 bg-brand-dark text-white py-3 rounded-lg font-bold text-sm hover:bg-gray-800 transition-colors flex items-center justify-center disabled:opacity-50"
                   >
-                      {isGeneratingCampaign ? <Loader2 className="animate-spin mr-2" size={16}/> : <Sparkles className="mr-2 text-brand-gold" size={16}/>}
+                      {isGenerating ? <Loader2 className="animate-spin mr-2" size={16}/> : <Sparkles className="mr-2 text-brand-gold" size={16}/>}
                       Generate Multi-Channel Campaign
                   </button>
                   {marketingState.campaignResult && (
                       <button 
-                          onClick={handleVerifyCampaign}
+                          onClick={onVerify}
                           disabled={isVerifying}
                           className="px-6 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 py-3 rounded-lg font-bold text-sm transition-colors flex items-center justify-center disabled:opacity-50"
                       >
@@ -521,7 +463,130 @@ export const MarketingStudio: React.FC = () => {
               </div>
           )}
       </div>
+    );
+});
+
+
+export const MarketingStudio: React.FC = () => {
+  const { showToast } = useToast();
+  const [activeTab, setActiveTab] = useState<Tab>('PULSE');
+
+  // Load Persisted State
+  const [marketingState, setMarketingState] = useState<MarketingState>(() => 
+      loadFromStorage(StorageKeys.MARKETING_DATA, DEFAULT_MARKETING_STATE)
   );
+
+  // Helper to update specific fields in marketing state
+  const updateMarketingState = (updates: Partial<MarketingState>) => {
+      setMarketingState(prev => {
+          const newState = { ...prev, ...updates };
+          saveToStorage(StorageKeys.MARKETING_DATA, newState);
+          return newState;
+      });
+  };
+
+  const handleClearWorkspace = () => {
+      if(confirm('Clear current campaign draft?')) {
+          setMarketingState(DEFAULT_MARKETING_STATE);
+          setVerificationResult(null);
+          saveToStorage(StorageKeys.MARKETING_DATA, DEFAULT_MARKETING_STATE);
+          showToast('Workspace cleared', 'info');
+      }
+  };
+
+  // Market Pulse State (Not persisted, always fresh or default)
+  const [indices, setIndices] = useState<MarketIndex[]>([
+    { label: '10-Yr Treasury', value: '4.12%', change: '+0.05', isUp: true },
+    { label: 'S&P 500', value: '5,230', change: '-12.4', isUp: false },
+    { label: 'MBS (UMBS 5.5)', value: '98.42', change: '-0.15', isUp: false },
+    { label: 'Brent Crude', value: '$82.40', change: '+0.45', isUp: true },
+  ]);
+  const [newsFeed, setNewsFeed] = useState<NewsItem[]>([
+    {
+      id: '1',
+      source: 'Federal Reserve',
+      date: 'Today, 8:30 AM',
+      title: "Fed Signals 'Higher for Longer' After Strong Jobs Report",
+      summary: "Chairman Powell emphasized that while inflation is cooling, the labor market remains too tight to justify immediate rate cuts.",
+      category: 'Economy',
+    },
+    {
+      id: '2',
+      source: 'Housing Wire',
+      date: 'Yesterday',
+      title: "Luxury Inventory Tightens: Jumbo Listings Down 12% YoY",
+      summary: "High-end markets in SF, NY, and Miami are seeing a shortage of turnkey properties.",
+      category: 'Housing',
+    }
+  ]);
+  const [marketSources, setMarketSources] = useState<{uri: string, title: string}[]>([]);
+  const [isFetchingData, setIsFetchingData] = useState(false);
+
+  // Verification State
+  const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+
+  // Loading States
+  const [isGeneratingCampaign, setIsGeneratingCampaign] = useState(false);
+
+  // --- Handlers ---
+
+  const handleRefreshMarketData = async () => {
+      setIsFetchingData(true);
+      try {
+          showToast('Scanning live markets...', 'info');
+          const data = await fetchDailyMarketPulse();
+          if (data) {
+              setIndices(data.indices);
+              setNewsFeed(data.news);
+              setMarketSources(data.sources || []);
+              showToast('Market data updated', 'success');
+          }
+      } catch (error) {
+          console.error(error);
+          showToast('Failed to fetch live data', 'error');
+      } finally {
+          setIsFetchingData(false);
+      }
+  };
+
+  const handleLaunchCampaign = (newsItem: NewsItem) => {
+      updateMarketingState({
+          campaignTopic: `Breaking News: ${newsItem.title}. ${newsItem.summary}`
+      });
+      setVerificationResult(null);
+      setActiveTab('CAMPAIGN');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleGenerateCampaign = async () => {
+      if (!marketingState.campaignTopic) return;
+      setIsGeneratingCampaign(true);
+      setVerificationResult(null);
+      try {
+          const result = await generateMarketingCampaign(marketingState.campaignTopic, marketingState.campaignTone);
+          updateMarketingState({ campaignResult: result });
+      } catch (error) {
+          showToast('Failed to generate campaign', 'error');
+      } finally {
+          setIsGeneratingCampaign(false);
+      }
+  };
+
+  const handleVerifyCampaign = async () => {
+      if (!marketingState.campaignResult) return;
+      setIsVerifying(true);
+      try {
+          const result = await verifyCampaignContent(marketingState.campaignResult);
+          setVerificationResult(result);
+          showToast('Verification complete', 'success');
+      } catch (e) {
+          console.error(e);
+          showToast('Verification failed', 'error');
+      } finally {
+          setIsVerifying(false);
+      }
+  };
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto animate-fade-in pb-20">
@@ -550,8 +615,28 @@ export const MarketingStudio: React.FC = () => {
       </div>
       
       <div className="min-h-[500px]">
-          {activeTab === 'PULSE' && renderMarketPulse()}
-          {activeTab === 'CAMPAIGN' && renderCampaignDirector()}
+          {activeTab === 'PULSE' && (
+              <MarketPulseView 
+                indices={indices}
+                newsFeed={newsFeed}
+                marketSources={marketSources}
+                isFetchingData={isFetchingData}
+                onRefresh={handleRefreshMarketData}
+                onLaunchCampaign={handleLaunchCampaign}
+              />
+          )}
+          {activeTab === 'CAMPAIGN' && (
+              <CampaignDirectorView 
+                marketingState={marketingState}
+                updateMarketingState={updateMarketingState}
+                onClear={handleClearWorkspace}
+                onGenerate={handleGenerateCampaign}
+                isGenerating={isGeneratingCampaign}
+                onVerify={handleVerifyCampaign}
+                isVerifying={isVerifying}
+                verificationResult={verificationResult}
+              />
+          )}
       </div>
 
       {activeTab === 'PULSE' && (

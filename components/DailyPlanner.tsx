@@ -1,14 +1,69 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo, useCallback } from 'react';
 import { 
     Calendar as CalendarIcon, Clock, Plus, BrainCircuit, 
-    Sparkles, Loader2, CheckCircle2, MoreHorizontal, Trash2, 
-    ChevronRight, ChevronLeft, MapPin, User, FileText, Link as LinkIcon
+    Sparkles, Loader2, ChevronRight, ChevronLeft, Link as LinkIcon, FileText, Trash2
 } from 'lucide-react';
 import { CalendarEvent, Client } from '../types';
-import { loadFromStorage, saveToStorage, StorageKeys, generateDailySchedule, generateMeetingPrep } from '../services';
+import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
+import { generateDailySchedule, generateMeetingPrep } from '../services/geminiService';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
+
+// --- SUB-COMPONENT: Time Slot Row (Memoized) ---
+const TimeSlotRow = memo(({ 
+    hour, 
+    events, 
+    today, 
+    onEventClick 
+}: { 
+    hour: number, 
+    events: CalendarEvent[], 
+    today: string, 
+    onEventClick: (e: CalendarEvent) => void 
+}) => {
+    const timeLabel = hour > 12 ? `${hour - 12} PM` : hour === 12 ? `12 PM` : `${hour} AM`;
+    const hourEvents = events.filter(e => {
+        const eventDate = new Date(e.start);
+        return eventDate.getHours() === hour && e.start.startsWith(today);
+    });
+
+    return (
+        <div className="flex border-b border-gray-100 min-h-[80px] group relative">
+            <div className="w-16 py-2 px-3 text-xs font-bold text-gray-400 border-r border-gray-100 shrink-0">
+                {timeLabel}
+            </div>
+            <div className="flex-1 relative p-1">
+                {/* Hover 'Add' Button */}
+                <button className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-brand-dark transition-opacity" title="Add Event">
+                    <Plus size={14}/>
+                </button>
+                
+                {hourEvents.map(event => (
+                    <div 
+                        key={event.id}
+                        onClick={() => onEventClick(event)}
+                        className={`absolute inset-x-2 p-2 rounded-lg border text-xs cursor-pointer hover:brightness-95 transition-all shadow-sm flex items-center justify-between ${
+                            event.type === 'MEETING' ? 'bg-blue-50 border-blue-200 text-blue-700' :
+                            event.type === 'CALL' ? 'bg-green-50 border-green-200 text-green-700' :
+                            event.type === 'BLOCK' ? 'bg-gray-100 border-gray-300 text-gray-600' :
+                            'bg-purple-50 border-purple-200 text-purple-700'
+                        }`}
+                        style={{
+                            top: `${(new Date(event.start).getMinutes() / 60) * 100}%`,
+                            height: '40px' 
+                        }}
+                    >
+                        <div className="font-bold truncate flex items-center">
+                            {event.clientId && <LinkIcon size={10} className="mr-1 opacity-60"/>}
+                            {event.title}
+                        </div>
+                        {event.isAiGenerated && <Sparkles size={10} className="ml-1 opacity-50"/>}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+});
 
 export const DailyPlanner: React.FC = () => {
     const { showToast } = useToast();
@@ -31,7 +86,7 @@ export const DailyPlanner: React.FC = () => {
         saveToStorage(StorageKeys.CALENDAR_EVENTS, events);
     }, [events]);
 
-    const handleOptimizeSchedule = async () => {
+    const handleOptimizeSchedule = useCallback(async () => {
         if (!naturalInput.trim()) {
             showToast("Tell the Chief of Staff what you need to do today.", "info");
             return;
@@ -42,7 +97,7 @@ export const DailyPlanner: React.FC = () => {
             setEvents(prev => [...prev, ...newEvents]);
             setNaturalInput('');
             
-            // Check for matched clients and auto-update their last action date
+            // Sync logic
             let syncedCount = 0;
             const updatedClients = [...clients];
             let hasUpdates = false;
@@ -84,17 +139,15 @@ export const DailyPlanner: React.FC = () => {
         } finally {
             setIsOptimizing(false);
         }
-    };
+    }, [naturalInput, events, clients, showToast]);
 
-    const handleEventClick = async (event: CalendarEvent) => {
+    const handleEventClick = useCallback(async (event: CalendarEvent) => {
         setSelectedEvent(event);
         setPrepContent(null);
         
-        // Auto-generate prep if it's a meeting linked to a client or has a recognizable name
         if (event.type === 'MEETING' || event.type === 'CALL') {
             setIsPrepping(true);
             try {
-                // Try to match client by ID or name
                 const matchedClient = clients.find(c => 
                     (event.clientId && c.id === event.clientId) || 
                     event.title.toLowerCase().includes(c.name.toLowerCase())
@@ -109,63 +162,14 @@ export const DailyPlanner: React.FC = () => {
                 setIsPrepping(false);
             }
         }
-    };
+    }, [clients]);
 
-    const handleDeleteEvent = (id: string) => {
+    const handleDeleteEvent = useCallback((id: string) => {
         setEvents(prev => prev.filter(e => e.id !== id));
         if (selectedEvent?.id === id) setSelectedEvent(null);
-    };
+    }, [selectedEvent]);
 
-    // Render Time Slots (8 AM to 6 PM)
-    const renderTimeSlots = () => {
-        const slots = [];
-        for (let i = 8; i <= 18; i++) {
-            const timeLabel = i > 12 ? `${i - 12} PM` : i === 12 ? `12 PM` : `${i} AM`;
-            // Filter events for this hour
-            const hourEvents = events.filter(e => {
-                const eventDate = new Date(e.start);
-                return eventDate.getHours() === i && e.start.startsWith(today);
-            });
-
-            slots.push(
-                <div key={i} className="flex border-b border-gray-100 min-h-[80px] group relative">
-                    <div className="w-16 py-2 px-3 text-xs font-bold text-gray-400 border-r border-gray-100 shrink-0">
-                        {timeLabel}
-                    </div>
-                    <div className="flex-1 relative p-1">
-                        {/* Hover 'Add' Button */}
-                        <button className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-brand-dark transition-opacity" title="Add Event">
-                            <Plus size={14}/>
-                        </button>
-                        
-                        {hourEvents.map(event => (
-                            <div 
-                                key={event.id}
-                                onClick={() => handleEventClick(event)}
-                                className={`absolute inset-x-2 p-2 rounded-lg border text-xs cursor-pointer hover:brightness-95 transition-all shadow-sm flex items-center justify-between ${
-                                    event.type === 'MEETING' ? 'bg-blue-50 border-blue-200 text-blue-700' :
-                                    event.type === 'CALL' ? 'bg-green-50 border-green-200 text-green-700' :
-                                    event.type === 'BLOCK' ? 'bg-gray-100 border-gray-300 text-gray-600' :
-                                    'bg-purple-50 border-purple-200 text-purple-700'
-                                }`}
-                                style={{
-                                    top: `${(new Date(event.start).getMinutes() / 60) * 100}%`,
-                                    height: '40px' 
-                                }}
-                            >
-                                <div className="font-bold truncate flex items-center">
-                                    {event.clientId && <LinkIcon size={10} className="mr-1 opacity-60"/>}
-                                    {event.title}
-                                </div>
-                                {event.isAiGenerated && <Sparkles size={10} className="ml-1 opacity-50"/>}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            );
-        }
-        return slots;
-    };
+    const timeSlots = Array.from({ length: 11 }, (_, i) => i + 8); // 8 to 18
 
     return (
         <div className="flex h-full bg-white relative animate-fade-in">
@@ -185,7 +189,15 @@ export const DailyPlanner: React.FC = () => {
                     </div>
                 </div>
                 <div className="flex-1 overflow-y-auto">
-                    {renderTimeSlots()}
+                    {timeSlots.map(hour => (
+                        <TimeSlotRow 
+                            key={hour} 
+                            hour={hour} 
+                            events={events} 
+                            today={today} 
+                            onEventClick={handleEventClick} 
+                        />
+                    ))}
                 </div>
             </div>
 

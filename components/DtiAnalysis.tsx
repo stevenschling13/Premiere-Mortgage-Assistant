@@ -1,7 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
-import { DollarSign, AlertCircle, CheckCircle2, TrendingUp, Calculator, Stethoscope, Loader2, RefreshCcw, Briefcase, Coins, X, Save, Upload, BookOpen } from 'lucide-react';
-import { loadFromStorage, saveToStorage, StorageKeys, solveDtiScenario } from '../services';
+import { DollarSign, AlertCircle, CheckCircle2, TrendingUp, Stethoscope, Loader2, RefreshCcw, Briefcase, Coins, X, Save, BookOpen } from 'lucide-react';
+import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
+import { solveDtiScenario } from '../services/geminiService';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { useToast } from './Toast';
 import { Client } from '../types';
@@ -59,7 +59,12 @@ export const DtiAnalysis: React.FC = () => {
     // Determine effective max DTI based on AUS toggle
     let effectiveMaxDti = guidelines.maxDTI;
     if (selectedLoanType === 'FHA' && !hasAusApproval) {
-        effectiveMaxDti = guidelines.manualDTI || 43.00;
+        // Safe check for manualDTI existence
+        if ('manualDTI' in guidelines) {
+            effectiveMaxDti = (guidelines as any).manualDTI;
+        } else {
+            effectiveMaxDti = 43.00;
+        }
     }
 
     const isOverStandard = backEndRatio > guidelines.standardDTI;
@@ -514,7 +519,7 @@ export const DtiAnalysis: React.FC = () => {
                         <div className="grid grid-cols-2 gap-y-2">
                             <div>Standard DTI: <span className="font-mono font-bold text-gray-800">{guidelines.standardDTI}%</span></div>
                             <div>Max DTI (AUS): <span className="font-mono font-bold text-gray-800">{guidelines.maxDTI}%</span></div>
-                            {guidelines.manualDTI && <div>Max DTI (Manual): <span className="font-mono font-bold text-gray-800">{guidelines.manualDTI}%</span></div>}
+                            {'manualDTI' in guidelines && <div>Max DTI (Manual): <span className="font-mono font-bold text-gray-800">{(guidelines as any).manualDTI}%</span></div>}
                             <div>Max LTV: <span className="font-mono font-bold text-gray-800">{guidelines.maxLTV}%</span></div>
                             <div>Reserves: <span className="font-mono font-bold text-gray-800">{guidelines.reserves}</span></div>
                         </div>

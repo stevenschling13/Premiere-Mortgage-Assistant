@@ -1,4 +1,3 @@
-
 import React, { ReactNode } from 'react';
 import { AlertTriangle, RefreshCcw, Database, FileJson, Copy, Activity } from 'lucide-react';
 import { errorService } from '../services/errorService';

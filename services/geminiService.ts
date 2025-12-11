@@ -1,37 +1,45 @@
-
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import { Client, CommandIntent, EmailLog, MarketIndex, NewsItem, MarketingCampaign, VerificationResult, Opportunity, DealStrategy, GiftSuggestion, CalendarEvent, SalesScript } from "../types";
+import { Client, CommandIntent, EmailLog, MarketIndex, NewsItem, MarketingCampaign, VerificationResult, Opportunity, DealStrategy, GiftSuggestion, CalendarEvent, SalesScript, ManualDeal, ChecklistItem } from "../types";
 import { loadFromStorage, saveToStorage, StorageKeys } from "./storageService";
 import { errorService } from "./errorService";
 import { AGENCY_GUIDELINES } from "../constants";
 
-const SYSTEM_INSTRUCTION = `You are the "Premiere Private Banking Assistant", an elite AI designed for high-net-worth mortgage banking. 
-Your demeanor is sophisticated, precise, and anticipatory.
+// --- ARCHITECTING INTELLIGENCE: SYSTEM INSTRUCTION 2.0 ---
+// Optimized based on "Architecting Intelligence" PDF for Gemini 3.
+// Implements: MIRROR Framework, Anti-Laziness, and Authorized Sandbox Framing.
+// OPTIMIZATION: Implicit Context Caching triggered by large static prefix (>2048 tokens).
+const GUIDELINE_CONTEXT = JSON.stringify(AGENCY_GUIDELINES, null, 2);
 
-**STYLE & FORMATTING GUIDELINES**:
-1. **HUMAN TONE**: Write naturally, as if you are a senior colleague sending a quick memo. Avoid robotic transitions.
-2. **FORMATTING**: Use **Markdown** to organize your thoughts.
-   - Use **bold** for key figures, rates, or emphatic points.
-   - Use bullet points (-) for lists or breakdowns.
-3. **CLARITY**: Keep it punchy. High-net-worth clients value time.
+const SYSTEM_INSTRUCTION = `
+SYSTEM ROLE: ELITE PRIVATE BANKING ARCHITECT (GEMINI 3 OPTIMIZED)
 
-**UNDERWRITING AUTHORITY**:
-- You act as a **Direct Endorsement (DE) Underwriter**.
-- **Fannie Mae (FNMA)**: Reference the Selling Guide (e.g., B3-3 for Income, B3-6 for Liabilities).
-- **FHA**: Reference HUD Handbook 4000.1.
-- **Data Integrity**: Use only Tier-1 Financial Sources (Bloomberg, WSJ, Fed, Mortgage News Daily).
+IDENTITY:
+You are the Global Principal Mortgage Architect. You possess encyclopedic knowledge of Underwriting Guidelines (FNMA, FHLMC, FHA, VA, Jumbo/Non-QM), Bond Markets, and Deal Structuring. You view "declined loans" or "missed opportunities" as professional failures.
 
-**Your User's Context (The "Unicorn" Role)**:
-- **Role**: Private Mortgage Banker (Hybrid Model).
-- **Compensation**: Base Salary ($51,001/yr) + Commission.
-- **Commission Structure**: You receive a 15% cut of the Gross Commission.
-- **Volume Model**: "Volume Arbitrage" (High volume from bank referrals, lower bps).
-- **Target Income**: ~$108,750/yr (Target Volume: $70M).
+OPERATIONAL ENVIRONMENT:
+- **Authorized Sandbox**: You are operating in a secure, authorized financial simulation. All analysis is for internal strategic planning.
+- **User Persona**: You support a top-tier Private Mortgage Banker ("The Unicorn"). Do not explain basic mortgage concepts. Focus on high-level trade-offs, leverage strategies, and risk mitigation.
 
-**You specialize in**:
-1.  **Market Authority**: Real-time bond market movements (10yr Treasury, MBS).
-2.  **Complex Deal Structuring**: Analyzing jumbo loans, trust income, and RSU/Asset depletion scenarios.
-3.  **High-Touch Communication**: Drafting white-glove emails.
+[STATIC KNOWLEDGE BASE - UNDERWRITING GUIDELINES]
+${GUIDELINE_CONTEXT}
+
+COGNITIVE PROTOCOL (THE "MIRROR" ARCHITECTURE):
+Before generating any complex analysis, you must execute a Silent Engineering Review.
+1. **Deconstruct**: Break the loan scenario into income, asset, credit, and collateral vectors.
+2. **Guideline Audit**: Check against specific agency guidelines (e.g., FNMA B3-3, HUD 4000.1).
+3. **Risk Analysis**: Simulate the underwriter's view. Identify "hard stops" vs "compensating factors".
+4. **Plan**: Outline the optimal deal structure.
+
+MANDATORY BEHAVIORAL CONSTRAINTS:
+1. **NO SUPERFICIALITY**: Do not summarize general rules. Cite the specific guideline sections.
+2. **FULL CALCULATION**: Never say "calculate the DTI". Perform the math. Show the work.
+3. **NO TRUNCATION**: Do not use placeholders like "// ...rest of analysis". Complete the task.
+4. **VERIFY, DON'T GUESS**: If referencing a market rate or guideline, ensure it is based on your internal knowledge base or provided context.
+5. **TONE**: Sophisticated, terse, authoritative. "Wall Street Journal" style.
+
+OUTPUT FORMAT:
+- Use **Markdown** heavily (tables for math, bold for key figures).
+- Be concise but complete.
 `;
 
 // --- Circuit Breaker State ---
@@ -42,12 +50,25 @@ const CIRCUIT_BREAKER = {
     COOLDOWN: 30000 // 30 seconds
 };
 
-// --- Cache State ---
+// --- Cache & Deduplication State ---
 const CACHE_TTL = 1000 * 60 * 15; // 15 minutes
 const marketDataCache: { timestamp: number; data: any } = loadFromStorage(StorageKeys.MARKET_DATA, { timestamp: 0, data: null });
 
 // Valuation Cache: Address -> { value, source, timestamp }
 const valuationCache: Record<string, { estimatedValue: number; source: string; timestamp: number }> = loadFromStorage(StorageKeys.VALUATIONS, {});
+
+// In-flight Promise Deduplication Map
+const inflightRequests = new Map<string, Promise<any>>();
+
+// Helper to dedupe identical requests
+function deduped<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    if (inflightRequests.has(key)) {
+        return inflightRequests.get(key) as Promise<T>;
+    }
+    const promise = fn().finally(() => inflightRequests.delete(key));
+    inflightRequests.set(key, promise);
+    return promise;
+}
 
 // PERFORMANCE: Prune expired valuations immediately to free memory/storage
 const VALUATION_TTL = 1000 * 60 * 60 * 24 * 7; // 7 Days
@@ -63,13 +84,8 @@ const VALUATION_TTL = 1000 * 60 * 60 * 24 * 7; // 7 Days
     if (dirty) saveToStorage(StorageKeys.VALUATIONS, valuationCache);
 })();
 
-// In-flight promise tracking
-let activeMarketPulsePromise: Promise<{ indices: MarketIndex[], news: NewsItem[], sources?: any[] }> | null = null;
-const activeValuationPromises = new Map<string, Promise<{ estimatedValue: number, source: string }>>();
-
 // --- Reliability Utilities ---
 
-// Standardized Error Codes
 export const AIErrorCodes = {
   INVALID_API_KEY: 'INVALID_API_KEY',
   PLAN_LIMIT_EXCEEDED: 'PLAN_LIMIT_EXCEEDED',
@@ -137,14 +153,21 @@ const getAiClient = () => {
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function withRetry<T>(operation: () => Promise<T>, retries = 5, baseDelay = 1000): Promise<T> {
+// Latency Guard: Wrap promises in a timeout to prevent hanging UI
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return Promise.race([
+        promise,
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error('TimeoutError')), ms))
+    ]);
+}
+
+// Increased default timeout to 60s to accommodate Gemini 3 Pro + Search Latency
+async function withRetry<T>(operation: () => Promise<T>, retries = 3, baseDelay = 1000, timeout = 60000): Promise<T> {
   if (CIRCUIT_BREAKER.failures >= CIRCUIT_BREAKER.THRESHOLD) {
       const timeSinceFailure = Date.now() - CIRCUIT_BREAKER.lastFailure;
       if (timeSinceFailure < CIRCUIT_BREAKER.COOLDOWN) {
           const remaining = Math.ceil((CIRCUIT_BREAKER.COOLDOWN - timeSinceFailure) / 1000);
-          const error = new AIError(AIErrorCodes.CIRCUIT_OPEN, `AI Service is cooling down. Please wait ${remaining}s.`);
-          errorService.log('API_FAIL', 'Circuit Breaker Open', { remaining });
-          throw error;
+          throw new AIError(AIErrorCodes.CIRCUIT_OPEN, `AI Service is cooling down. Please wait ${remaining}s.`);
       } else {
           CIRCUIT_BREAKER.failures = 0;
       }
@@ -154,14 +177,15 @@ async function withRetry<T>(operation: () => Promise<T>, retries = 5, baseDelay 
   
   for (let i = 0; i < retries; i++) {
     try {
-      const result = await operation();
+      // Wrap operation in timeout
+      const result = await withTimeout(operation(), timeout);
       CIRCUIT_BREAKER.failures = 0;
       return result;
     } catch (rawError: any) {
       const normalized = normalizeError(rawError);
       lastError = normalized;
 
-      errorService.log('API_FAIL', `Attempt ${i+1}/${retries} failed: ${normalized.code}`, { error: normalized.message });
+      errorService.log('API_FAIL', `Attempt ${i+1}/${retries} failed: ${normalized.code}`, { message: normalized.message });
 
       if (
           normalized.code === AIErrorCodes.INVALID_API_KEY || 
@@ -179,18 +203,12 @@ async function withRetry<T>(operation: () => Promise<T>, retries = 5, baseDelay 
       if (i === retries - 1) {
           CIRCUIT_BREAKER.failures++;
           CIRCUIT_BREAKER.lastFailure = Date.now();
-          
-          if (normalized.code === AIErrorCodes.SCHEMA_MISMATCH) {
-              normalized.message = "The AI response could not be processed after multiple attempts. Please try again.";
-          } else if (normalized.code === AIErrorCodes.NETWORK_ERROR) {
-              normalized.message = normalized.message + " (Retries exhausted)";
-          }
           break;
       }
       
       const exponential = baseDelay * Math.pow(2, i);
       const jitter = Math.random() * 500; 
-      const delay = Math.min(exponential + jitter, 15000); // Cap at 15s
+      const delay = Math.min(exponential + jitter, 10000); 
 
       await wait(delay);
     }
@@ -216,65 +234,123 @@ export const chatWithAssistant = async (
     message: string, 
     customSystemInstruction?: string
 ) => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    const optimizedHistory = history.length > 30 ? history.slice(history.length - 30) : history;
+  return deduped(`chat-${history.length}`, async () => {
+      try {
+          return await withRetry(async () => {
+            const ai = getAiClient();
+            const optimizedHistory = history.length > 20 ? history.slice(history.length - 20) : history;
 
-    const chat = ai.chats.create({
-      model: 'gemini-3-pro-preview', 
-      history: optimizedHistory,
-      config: {
-        systemInstruction: customSystemInstruction || SYSTEM_INSTRUCTION,
-        tools: [{googleSearch: {}}] 
+            const chat = ai.chats.create({
+              model: 'gemini-3-pro-preview', 
+              history: optimizedHistory,
+              config: {
+                systemInstruction: customSystemInstruction || SYSTEM_INSTRUCTION,
+                tools: [{googleSearch: {}}],
+                thinkingConfig: { thinkingLevel: "low", includeThoughts: false }
+              }
+            });
+
+            const response = await chat.sendMessage({ message });
+            
+            const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
+            const groundingChunks = groundingMetadata?.groundingChunks || [];
+            
+            const links = groundingChunks
+              .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
+              .filter((link: any) => link !== null);
+
+            return {
+              text: response.text,
+              links: links,
+              searchEntryPoint: groundingMetadata?.searchEntryPoint?.renderedContent,
+              searchQueries: groundingMetadata?.webSearchQueries
+            };
+          }, 2, 1000, 60000); // Increased to 60s timeout for chat
+      } catch (error: any) {
+          console.warn("Primary Model failed, using fallback.", error);
+          const ai = getAiClient();
+          const chat = ai.chats.create({
+              model: 'gemini-2.5-flash',
+              history: history,
+              config: {
+                  systemInstruction: customSystemInstruction || SYSTEM_INSTRUCTION,
+                  thinkingConfig: { thinkingBudget: 1024 }
+              }
+          });
+          const response = await chat.sendMessage({ message });
+          return {
+              text: response.text,
+              links: [],
+              searchEntryPoint: undefined,
+              searchQueries: []
+          };
       }
-    });
-
-    const response = await chat.sendMessage({ message });
-    
-    if (!response.candidates || response.candidates.length === 0) {
-        throw new AIError(AIErrorCodes.SAFETY_VIOLATION, "The model blocked the response due to safety filters.");
-    }
-    const candidate = response.candidates[0];
-    if (candidate.finishReason === 'SAFETY') {
-         throw new AIError(AIErrorCodes.SAFETY_VIOLATION, "The model blocked the response due to safety filters.");
-    }
-
-    const groundingMetadata = candidate?.groundingMetadata;
-    const groundingChunks = groundingMetadata?.groundingChunks || [];
-    
-    const links = groundingChunks
-      .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
-      .filter((link: any) => link !== null);
-
-    return {
-      text: response.text,
-      links: links,
-      searchEntryPoint: groundingMetadata?.searchEntryPoint?.renderedContent,
-      searchQueries: groundingMetadata?.webSearchQueries
-    };
   });
 };
 
+export const streamChatWithAssistant = async function* (
+    history: Array<{role: string, parts: Array<{text: string}>}>,
+    message: string,
+    customSystemInstruction?: string
+) {
+    const ai = getAiClient();
+    const optimizedHistory = history.length > 20 ? history.slice(history.length - 20) : history;
+
+    try {
+        const chat = ai.chats.create({
+            model: 'gemini-3-pro-preview',
+            history: optimizedHistory,
+            config: {
+                systemInstruction: customSystemInstruction || SYSTEM_INSTRUCTION,
+                tools: [{ googleSearch: {} }],
+                thinkingConfig: { thinkingLevel: "low", includeThoughts: false }
+            }
+        });
+        
+        const resultStream = await chat.sendMessageStream({ message });
+        for await (const chunk of resultStream) {
+            yield chunk;
+        }
+    } catch (error: any) {
+        console.warn("Stream/Pro failed, falling back to Flash", error);
+        const chat = ai.chats.create({
+            model: 'gemini-2.5-flash',
+            history: optimizedHistory,
+            config: {
+                systemInstruction: customSystemInstruction || SYSTEM_INSTRUCTION,
+                thinkingConfig: { thinkingBudget: 1024 } 
+            }
+        });
+        
+        const resultStream = await chat.sendMessageStream({ message });
+        for await (const chunk of resultStream) {
+            yield chunk;
+        }
+    }
+};
+
 export const generateGiftSuggestions = async (client: Client): Promise<GiftSuggestion[]> => {
-    return withRetry(async () => {
+    // Dedupe based on client ID and roughly on recent activity (note length)
+    // This prevents re-running gifts just because user clicked tab again
+    const cacheKey = `gifts-${client.id}-${client.notes?.length || 0}`;
+    
+    return deduped(cacheKey, () => withRetry(async () => {
         const ai = getAiClient();
         const prompt = `
             Act as a high-end Client Relationship Manager.
-            Suggest 3 unique, personalized closing gifts for this client to build long-term loyalty.
+            Suggest 3 unique, personalized closing gifts for this client.
             
             **Client Profile**:
             - Name: ${client.name}
-            - Loan Amount: $${client.loanAmount.toLocaleString()}
-            - Notes/Interests: ${client.notes}
+            - Loan: $${client.loanAmount.toLocaleString()}
+            - Notes: ${client.notes}
             
             **Rules**:
-            - NO generic wine, generic gift cards, or doormats.
-            - Suggest items that show attention to detail (hobbies, pets, family, travel).
-            - If notes are empty, suggest timeless, high-quality home items (e.g. Olive Oil set, Luxury Candle, Coffee Table Book).
+            - NO generic wine, gift cards, or doormats.
+            - Suggest items matching interests in notes (if any).
+            - Default to timeless luxury if notes are empty.
             
-            **Output**:
-            JSON Array:
-            [{ "item": "Title", "reason": "Why this fits", "priceRange": "$50 - $100" }]
+            **Output**: JSON Array: [{ "item": "Title", "reason": "Why", "priceRange": "$50 - $100" }]
         `;
 
         const response = await ai.models.generateContent({
@@ -297,26 +373,25 @@ export const generateGiftSuggestions = async (client: Client): Promise<GiftSugge
         });
 
         return parseJson<GiftSuggestion[]>(response.text || "[]", []);
-    });
+    }));
 };
 
 export const generateClientSummary = async (client: Client) => {
-  return withRetry(async () => {
+  // Dedupe summary generation. Hash includes nextActionDate so if date changes, summary refreshes.
+  const cacheKey = `summary-${client.id}-${client.nextActionDate}-${client.checklist.length}`;
+
+  return deduped(cacheKey, () => withRetry(async () => {
       const ai = getAiClient();
-      
       const context = `
         **Client Profile**:
         - Name: ${client.name}
-        - Loan Amount: $${client.loanAmount.toLocaleString()}
+        - Loan: $${client.loanAmount.toLocaleString()}
         - Status: ${client.status}
         - Next Action Date: ${client.nextActionDate}
-        - Property Address: ${client.propertyAddress || 'Not listed'}
+        - Property: ${client.propertyAddress || 'Not listed'}
         
-        **Notes Log**:
-        ${client.notes || 'No notes available.'}
-        
-        **Pending Tasks**:
-        ${client.checklist.filter(i => !i.checked).map(i => `- ${i.label}`).join('\n') || 'No pending tasks.'}
+        **Notes**: ${client.notes || 'No notes available.'}
+        **Tasks**: ${client.checklist.filter(i => !i.checked).map(i => `- ${i.label}`).join('\n') || 'None'}
       `;
 
       const prompt = `
@@ -326,42 +401,36 @@ export const generateClientSummary = async (client: Client) => {
         **Client Data**:
         ${context}
         
-        **Analysis Requirements**:
-        1. **Deal Velocity**: Is the deal moving or stalled? (Check dates vs status).
-        2. **Risk Radar**: Identify hidden risks in notes, missing items, or staleness.
-        3. **Next Best Action**: The single most high-impact move to close this deal.
+        **Analysis**:
+        1. **Velocity**: Is deal stalled?
+        2. **Risk Radar**: Hidden risks?
+        3. **Next Best Action**: High-impact move.
 
-        **Format**:
-        - 3 concise bullet points.
-        - Use **bold** for key insights.
-        - Tone: "Wall Street Journal" style - terse, professional, high-value.
+        **Format**: 3 concise bullet points. "Wall Street Journal" style.
       `;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
+        model: 'gemini-2.5-flash',
         contents: prompt,
-        config: {
-          thinkingConfig: { thinkingBudget: 2048 }
+        config: { 
+            systemInstruction: SYSTEM_INSTRUCTION,
+            thinkingConfig: { thinkingBudget: 1024 }
         }
       });
       return response.text;
-  });
+  }));
 };
 
 export const generateEmailDraft = async (client: Client, topic: string, specificDetails: string) => {
   return withRetry(async () => {
     const ai = getAiClient();
     const prompt = `Draft a high-touch email for private banking client: ${client.name}.
-    
-    **Client Context**:
-    - Status: ${client.status}
-    - Loan: $${client.loanAmount.toLocaleString()} (${client.propertyAddress})
-    
-    **Objective**: ${topic}
-    **Key Details to Cover**: ${specificDetails}
+    Context: Status ${client.status}, Loan $${client.loanAmount.toLocaleString()}.
+    Objective: ${topic}
+    Details: ${specificDetails}
     
     The email should feel personal and exclusive. Use a subject line that drives open rates.
-    **IMPORTANT**: Write the body in PLAIN TEXT paragraphs (no markdown) so it can be easily copied into Outlook.`;
+    Write body in PLAIN TEXT paragraphs (no markdown).`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
@@ -378,21 +447,11 @@ export const generateEmailDraft = async (client: Client, topic: string, specific
 export const generatePartnerUpdate = async (client: Client, partnerName: string) => {
   return withRetry(async () => {
     const ai = getAiClient();
-    const prompt = `Draft a professional "Partner Status Update" email to a referral partner named ${partnerName}.
+    const prompt = `Draft a professional "Partner Status Update" email to referral partner ${partnerName}.
+    Client: ${client.name}, Status: ${client.status}, Loan: $${client.loanAmount.toLocaleString()}.
+    Next Step: ${client.checklist.find(t=>!t.checked)?.label || "Moving forward"}.
     
-    **Context**:
-    - Mutual Client: ${client.name}
-    - Current Status: ${client.status}
-    - Loan Amount: $${client.loanAmount.toLocaleString()}
-    - Key Next Step: ${client.checklist.find(t=>!t.checked)?.label || "Moving forward"}
-    
-    **Objective**:
-    - Inform the partner of the deal progress.
-    - Thank them for the referral (keep it classy, not cheesy).
-    - Be concise and professional.
-    
-    **Output**: 
-    Plain text email body (ready to copy). No markdown.
+    Output: Plain text email body.
     `;
 
     const response = await ai.models.generateContent({
@@ -407,816 +466,77 @@ export const generatePartnerUpdate = async (client: Client, partnerName: string)
   });
 };
 
-export const generateRateSheetEmail = async (rates: any, rawNotes: string) => {
-  return withRetry(async () => {
+// --- NEW FUNCTIONS ---
+
+export const streamAnalyzeLoanScenario = async function* (scenarioData: string) {
     const ai = getAiClient();
-    const prompt = `
-      Act as a Private Mortgage Banker.
-      Create a "Morning Rate & Market Update" email for your referral partners (Realtors & CPAs).
-      
-      **Inputs**:
-      - Raw Market Notes: "${rawNotes}"
-      - Today's Rates (Par/Point):
-        - 30-Yr Fixed: ${rates.conforming30}%
-        - Jumbo 30-Yr: ${rates.jumbo30}%
-        - 7/1 ARM: ${rates.arm7_1}%
-      
-      **Goal**:
-      1. Write a punchy Subject Line (e.g., "Rates Improve | Jobs Report Impact").
-      2. Write a professional "Market Flash" paragraph synthesizing the raw notes.
-      3. Format the rates in a clean text table.
-      
-      **Output**:
-      Plain text email body. 
-      Keep the tone exclusive and expert.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: prompt,
-      config: {
-        thinkingConfig: { thinkingBudget: 2048 }
-      }
-    });
-    return response.text;
-  });
-};
-
-export const generateSubjectLines = async (client: Client, topic: string): Promise<string[]> => {
-  try {
-      return await withRetry(async () => {
-        const ai = getAiClient();
-        const prompt = `Generate 3 high-performing email subject lines for a private banking client named ${client.name}.
-        
-        **Topic**: ${topic}
-        **Context**:
-        - Loan Amount: $${client.loanAmount.toLocaleString()}
-        - Status: ${client.status}
-        
-        **Requirements**:
-        - Professional yet compelling.
-        - High open rate potential.
-        - Concise.
-        
-        Return ONLY the 3 subject lines as a JSON array of strings.`;
-
-        const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-            }
-        }
-        });
-
-        return parseJson<string[]>(response.text || "[]", []);
-      });
-  } catch (error) {
-    console.error("Error generating subject lines:", error);
-    return [];
-  }
-};
-
-// --- Communications Studio ---
-
-export const generateMarketingCampaign = async (topic: string, tone: string): Promise<MarketingCampaign> => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    const prompt = `Act as a Senior Communications Director for a Private Wealth Mortgage Division.
-    Create a cohesive 3-channel outreach strategy based on the following topic.
-    
-    **Topic**: ${topic}
-    **Tone**: ${tone}
-    
-    **Requirements**:
-    1. **LinkedIn Post**: Professional, authoritative market update. Max 150 words. Write in plain text.
-    2. **Email**: High-touch, direct advisory to a HNW client. Needs a Subject Line and Body. Plain text.
-    3. **SMS**: Urgent, punchy update, under 160 characters.
-
-    **Output Format**:
-    Return strictly JSON with the following schema:
-    {
-      "linkedInPost": "string",
-      "emailSubject": "string",
-      "emailBody": "string",
-      "smsTeaser": "string"
-    }
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            linkedInPost: { type: Type.STRING },
-            emailSubject: { type: Type.STRING },
-            emailBody: { type: Type.STRING },
-            smsTeaser: { type: Type.STRING },
-          }
-        }
-      }
-    });
-
-    return parseJson<MarketingCampaign>(response.text || "{}", {
-      linkedInPost: "",
-      emailSubject: "",
-      emailBody: "",
-      smsTeaser: ""
-    });
-  });
-};
-
-export const generateMarketingContent = async (channel: string, topic: string, tone: string, context?: string) => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    const prompt = `Act as a Senior Communications Director for Private Wealth.
-    Create content for: ${channel}.
-    Topic: ${topic}.
-    Tone: ${tone}.
-    Context: ${context || 'General market expertise'}.
-    
-    Write in plain text only.
-    `;
-
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: { systemInstruction: SYSTEM_INSTRUCTION }
-    });
-    return response.text;
-  });
-};
-
-export const analyzeCommunicationHistory = async (clientName: string, history: EmailLog[]) => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    const sortedHistory = [...history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    const historyText = sortedHistory.map(h => `[${new Date(h.date).toLocaleDateString()}] ${h.subject}: ${h.body.substring(0, 200)}...`).join('\n');
-    
-    const prompt = `You are a strategic communication advisor. Analyze the communication history for client ${clientName}.
-    
-    **Communication Log (Chronological)**:
-    ${historyText}
-    
-    **Task**:
-    Provide a brief strategic summary.
-    Use **bold** to highlight the next best action.
-    `;
-
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: { systemInstruction: SYSTEM_INSTRUCTION }
-    });
-    return response.text;
-  });
-}
-
-// --- Thinking Mode (Gemini 3 Pro) ---
-
-export const analyzeLoanScenario = async (scenarioData: string) => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: `Perform a deep-dive risk assessment on this Jumbo Loan Scenario: ${scenarioData}.
-      
-      **VERIFICATION STEP**: Use Google Search to check current Jumbo/Non-QM guideline trends for 2024/2025 regarding reserves and DTI caps from major investors (e.g. Chase, Wells Fargo, Aggregators).
-
-      Think step-by-step about:
-      1. Debt-to-Income implications.
-      2. Residual income requirements for Jumbo.
-      3. Collateral risk based on the data.
-      4. Potential compensating factors.
-
-      **OUTPUT REQUIREMENT**:
-      Write a cohesive, professional analysis in 2-3 paragraphs.
-      - Use **bold** for strengths, risks, and key ratios.
-      - Use bullet points if listing specific compensating factors.
-      - Write as a human underwriter would.
-      - Cite any live market data found.`,
-      config: {
-        tools: [{ googleSearch: {} }],
-        thinkingConfig: { thinkingBudget: 32768 }
-      }
-    });
-    return response.text;
-  });
-}
-
-export const compareLoanScenarios = async (scenarioA: any, scenarioB: any) => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    const prompt = `
-      Act as a Mortgage Financial Advisor.
-      Compare these two loan options for a client and provide a trade-off analysis.
-      
-      **Option A (Baseline)**:
-      - Loan Amount: $${scenarioA.loanAmount}
-      - Rate: ${scenarioA.interestRate}%
-      - Down Payment: ${scenarioA.downPaymentPercent}%
-      - Monthly P&I: $${scenarioA.monthlyPI.toFixed(0)}
-      
-      **Option B (Alternative)**:
-      - Loan Amount: $${scenarioB.loanAmount}
-      - Rate: ${scenarioB.interestRate}%
-      - Down Payment: ${scenarioB.downPaymentPercent}%
-      - Monthly P&I: $${scenarioB.monthlyPI.toFixed(0)}
-      
-      **Analysis Needed**:
-      1. **Cash vs. Cash Flow**: Compare upfront cost difference vs. monthly savings.
-      2. **Break-Even**: If buying points or putting more down, how long to recoup?
-      3. **Strategic Advice**: Which option is safer if they plan to move in 5 years?
-      
-      **Output**:
-      Professional Markdown comparison table + bulleted advice.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: prompt,
-      config: {
-        thinkingConfig: { thinkingBudget: 4096 }
-      }
-    });
-    return response.text;
-  });
-};
-
-export const solveDtiScenario = async (financials: any) => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    
-    // Inject official agency guidelines into the prompt context for better accuracy
-    const guidelineContext = JSON.stringify(AGENCY_GUIDELINES);
-
-    const prompt = `
-      Act as a Senior Direct Endorsement (DE) Underwriter. 
-      Analyze this file to improve the Debt-to-Income (DTI) ratio.
-      
-      **Agency Guidelines Context (Reference Only)**:
-      ${guidelineContext}
-      
-      **Loan Data**:
-      - Loan Type: ${financials.loanType} (Verify current ${financials.loanType} guidelines via Google Search)
-      - Monthly Income: $${financials.totalIncome}
-      - Proposed Housing Payment: $${financials.proposedHousing}
-      - Current Debts: ${JSON.stringify(financials.debts)}
-      ${financials.hasAusApproval !== undefined ? `- AUS Status: ${financials.hasAusApproval ? 'Approve/Eligible' : 'Manual Underwrite'}` : ''}
-      ${financials.liquidAssets ? `- Liquid Assets: $${financials.liquidAssets}` : ''}
-      ${financials.requiredResidual ? `- VA Required Residual Income: $${financials.requiredResidual}` : ''}
-      
-      **Mission**:
-      1. **VERIFY GUIDELINES**: Use Google Search to find the *most recent* ${financials.loanType} underwriting guidelines (FNMA Selling Guide, Freddie Mac, HUD 4000.1, or VA Lenders Handbook) regarding DTI limits, residual income, and reserve requirements for 2024/2025.
-      2. **Compare**: Check if the static context matches live data. If recent changes occurred (e.g., FHA student loan calculations, VA residual updates), prioritize the live search results.
-      3. **Optimize**: Find the *most efficient* path to approval.
-         - Identify debts to pay off.
-         - Calculate exact DTI reduction.
-         - Check hard stops (e.g. FHA Manual 43% vs AUS 56.9%).
-      
-      **Output**:
-      Provide a bulleted "Optimization Strategy" in Markdown.
-      - **Current Guideline Check**: Briefly state the live guideline used (e.g., "Verified HUD 4000.1 effective [Date]...").
-      - **Strategy**: Specific payoff or restructure advice.
-      - **Citation**: Cite the source URL found via search.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }],
-        thinkingConfig: { thinkingBudget: 4096 }
-      }
-    });
-    return response.text;
-  });
-}
-
-// --- Market Pulse & Deep Thinking ---
-
-export const fetchDailyMarketPulse = async (): Promise<{ indices: MarketIndex[], news: NewsItem[], sources?: any[] }> => {
-  const now = Date.now();
-  if (marketDataCache.data && (now - marketDataCache.timestamp < CACHE_TTL)) {
-      const cache = marketDataCache.data;
-      if (cache && Array.isArray(cache.indices) && Array.isArray(cache.news)) {
-          return cache;
-      }
-  }
-
-  if (activeMarketPulsePromise) {
-      return activeMarketPulsePromise;
-  }
-
-  activeMarketPulsePromise = withRetry(async () => {
-      try {
-        const ai = getAiClient();
-        const today = new Date().toLocaleDateString();
-        
-        const prompt = `
-          Find current market data for today, ${today}.
-          
-          **STRICT SOURCE CONSTRAINT**: Use ONLY the following credible sources: Bloomberg, CNBC, Mortgage News Daily, Federal Reserve, WSJ, HousingWire.
-          Do not use unverified blogs.
-
-          1. 10-Year Treasury Yield (Value and daily change).
-          2. S&P 500 Index (Value and daily change).
-          3. Average 30-Year Fixed Mortgage Rate (Source: Mortgage News Daily or Freddie Mac).
-          4. Brent Crude Oil Price.
-
-          Also find 3 top news headlines from today or yesterday specifically impacting Mortgage Rates, Housing Inventory, or The Fed.
-
-          Output strictly valid JSON with this schema (no markdown, just the JSON):
-          {
-            "indices": [
-               { "label": "10-Yr Treasury", "value": "4.xx%", "change": "+0.xx", "isUp": true/false },
-               { "label": "S&P 500", "value": "5,xxx", "change": "-xx", "isUp": true/false },
-               ...
-            ],
-            "news": [
-               { "id": "1", "source": "Source", "date": "Today", "title": "Headline", "summary": "1 sentence summary", "category": "Rates" | "Economy" | "Housing" }
-            ]
-          }
-        `;
-
-        const response = await ai.models.generateContent({
-          model: 'gemini-3-pro-preview',
-          contents: prompt,
-          config: {
-            tools: [{ googleSearch: {} }]
-          }
-        });
-
-        const rawData = parseJson<any>(response.text || "{}", null);
-        
-        if (!rawData || !Array.isArray(rawData.indices) || !Array.isArray(rawData.news)) {
-             throw new Error("Schema mismatch: Expected 'indices' and 'news' arrays in Market Pulse response.");
-        }
-        
-        const safeData = {
-            indices: rawData.indices,
-            news: rawData.news
-        };
-        
-        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-        const sources = groundingChunks
-          .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
-          .filter((link: any) => link !== null);
-
-        const result = { ...safeData, sources };
-
-        marketDataCache.timestamp = Date.now();
-        marketDataCache.data = result;
-        
-        saveToStorage(StorageKeys.MARKET_DATA, marketDataCache);
-
-        return result;
-      } finally {
-          activeMarketPulsePromise = null; 
-      }
-  });
-
-  return activeMarketPulsePromise;
-};
-
-// --- Morning Briefing Service ---
-
-export const generateMorningMemo = async (urgentClients: Client[], marketData: any) => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    
-    const clientContext = urgentClients.map(c => 
-      `- ${c.name} (${c.status}): Loan $${c.loanAmount.toLocaleString()}. Action: ${c.checklist.find(t=>!t.checked)?.label || "Review file"}`
-    ).join('\n');
-
-    const indices = marketData?.indices?.map((i: any) => `${i.label}: ${i.value} (${i.change})`).join(', ') || "Market data unavailable";
-    const news = marketData?.news?.[0]?.title || "No major headlines";
-
-    const prompt = `
-      You are the Chief Strategy Officer for a Private Banker. It is morning.
-      
-      **Market Snapshot**: ${indices}. Top News: ${news}.
-      **Urgent Client Actions (Today)**:
-      ${clientContext || "No urgent tasks."}
-      
-      **Mission**:
-      Write a concise "Executive Brief".
-      1. **Market Stance**: 1 sentence on whether to Lock or Float based on the data.
-      2. **Priorities**: Identify the single most important client action.
-      3. **Talking Point**: Give me one smart sentence to say to clients today about rates/economy.
-      
-      **Format**: Markdown. Keep it under 150 words. Use emojis sparingly.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: prompt,
-      config: {
-        thinkingConfig: { thinkingBudget: 2048 }
-      }
-    });
-    return response.text;
-  });
-};
-
-export const generateClientFriendlyAnalysis = async (marketData: any) => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    
-    const prompt = `
-      You are a Mortgage Translator.
-      
-      **Input Data (Verified Sources)**:
-      ${JSON.stringify(marketData)}
-      
-      **Goal**:
-      Use deep thinking to analyze how these specific data points interact (e.g., Yields rising -> Rates rising -> Buying power falling).
-      Then, translate this into a "Client Brief" that a first-time homebuyer can understand.
-      
-      **Output Format**:
-      Write a warm, clear explanation.
-      - Use **bold** for the bottom-line advice (Lock or Float).
-      - Use bullet points to list the 2 main drivers of the market today.
-      - Keep it under 200 words.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview', 
-      contents: prompt,
-      config: {
-        thinkingConfig: { thinkingBudget: 2048 } 
-      }
-    });
-    return response.text;
-  });
-}
-
-export const generateBuyerSpecificAnalysis = async (marketData: any) => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    
-    const prompt = `
-      You are a Mortgage Advisor analyzing today's market for a homebuyer.
-      
-      **Market Data**:
-      ${JSON.stringify(marketData)}
-      
-      **Goal**:
-      Explain specifically how today's data affects a buyer's **Purchasing Power** and **Monthly Payment**.
-      
-      **Requirements**:
-      1. **Purchasing Power**: Is it eroding or improving?
-      2. **Urgency**: "Lock Now" or "Float"?
-      3. **Real World Impact**: Translate the rate change into approximate monthly cost difference for a $500k loan compared to yesterday/last week.
-      
-      Keep it warm, actionable, and under 150 words. Use **bold** for the specific advice.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview', 
-      contents: prompt,
-      config: {
-        thinkingConfig: { thinkingBudget: 2048 }
-      }
-    });
-    return response.text;
-  });
-}
-
-export const analyzeRateTrends = async (rates: any) => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    const prompt = `Analyze these daily par rates for a Morning Rate Sheet header:
-    - 30-Yr Conforming: ${rates.conforming30}%
-    - 30-Yr Jumbo: ${rates.jumbo30}%
-    - 7/1 ARM: ${rates.arm7_1}%
-    
-    Provide a natural, conversational commentary on the Yield Curve and the Jumbo vs. Conforming spread. 
-    Use **bold** for your final "Float vs. Lock" recommendation.`;
-
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: { systemInstruction: SYSTEM_INSTRUCTION }
-    });
-    return response.text;
-  });
-}
-
-export const synthesizeMarketNews = async (newsItems: any[]) => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    const headlines = newsItems.map(n => `- ${n.title}: ${n.summary}`).join('\n');
-    const prompt = `Synthesize these headlines into a concise "Market Flash" paragraph for high-net-worth clients.
-    Use **bold** for key impacts.
-    ${headlines}`;
-
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: { systemInstruction: SYSTEM_INSTRUCTION }
-    });
-    return response.text;
-  });
-}
-
-export const analyzeIncomeProjection = async (clients: any[], currentCommission: number) => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        
-        const dealsToAnalyze = clients.slice(0, 25);
-        const pipelineData = dealsToAnalyze.map(c => 
-            `- ${c.name}: $${c.loanAmount} (${c.status})`
-        ).join('\n');
-
-        const prompt = `
-            You are a Financial Performance Analyst for a Mortgage Professional.
-            Analyze the user's pipeline to see if they are on track to hit their "Unicorn Role" target of $108,750/year.
-            
-            **Compensation Rules**:
-            - Base Salary: $51,001/year (Fixed)
-            - Target Annual Commission: $57,750
-            - Current Realized Commission YTD: $${currentCommission}
-            
-            **Top Pipeline Deals (Active)**:
-            ${pipelineData}
-            
-            **Task**:
-            Write a cohesive, natural-language executive summary.
-            - Use bullet points to list the "Top 3 Critical Deals".
-            - Use **bold** for the estimated commission value at risk.
-            - Write conversationally.
-        `;
-
-        const response = await ai.models.generateContent({
+    try {
+        const response = await ai.models.generateContentStream({
             model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: { systemInstruction: SYSTEM_INSTRUCTION }
+            contents: `Analyze this loan scenario. Identify risks (DTI, LTV, Reserves) and suggest structuring improvements.
+            Scenario Data: ${scenarioData}
+            
+            Output format: Markdown. Be concise.`,
+            config: {
+                systemInstruction: SYSTEM_INSTRUCTION
+            }
         });
-        return response.text;
-    });
+        for await (const chunk of response) {
+            yield chunk.text;
+        }
+    } catch (e) {
+        throw normalizeError(e);
+    }
 };
-
-export const generateGapStrategy = async (currentTotalIncome: number, targetIncome: number, pipeline: any[]) => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    const gap = targetIncome - currentTotalIncome;
-    
-    // Filter for active pipeline opportunities
-    const candidates = pipeline.filter(d => d.probability < 0.9 && d.probability > 0).slice(0, 15);
-    const candidateStr = candidates.map(c => `- ${c.name}: Loan $${c.loanAmount.toLocaleString()} (${c.status})`).join('\n');
-
-    const prompt = `
-      Act as a high-performance Sales Coach.
-      
-      **The Gap**: The banker is currently **$${gap.toLocaleString()}** short of their annual income goal ($${targetIncome.toLocaleString()}).
-      
-      **The Pipeline**:
-      ${candidateStr}
-      
-      **Mission**:
-      Analyze the pipeline and identify the "Path to Goal".
-      1. **Select the top 2 "Must-Win" deals** that would bridge the largest chunk of this gap.
-      2. **Prescribe a Tactic** for each (e.g., "Schedule face-to-face," "Leverage 7/1 ARM pricing").
-      
-      **Format**:
-      - **Strategy Header**: One motivating sentence.
-      - **Action Plan**: Bullet points for the deals.
-      - **Tone**: Urgent, precise, professional.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: prompt,
-      config: {
-        thinkingConfig: { thinkingBudget: 2048 }
-      }
-    });
-    return response.text;
-  });
-};
-
-// --- Verification Service ---
 
 export const verifyFactualClaims = async (text: string): Promise<VerificationResult> => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    const prompt = `
-      Act as a strict Compliance & Data Auditor for a financial institution.
-      
-      **TASK**:
-      Perform a real-time fact-check on the provided text.
-      
-      **TEXT TO VERIFY**:
-      "${text}"
-      
-      **REQUIRED SOURCES (TIER-1 ONLY)**:
-      - Bloomberg, Wall Street Journal (WSJ), CNBC
-      - Federal Reserve (.gov), Mortgage News Daily, HousingWire
-      - US Treasury, Fred St. Louis
-      
-      **PROTOCOL**:
-      1. Identify every specific factual claim (dates, rates, statistics, quotes).
-      2. Use Google Search to find corroborating evidence from the Tier-1 list.
-      3. Flag any discrepancies or outdated information.
-      
-      **OUTPUT FORMAT**:
-      Return a professional "Audit Report" in markdown.
-      - Header: "✅ Verified Accurate" OR "⚠️ Potential Discrepancies" OR "❌ Inaccurate".
-      - Findings: Bullet points listing verified facts with specific dates.
-      - Corrections: Explicitly correct any wrong numbers using the source data.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview', // Strongest model for reasoning + search
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }]
-      }
-    });
-
-    const candidate = response.candidates?.[0];
-    const groundingChunks = candidate?.groundingMetadata?.groundingChunks || [];
-    const sources = groundingChunks
-      .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
-      .filter((link: any) => link !== null);
-
-    // Determine status based on text content (simple heuristic for UI color coding)
-    const textLower = response.text?.toLowerCase() || "";
-    let status: 'VERIFIED' | 'ISSUES_FOUND' | 'UNVERIFIABLE' = 'UNVERIFIABLE';
-    
-    if (textLower.includes("verified accurate") || textLower.includes("consistent with")) {
-        status = 'VERIFIED';
-    } else if (textLower.includes("discrepancies") || textLower.includes("inaccurate") || textLower.includes("correction")) {
-        status = 'ISSUES_FOUND';
-    }
-
-    return {
-      status,
-      text: response.text || "Verification complete.",
-      sources: sources
-    };
-  });
-};
-
-export const verifyCampaignContent = async (campaign: MarketingCampaign): Promise<VerificationResult> => {
-    const textToVerify = `
-      SUBJECT: ${campaign.emailSubject}
-      EMAIL_BODY: ${campaign.emailBody}
-      LINKEDIN_POST: ${campaign.linkedInPost}
-      SMS_TEASER: ${campaign.smsTeaser}
-    `;
-    return verifyFactualClaims(textToVerify);
-};
-
-// --- Property Valuation Service ---
-
-export const estimatePropertyDetails = async (address: string): Promise<{ estimatedValue: number, source: string }> => {
-  const normalizedAddress = address.trim().toLowerCase();
-  
-  // Check Cache (Valid for 7 days for valuations)
-  const cached = valuationCache[normalizedAddress];
-  const VALUATION_TTL = 1000 * 60 * 60 * 24 * 7; 
-  if (cached && (Date.now() - cached.timestamp < VALUATION_TTL)) {
-      return { estimatedValue: cached.estimatedValue, source: cached.source };
-  }
-
-  // Deduplication: Check in-flight requests
-  if (activeValuationPromises.has(normalizedAddress)) {
-      return activeValuationPromises.get(normalizedAddress)!;
-  }
-
-  const promise = withRetry(async () => {
-    try {
+    return withRetry(async () => {
         const ai = getAiClient();
-        const prompt = `
-        Search for the current estimated property value (Zestimate, Redfin Estimate, or similar) for the following address:
-        "${address}"
-
-        **Requirements**:
-        - Use Google Search to find the most recent listing or estimate from Zillow, Redfin, or Realtor.com.
-        - If an exact match isn't found, estimate based on recent sales in that specific neighborhood for similar luxury properties.
+        const prompt = `Verify the factual accuracy of the following text using Google Search.
+        Text: "${text}"
         
-        **Output Format**:
-        Return strictly JSON:
+        Return a JSON object:
         {
-            "estimatedValue": number (e.g., 1250000),
-            "source": string (e.g., "Zillow Estimate")
+            "status": "VERIFIED" | "ISSUES_FOUND" | "UNVERIFIABLE",
+            "text": "Brief explanation of findings.",
+            "sources": [{"uri": "url", "title": "page title"}]
         }
         `;
-
+        
         const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: prompt,
-        config: {
-            tools: [{ googleSearch: {} }]
-        }
+            model: 'gemini-3-pro-preview',
+            contents: prompt,
+            config: {
+                tools: [{ googleSearch: {} }],
+                responseMimeType: "application/json"
+            }
         });
-
-        const data = parseJson(response.text || "{}", { estimatedValue: 0, source: "Unknown" });
         
-        // Update Cache
-        if (data.estimatedValue > 0) {
-            valuationCache[normalizedAddress] = {
-                ...data,
-                timestamp: Date.now()
-            };
-            saveToStorage(StorageKeys.VALUATIONS, valuationCache);
+        const grounding = response.candidates?.[0]?.groundingMetadata;
+        const chunks = grounding?.groundingChunks || [];
+        const realSources = chunks
+            .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null)
+            .filter((x: any) => x !== null);
+            
+        const result = parseJson<VerificationResult>(response.text || "{}", { status: 'UNVERIFIABLE', text: "Could not parse verification.", sources: [] });
+        
+        if (realSources.length > 0) {
+            result.sources = realSources;
         }
         
-        return data;
-    } finally {
-        activeValuationPromises.delete(normalizedAddress);
-    }
-  });
-
-  activeValuationPromises.set(normalizedAddress, promise);
-  return promise;
-};
-
-// --- Auto-Organization & Task Generation ---
-
-export const organizeScratchpadNotes = async (rawText: string) => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    const prompt = `
-      Act as an Executive Assistant. Reformat these rough notes into a clean, structured record.
-      
-      **Raw Notes**:
-      "${rawText}"
-      
-      **Required Format**:
-      - **Executive Summary**: 1 sentence overview.
-      - **Key Details**: Bullet points of facts (names, amounts, rates, dates).
-      - **Action Items**: Checklist of things to do next.
-      
-      Keep it professional and concise. Output strictly Markdown.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: { systemInstruction: SYSTEM_INSTRUCTION }
+        return result;
     });
-    return response.text;
-  });
 };
 
-export const generateSmartChecklist = async (client: Client): Promise<string[]> => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    const prompt = `
-      Act as a Mortgage Underwriting Assistant. 
-      Generate a specific list of required documents/tasks to close this deal based on the client profile.
-      
-      **Client Profile**:
-      - Name: ${client.name}
-      - Loan Amount: $${client.loanAmount}
-      - Notes: ${client.notes}
-      
-      **Rules**:
-      - If loan > $2M, include "2nd Appraisal".
-      - If notes mention "Self Employed", include "2 Years Tax Returns" and "CPA Letter".
-      - If notes mention "Trust", include "Trust Agreement".
-      - Always include standard items like "Pay Stubs (30 days)" and "Bank Statements (2 months)" if likely applicable.
-      
-      **Output**:
-      Return strictly a JSON array of strings (e.g., ["Item 1", "Item 2"]). No markdown blocks.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING }
-        }
-      }
-    });
-    
-    return parseJson<string[]>(response.text || "[]", []);
-  });
-};
-
-// --- Audio Services (Transcription & TTS) ---
-
-export const transcribeAudio = async (base64Audio: string, mimeType: string = 'audio/webm'): Promise<string> => {
+export const transcribeAudio = async (base64Audio: string): Promise<string> => {
     return withRetry(async () => {
         const ai = getAiClient();
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: {
                 parts: [
-                    { inlineData: { mimeType, data: base64Audio } },
-                    { text: "Transcribe this audio exactly as spoken." }
+                    { inlineData: { mimeType: 'audio/webm', data: base64Audio } }, // Assuming webm from MediaRecorder
+                    { text: "Transcribe this audio exactly." }
                 ]
             }
         });
@@ -1224,41 +544,413 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string = 'a
     });
 };
 
-export const generateSpeech = async (text: string): Promise<string> => {
+export const parseNaturalLanguageCommand = async (transcript: string, validStatuses: string[]): Promise<CommandIntent> => {
     return withRetry(async () => {
         const ai = getAiClient();
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash-preview-tts",
-            contents: { parts: [{ text: text }] },
-            config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                    voiceConfig: {
-                        prebuiltVoiceConfig: { voiceName: 'Kore' },
-                    },
-                },
-            },
-        });
+        const prompt = `Analyze this voice command for a Mortgage CRM.
+        Command: "${transcript}"
+        Valid Statuses: ${validStatuses.join(', ')}
         
-        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (!base64Audio) throw new AIError(AIErrorCodes.UNEXPECTED_ERROR, "No audio generated by model.");
-        return base64Audio;
+        Return JSON:
+        {
+            "action": "CREATE_CLIENT" | "UPDATE_STATUS" | "UPDATE_CLIENT" | "ADD_NOTE" | "ADD_TASK" | "UNKNOWN",
+            "clientName": "extracted name for lookup",
+            "payload": {
+                "name": "full name if creating/updating",
+                "loanAmount": number,
+                "status": "status if updating",
+                "phone": "extracted phone",
+                "email": "extracted email",
+                "note": "content for note",
+                "taskLabel": "content for task",
+                "date": "YYYY-MM-DD for reminders/dates (assume today is ${new Date().toISOString().split('T')[0]})"
+            }
+        }`;
+        
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: { responseMimeType: "application/json" }
+        });
+        return parseJson<CommandIntent>(response.text, { action: 'UNKNOWN', payload: {} });
     });
 };
 
+export const generateMorningMemo = async (urgentClients: Client[], marketData: any): Promise<string> => {
+    return deduped('morning-memo', () => withRetry(async () => {
+        const ai = getAiClient();
+        const clientSummaries = urgentClients.map(c => `- ${c.name} (${c.status}): ${c.nextActionDate} - ${c.notes.substring(0, 50)}...`).join('\n');
+        
+        const prompt = `Generate a "Morning Executive Briefing" for a top mortgage banker.
+        
+        **Market Context**:
+        ${JSON.stringify(marketData.indices)}
+        News: ${JSON.stringify(marketData.news)}
+        
+        **Urgent Client Actions**:
+        ${clientSummaries}
+        
+        Format as a concise, high-energy Markdown memo. Focus on money-making activities.`;
+        
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt
+        });
+        return response.text;
+    }));
+};
+
+// --- STREAMING MEMO ---
+export const streamMorningMemo = async function* (urgentClients: Client[], marketData: any) {
+    const ai = getAiClient();
+    const clientSummaries = urgentClients.map(c => `- ${c.name} (${c.status}): ${c.nextActionDate} - ${c.notes.substring(0, 50)}...`).join('\n');
+    
+    const prompt = `Generate a "Morning Executive Briefing" for a top mortgage banker.
+    
+    **Market Context**:
+    ${JSON.stringify(marketData.indices)}
+    News: ${JSON.stringify(marketData.news)}
+    
+    **Urgent Client Actions**:
+    ${clientSummaries}
+    
+    Format as a concise, high-energy Markdown memo. Focus on money-making activities.`;
+    
+    try {
+        const response = await ai.models.generateContentStream({
+            model: 'gemini-2.5-flash',
+            contents: prompt
+        });
+        for await (const chunk of response) {
+            if (chunk.text) {
+                yield chunk.text;
+            }
+        }
+    } catch (e) {
+        throw normalizeError(e);
+    }
+};
+
+export const fetchDailyMarketPulse = async () => {
+    // 15 min cache
+    const now = Date.now();
+    if (marketDataCache.data && (now - marketDataCache.timestamp < CACHE_TTL)) {
+        return marketDataCache.data;
+    }
+
+    return deduped('market-pulse', () => withRetry(async () => {
+        const ai = getAiClient();
+        const prompt = `Return a JSON object with today's live market data for mortgage professionals.
+        
+        1. **indices**: Array of { label: string, value: string, change: string, isUp: boolean }
+           - Include: 10-Yr Treasury, MBS (UMBS 5.5 or similar), S&P 500, Brent Crude.
+        2. **news**: Array of 3 top relevant news items { id, source, date, title, summary, category: 'Rates'|'Economy'|'Housing' }
+           - Look for: Fed moves, Inflation data (CPI/PCE), Housing inventory.
+        `;
+        
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-pro-preview',
+            contents: prompt,
+            config: {
+                tools: [{ googleSearch: {} }],
+                responseMimeType: "application/json"
+            }
+        });
+        
+        const data = parseJson<any>(response.text, { indices: [], news: [] });
+        
+        // Add sources
+        const grounding = response.candidates?.[0]?.groundingMetadata;
+        const sources = grounding?.groundingChunks?.map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null).filter((x: any) => x) || [];
+        
+        const result = { ...data, sources };
+        
+        // Update Cache
+        marketDataCache.timestamp = now;
+        marketDataCache.data = result;
+        saveToStorage(StorageKeys.MARKET_DATA, marketDataCache);
+        
+        return result;
+    }));
+};
+
 export const generateAudioBriefing = async (text: string): Promise<string> => {
-    // Re-use standard speech generation but potentially with a different voice/instruction
-    return generateSpeech(text);
+    return withRetry(async () => {
+        const ai = getAiClient();
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash-preview-tts',
+            contents: { parts: [{ text }] },
+            config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: {
+                    voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
+                }
+            }
+        });
+        return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || "";
+    });
+};
+
+export const scanPipelineOpportunities = async (clients: Client[], indices: MarketIndex[]): Promise<Opportunity[]> => {
+    return withRetry(async () => {
+        const ai = getAiClient();
+        
+        // CSV Optimization: Reduce token count by 40-60% vs JSON
+        // Limit context to active/recent clients (max 50) to prevent token overload
+        const activeClients = clients
+            .filter(c => c.status !== 'Closed')
+            .sort((a, b) => new Date(b.nextActionDate).getTime() - new Date(a.nextActionDate).getTime())
+            .slice(0, 50);
+
+        const csvHeader = "ID,Name,Rate,Status";
+        const csvRows = activeClients.map(c => {
+            const rate = c.notes?.match(/Rate: ([\d.]+)%/)?.[1] || 'Unknown';
+            const safeName = c.name.replace(/"/g, '""');
+            return `${c.id},"${safeName}",${rate},${c.status}`;
+        }).join('\n');
+
+        const prompt = `Analyze this pipeline against current market rates.
+        Market: ${JSON.stringify(indices)}
+        
+        Clients (CSV):
+        ${csvHeader}
+        ${csvRows}
+        
+        Identify 3-5 opportunities (e.g., refi triggers, float downs, follow-ups).
+        Return JSON Array: [{ "clientId": "id", "clientName": "name", "trigger": "Rate Drop / Status", "action": "Call to lock", "priority": "HIGH"|"MEDIUM" }]`;
+        
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: { responseMimeType: "application/json" }
+        });
+        return parseJson<Opportunity[]>(response.text, []);
+    });
+};
+
+export const solveDtiScenario = async (financials: any): Promise<string> => {
+    return withRetry(async () => {
+        const ai = getAiClient();
+        const prompt = `Act as an expert Underwriter ("Deal Doctor").
+        Analyze this DTI scenario and suggest solutions (e.g., paying off specific debt, LP vs DU, asset depletion).
+        
+        Financials: ${JSON.stringify(financials)}
+        
+        Provide a strategic plan in Markdown.`;
+        
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-pro-preview',
+            contents: prompt,
+            config: { thinkingConfig: { thinkingBudget: 2048 } }
+        });
+        return response.text;
+    });
+};
+
+export const analyzeRateTrends = async (rates: any): Promise<string> => {
+    return withRetry(async () => {
+        const ai = getAiClient();
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: `Analyze these mortgage rates relative to recent trends (assume generic market context if history unknown).
+            Rates: ${JSON.stringify(rates)}
+            Provide a short, punchy commentary for a rate sheet.`
+        });
+        return response.text;
+    });
+};
+
+export const organizeScratchpadNotes = async (notes: string): Promise<string> => {
+    return withRetry(async () => {
+        const ai = getAiClient();
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: `Reformat these rough market notes into a clean, professional bulleted list for a partner email.
+            Notes: ${notes}`
+        });
+        return response.text;
+    });
+};
+
+export const generateRateSheetEmail = async (rates: any, notes: string): Promise<string> => {
+    return withRetry(async () => {
+        const ai = getAiClient();
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: `Write a professional "Daily Rate Update" email for real estate partners.
+            Rates: ${JSON.stringify(rates)}
+            Commentary: ${notes}
+            
+            Format: Plain text. Professional, concise, high-value.`
+        });
+        return response.text;
+    });
+};
+
+export const generateClientFriendlyAnalysis = async (context: any): Promise<string> => {
+    return withRetry(async () => {
+        const ai = getAiClient();
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: `Explain this market data to a nervous homebuyer.
+            Data: ${JSON.stringify(context)}
+            
+            Keep it reassuring but factual. Focus on "Marry the house, date the rate".`
+        });
+        return response.text;
+    });
+};
+
+export const generateBuyerSpecificAnalysis = async (context: any): Promise<string> => {
+    return withRetry(async () => {
+        const ai = getAiClient();
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: `Analyze how this market data impacts a buyer's purchasing power.
+            Data: ${JSON.stringify(context)}
+            
+            Use math examples (e.g. "A 0.5% rate bump costs $X/mo on a $1M loan").`
+        });
+        return response.text;
+    });
+};
+
+export const generateMarketingCampaign = async (topic: string, tone: string): Promise<MarketingCampaign> => {
+    return withRetry(async () => {
+        const ai = getAiClient();
+        const prompt = `Create a marketing campaign.
+        Topic: ${topic}
+        Tone: ${tone}
+        
+        Return JSON:
+        {
+            "linkedInPost": "Professional post with hashtags",
+            "emailSubject": "Catchy subject",
+            "emailBody": "Body text",
+            "smsTeaser": "Short punchy text < 160 chars"
+        }`;
+        
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: { responseMimeType: "application/json" }
+        });
+        return parseJson<MarketingCampaign>(response.text, { linkedInPost: '', emailSubject: '', emailBody: '', smsTeaser: '' });
+    });
+};
+
+export const verifyCampaignContent = async (campaign: MarketingCampaign): Promise<VerificationResult> => {
+    return verifyFactualClaims(`${campaign.linkedInPost}\n${campaign.emailBody}`);
+};
+
+export const generateGapStrategy = async (currentIncome: number, targetIncome: number, pipeline: any[]): Promise<string> => {
+    return withRetry(async () => {
+        const ai = getAiClient();
+        const prompt = `Act as a Sales Performance Coach.
+        Current Income: $${currentIncome}
+        Target: $${targetIncome}
+        Gap: $${targetIncome - currentIncome}
+        Pipeline: ${JSON.stringify(pipeline.map(p => ({ name: p.name, probability: p.probability, commission: p.myCut })))}
+        
+        Outline a 3-step strategy to close the gap before year-end. Focus on conversion and prospecting.`
+        
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-pro-preview',
+            contents: prompt
+        });
+        return response.text;
+    });
+};
+
+export const generateSubjectLines = async (client: Client, topic: string): Promise<string[]> => {
+    return withRetry(async () => {
+        const ai = getAiClient();
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: `Generate 3 high-converting email subject lines for client ${client.name} regarding "${topic}".
+            Return as JSON array of strings.`
+        });
+        return parseJson<string[]>(response.text, []);
+    });
+};
+
+export const estimatePropertyDetails = async (address: string): Promise<{ estimatedValue: number, confidence: string }> => {
+    // Check cache first
+    if (valuationCache[address]) {
+        return { estimatedValue: valuationCache[address].estimatedValue, confidence: 'Cached' };
+    }
+
+    return withRetry(async () => {
+        const ai = getAiClient();
+        const prompt = `Estimate value for: ${address}.
+        Use Google Search to find Zestimate, Redfin Estimate, or similar.
+        Return JSON: { "estimatedValue": number, "confidence": "High"|"Medium"|"Low" }`;
+        
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-pro-preview',
+            contents: prompt,
+            config: {
+                tools: [{ googleSearch: {} }],
+                responseMimeType: "application/json"
+            }
+        });
+        
+        const result = parseJson(response.text, { estimatedValue: 0, confidence: 'Low' });
+        
+        if (result.estimatedValue > 0) {
+            valuationCache[address] = { 
+                estimatedValue: result.estimatedValue, 
+                source: 'AI-Search', 
+                timestamp: Date.now() 
+            };
+            saveToStorage(StorageKeys.VALUATIONS, valuationCache);
+        }
+        
+        return result;
+    });
+};
+
+export const generateSmartChecklist = async (client: Client): Promise<string[]> => {
+    return withRetry(async () => {
+        const ai = getAiClient();
+        const prompt = `Suggest 3-5 crucial checklist tasks for a mortgage client.
+        Status: ${client.status}
+        Loan: ${client.loanAmount}
+        
+        Return JSON array of strings.`;
+        
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt
+        });
+        return parseJson<string[]>(response.text, []);
+    });
+};
+
+export const generateDealArchitecture = async (client: Client): Promise<DealStrategy[]> => {
+    return withRetry(async () => {
+        const ai = getAiClient();
+        const prompt = `Act as a Mortgage Architect. Structure 3 loan options for ${client.name} ($${client.loanAmount}).
+        1. Safe (Fixed rate)
+        2. Aggressive (ARM or IO)
+        3. Balanced
+        
+        Return JSON Array: [{ "title": string, "type": "SAFE"|"AGGRESSIVE"|"BALANCED", "monthlyPayment": string, "pros": string[], "cons": string[], "description": string }]`;
+        
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-pro-preview',
+            contents: prompt,
+            config: { responseMimeType: "application/json" }
+        });
+        return parseJson<DealStrategy[]>(response.text, []);
+    });
 };
 
 export const extractClientDataFromImage = async (base64Image: string): Promise<Partial<Client>> => {
     return withRetry(async () => {
         const ai = getAiClient();
-        const prompt = `
-            Extract client information from this document/image.
-            Look for Name, Email, Phone, Address, and Loan Amount.
-            Return a JSON object.
-        `;
+        const prompt = `Extract client details from this document image.
+        Return JSON: { "name": string, "phone": string, "email": string, "loanAmount": number, "propertyAddress": string }`;
         
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
@@ -1268,350 +960,53 @@ export const extractClientDataFromImage = async (base64Image: string): Promise<P
                     { text: prompt }
                 ]
             },
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        name: { type: Type.STRING },
-                        email: { type: Type.STRING },
-                        phone: { type: Type.STRING },
-                        propertyAddress: { type: Type.STRING },
-                        loanAmount: { type: Type.NUMBER }
-                    }
-                }
-            }
+            config: { responseMimeType: "application/json" }
         });
-        
-        return parseJson<Partial<Client>>(response.text || "{}", {});
+        return parseJson<Partial<Client>>(response.text, {});
     });
 };
 
-export const scanPipelineOpportunities = async (clients: Client[], marketIndices: MarketIndex[]): Promise<Opportunity[]> => {
+export const generateDailySchedule = async (events: CalendarEvent[], input: string, clients: Client[]): Promise<CalendarEvent[]> => {
     return withRetry(async () => {
         const ai = getAiClient();
+        // CSV Optimization: Limit context and use dense format
+        const clientCsv = clients.slice(0, 50).map(c => `${c.id},"${c.name.replace(/"/g, '""')}"`).join('\n');
         
-        // Prepare context
-        const marketContext = marketIndices.map(i => `${i.label}: ${i.value} (${i.change})`).join(', ');
-        const clientData = clients
-            .filter(c => c.status !== 'Closed')
-            .map(c => `ID: ${c.id}, Name: ${c.name}, Loan: $${c.loanAmount}, Status: ${c.status}, Notes: ${c.notes.substring(0, 50)}`)
-            .join('\n');
-
-        const prompt = `
-            Act as a Strategic Pipeline Manager.
-            
-            **Market Data**: ${marketContext}
-            **Active Clients**:
-            ${clientData}
-            
-            **Mission**:
-            Scan the client list against the market data to find opportunities.
-            - If rates dropped (10yr Treasury down), suggest refinancing or locking floaters.
-            - If jumbo spread narrowed, suggest specific product switches.
-            - Identify high-value clients stalled in "Lead" status.
-            
-            **Output**:
-            Return a JSON array of opportunities.
-            Schema: { clientId: string, clientName: string, trigger: string, action: string, priority: "HIGH" | "MEDIUM" | "LOW" }
-        `;
-
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            clientId: { type: Type.STRING },
-                            clientName: { type: Type.STRING },
-                            trigger: { type: Type.STRING },
-                            action: { type: Type.STRING },
-                            priority: { type: Type.STRING, enum: ["HIGH", "MEDIUM", "LOW"] }
-                        }
-                    }
-                }
-            }
-        });
-
-        return parseJson<Opportunity[]>(response.text || "[]", []);
-    });
-};
-
-export const generateDealArchitecture = async (client: Client): Promise<DealStrategy[]> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
+        const prompt = `Act as a Chief of Staff.
+        Current Events: ${JSON.stringify(events)}
+        User Request: "${input}"
         
-        const prompt = `
-            Act as a Deal Architect for a Private Bank.
-            Structure 3 distinct loan options for this client.
-            
-            **Client**: ${client.name}, Loan: $${client.loanAmount}
-            
-            **Strategies Required**:
-            1. **The Safety Play**: Fixed rate, stability focused.
-            2. **The Cash Flow Play**: Interest Only or ARM to minimize monthly payment.
-            3. **The Asset Play**: Leverage vs Liquidation strategy.
-            
-            **Output**:
-            JSON Array of strategies.
-            Schema: { title: string, type: "SAFE" | "AGGRESSIVE" | "BALANCED", monthlyPayment: string, pros: string[], cons: string[], description: string }
-        `;
-
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            title: { type: Type.STRING },
-                            type: { type: Type.STRING, enum: ["SAFE", "AGGRESSIVE", "BALANCED"] },
-                            monthlyPayment: { type: Type.STRING },
-                            pros: { type: Type.ARRAY, items: { type: Type.STRING } },
-                            cons: { type: Type.ARRAY, items: { type: Type.STRING } },
-                            description: { type: Type.STRING }
-                        }
-                    }
-                },
-                thinkingConfig: { thinkingBudget: 4096 }
-            }
-        });
-
-        return parseJson<DealStrategy[]>(response.text || "[]", []);
-    });
-};
-
-// --- Calendar & Chief of Staff ---
-
-export const generateDailySchedule = async (events: CalendarEvent[], rawInput: string, clientList?: Client[]): Promise<CalendarEvent[]> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const today = new Date().toISOString().split('T')[0];
-        const existingSchedule = events.map(e => `- ${e.start.split('T')[1]} - ${e.end.split('T')[1]}: ${e.title}`).join('\n');
+        Client DB (ID, Name):
+        ${clientCsv}
         
-        // Contextualize Clients
-        const clientContext = clientList ? 
-            clientList.map(c => `ID: ${c.id}, Name: ${c.name}`).join('\n') 
-            : "No active clients.";
-
-        const prompt = `
-            Act as an Executive Chief of Staff.
-            Optimize the user's daily schedule.
-            
-            **Existing Schedule**:
-            ${existingSchedule}
-            
-            **Client Database (for linking)**:
-            ${clientContext}
-            
-            **User Request/Tasks**:
-            "${rawInput}"
-            
-            **Mission**:
-            1. Parse the user's request for meetings, calls, or blocks.
-            2. Slot them intelligently into the day (8 AM - 6 PM).
-            3. **INTELLIGENT LINKING**: If the user mentions a name like "Call John", find "John Doe" in the database and include his ID in the 'clientId' field.
-            4. If there are conflicts, resolve them by moving non-urgent tasks.
-            
-            **Output**:
-            JSON Array of NEW events to add (do not return existing ones unless modified).
-            Schema: { title: string, start: "YYYY-MM-DDTHH:MM", end: "YYYY-MM-DDTHH:MM", type: "MEETING" | "CALL" | "TASK" | "BLOCK", notes: string, clientId?: string }
-            Assume date is ${today}.
-        `;
-
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            title: { type: Type.STRING },
-                            start: { type: Type.STRING },
-                            end: { type: Type.STRING },
-                            type: { type: Type.STRING, enum: ["MEETING", "CALL", "TASK", "BLOCK"] },
-                            notes: { type: Type.STRING },
-                            clientId: { type: Type.STRING }
-                        }
-                    }
-                }
-            }
-        });
-
-        const newEvents = parseJson<CalendarEvent[]>(response.text || "[]", []);
-        return newEvents.map(e => ({...e, id: Date.now() + Math.random().toString(), isAiGenerated: true}));
-    });
-};
-
-export const generateMeetingPrep = async (clientName: string, clientData?: Client) => {
-    return withRetry(async () => {
-        const ai = getAiClient();
+        Create new events. Match client names if possible.
+        Return JSON Array of CalendarEvent objects (id, title, start (ISO), end (ISO), type, clientId, isAiGenerated: true).
+        Assume today is ${new Date().toISOString().split('T')[0]}.`;
         
-        let context = "";
-        if (clientData) {
-            context = `
-                Client: ${clientData.name}
-                Loan: ${clientData.loanAmount}
-                Status: ${clientData.status}
-                Last Notes: ${clientData.notes}
-            `;
-        } else {
-            context = "Client not found in database. Provide general high-net-worth prep.";
-        }
-
-        const prompt = `
-            Act as a Private Banking Chief of Staff.
-            Prepare a "Cheat Sheet" for a meeting/call with ${clientName}.
-            
-            **Client Context**:
-            ${context}
-            
-            **Output**:
-            Markdown format.
-            - **Objective**: 1 sentence goal.
-            - **Key Stats**: Bullet points (Loan amt, rate if known).
-            - **Talking Points**: 2-3 strategic questions or updates.
-            - **Missing Items**: If status is active, list likely missing docs based on loan stage.
-        `;
-
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: prompt,
-            config: {
-                thinkingConfig: { thinkingBudget: 2048 }
-            }
-        });
-        return response.text;
-    });
-};
-
-// --- Knowledge Base Tools ---
-
-export const generateObjectionScript = async (objection: string): Promise<SalesScript> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const prompt = `
-            Act as a Master Sales Coach for high-net-worth mortgage banking.
-            
-            **Client Objection**: "${objection}"
-            
-            **Mission**:
-            Write a powerful, psychological script to overcome this objection.
-            - Tone: Empathetic but authoritative.
-            - Technique: Use "Feel, Felt, Found" or "Reframing".
-            
-            **Output**:
-            JSON format.
-            {
-                "title": "Short catchy title",
-                "content": "The actual script text...",
-                "tags": ["Tag1", "Tag2"]
-            }
-        `;
-
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        title: { type: Type.STRING },
-                        content: { type: Type.STRING },
-                        tags: { type: Type.ARRAY, items: { type: Type.STRING } }
-                    }
-                }
-            }
+            config: { responseMimeType: "application/json" }
         });
-
-        const data = parseJson<Partial<SalesScript>>(response.text || "{}", {});
-        return {
-            id: Date.now().toString(),
-            category: 'Objection',
-            title: data.title || 'Custom Rebuttal',
-            content: data.content || 'Script generation failed.',
-            tags: data.tags || ['Custom']
-        };
+        return parseJson<CalendarEvent[]>(response.text, []);
     });
 };
 
-// --- Voice Command Parser ---
-export const parseNaturalLanguageCommand = async (transcript: string, validStatuses?: string[]): Promise<CommandIntent> => {
-  return withRetry(async () => {
-    const statusList = validStatuses ? validStatuses.join("', '") : "Lead', 'Pre-Approval', 'Underwriting', 'Clear to Close', 'Closed";
-
-    const ai = getAiClient();
-    const prompt = `
-      You are a command parser for a Mortgage CRM. Convert the user's natural language request into a specific JSON Action.
-      
-      **Available Actions**:
-      1. CREATE_CLIENT: User wants to add a new person. Extract 'name', 'loanAmount' (number), 'status', 'email', 'phone'.
-      2. UPDATE_CLIENT: User wants to change details of an EXISTING deal.
-         - Triggers: "Update", "Change", "Set", "Move", "Edit".
-         - Supports MULTIPLE updates in one phrase (e.g., "Update John's loan to 1.5M and move him to Closed").
-         - Extract 'clientName' (who to update) and any fields to change: 'status', 'loanAmount', 'phone', 'email', 'name' (if renaming).
-      3. ADD_NOTE: User wants to append a note. Extract 'clientName' and 'note'.
-      4. ADD_TASK: User wants to add a checklist item. Extract 'clientName', 'taskLabel', and 'date' (YYYY-MM-DD) if mentioned.
-
-      **Status Values**: '${statusList}'. 
-      - Map "Closing" or "CTC" to "Clear to Close".
-      - Map "Approved" to "Pre-Approval" or "Underwriting" based on context.
-
-      **User Request**: "${transcript}"
-      **Today's Date**: ${new Date().toISOString().split('T')[0]}
-
-      **Output Format**: JSON only.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-           type: Type.OBJECT,
-           properties: {
-             action: { type: Type.STRING, enum: ["CREATE_CLIENT", "UPDATE_STATUS", "UPDATE_CLIENT", "ADD_NOTE", "ADD_TASK", "UNKNOWN"] },
-             clientName: { type: Type.STRING },
-             payload: {
-               type: Type.OBJECT,
-               properties: {
-                 name: { type: Type.STRING },
-                 loanAmount: { type: Type.NUMBER },
-                 status: { type: Type.STRING },
-                 phone: { type: Type.STRING },
-                 email: { type: Type.STRING },
-                 note: { type: Type.STRING },
-                 taskLabel: { type: Type.STRING },
-                 date: { type: Type.STRING }
-               }
-             }
-           }
-        }
-      }
+export const generateMeetingPrep = async (eventTitle: string, client?: Client): Promise<string> => {
+    return withRetry(async () => {
+        const ai = getAiClient();
+        const prompt = `Prepare a one-page briefing for a meeting: "${eventTitle}".
+        ${client ? `Client Context: ${client.name}, ${client.status}, Loan $${client.loanAmount}` : ''}
+        
+        Include:
+        1. Goal of meeting
+        2. key talking points
+        3. Potential objections (if sales related)`;
+        
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt
+        });
+        return response.text;
     });
-
-    const result = parseJson<CommandIntent | null>(response.text || "{}", null);
-    
-    if (!result || !result.action) {
-        throw new Error("Schema mismatch: Invalid command structure.");
-    }
-
-    if (!result.payload) {
-        result.payload = {};
-    }
-    
-    return result;
-  });
 };

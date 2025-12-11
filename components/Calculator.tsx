@@ -1,11 +1,12 @@
-
-import React, { useState, useMemo, useEffect, useDeferredValue } from 'react';
+import React, { useState, useMemo, useEffect, useDeferredValue, useRef, memo, useCallback } from 'react';
 import { LoanScenario } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { RefreshCcw, Info, BrainCircuit, RotateCcw } from 'lucide-react';
-import { analyzeLoanScenario, loadFromStorage, saveToStorage, StorageKeys } from '../services';
+import { streamAnalyzeLoanScenario } from '../services/geminiService';
+import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { Skeleton } from './Skeleton';
 
 const DEFAULT_SCENARIO: LoanScenario = {
     purchasePrice: 2500000,
@@ -18,6 +19,120 @@ const DEFAULT_SCENARIO: LoanScenario = {
     isInterestOnly: false
 };
 
+// --- SUB-COMPONENT: Memoized Chart Section ---
+const CalculatorResults = memo(({ 
+    chartData, 
+    totalMonthlyPayment 
+}: { 
+    chartData: any[], 
+    totalMonthlyPayment: number 
+}) => {
+    // Defer chart updates to prevent input lag
+    const deferredChartData = useDeferredValue(chartData);
+
+    return (
+        <div className="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-gray-200 flex-1 flex flex-col items-center justify-center min-h-[400px]">
+            <h3 className="text-lg font-bold text-brand-dark mb-8 self-start w-full border-b pb-2">Payment Breakdown</h3>
+            <div className="w-full h-[300px] flex items-center justify-center">
+                <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                        <Pie
+                            data={deferredChartData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={80}
+                            outerRadius={120}
+                            paddingAngle={5}
+                            dataKey="value"
+                            isAnimationActive={false} // Disable animation for responsiveness
+                        >
+                            {deferredChartData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                        </Pie>
+                        <RechartsTooltip 
+                            formatter={(value: number) => `$${value.toLocaleString(undefined, {maximumFractionDigits: 0})}`}
+                            contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}}
+                        />
+                    </PieChart>
+                </ResponsiveContainer>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full mt-8">
+                {deferredChartData.map((item, idx) => (
+                    <div key={idx} className="flex flex-col items-center p-3 rounded-lg bg-gray-50 border border-gray-100">
+                        <div className="flex items-center space-x-2 mb-1">
+                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
+                            <span className="text-xs font-bold text-gray-500 uppercase">{item.name}</span>
+                        </div>
+                        <span className="text-lg font-bold text-brand-dark">${item.value.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
+                    </div>
+                ))}
+            </div>
+       </div>
+    );
+});
+
+// --- SUB-COMPONENT: AI Analysis Section (Memoized) ---
+// Optimization: Wrapped in React.memo to prevent re-renders when parent input state changes.
+// It will only re-render if aiAnalysis content changes or loading state toggles.
+const AiAnalysisSection = memo(({ 
+    aiAnalysis, 
+    loadingAi, 
+    onGetAnalysis 
+}: { 
+    aiAnalysis: string | null, 
+    loadingAi: boolean, 
+    onGetAnalysis: () => void 
+}) => {
+    return (
+        <div className="bg-brand-dark text-white p-6 rounded-xl shadow-lg relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-6 opacity-10">
+                <BrainCircuit size={120} />
+            </div>
+            <div className="relative z-10">
+                <div className="flex justify-between items-start mb-4">
+                    <div className="flex items-center space-x-3">
+                        <div className="bg-white/10 p-2 rounded-lg">
+                            <BrainCircuit className="text-brand-gold" size={24} />
+                        </div>
+                        <div>
+                            <h3 className="font-bold text-lg">AI Scenario Auditor (Gemini 3 Pro)</h3>
+                            <p className="text-xs text-gray-400">Deep-dive risk analysis & structuring advice</p>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={onGetAnalysis}
+                        disabled={loadingAi}
+                        className="px-4 py-2 bg-brand-red hover:bg-red-700 text-white text-sm font-bold rounded-lg transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center focus:outline-none focus:ring-2 focus:ring-white"
+                    >
+                        {loadingAi ? 'Analyzing...' : 'Run Analysis'}
+                    </button>
+                </div>
+                
+                <div className="bg-white/5 border border-white/10 rounded-xl p-4 min-h-[100px] text-sm leading-relaxed text-gray-300">
+                    {loadingAi && !aiAnalysis ? (
+                        <div className="space-y-3 p-2">
+                            <Skeleton className="h-4 w-3/4 bg-white/10" />
+                            <Skeleton className="h-3 w-full bg-white/10" />
+                            <Skeleton className="h-3 w-[90%] bg-white/10" />
+                            <Skeleton className="h-3 w-[85%] bg-white/10" />
+                        </div>
+                    ) : aiAnalysis ? (
+                        <div className="prose prose-invert prose-sm max-w-none">
+                            <MarkdownRenderer content={aiAnalysis} />
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center h-full text-gray-500 opacity-60">
+                            <Info size={24} className="mb-2"/>
+                            <p>Run analysis to get AI feedback on DTI, reserves, and risk factors.</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+       </div>
+    );
+});
+
 export const Calculator: React.FC = () => {
   const { showToast } = useToast();
   
@@ -28,6 +143,10 @@ export const Calculator: React.FC = () => {
 
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [loadingAi, setLoadingAi] = useState(false);
+  
+  // Streaming Refs
+  const textBuffer = useRef("");
+  const analysisRafRef = useRef<number | null>(null);
 
   // Persistence Effect
   useEffect(() => {
@@ -59,39 +178,70 @@ export const Calculator: React.FC = () => {
     { name: 'HOA', value: scenario.hoaMonthly, color: '#64748B' },
   ], [monthlyPI, monthlyPropertyTax, monthlyInsurance, scenario.hoaMonthly, scenario.isInterestOnly]);
 
-  // Defer chart updates to prevent input lag
-  const deferredChartData = useDeferredValue(chartData);
+  // OPTIMIZATION: Use refs to store latest scenario/loanAmount so the callback is stable
+  // This prevents the AI section from re-rendering on every keystroke
+  const latestScenario = useRef(scenario);
+  const latestLoanAmount = useRef(loanAmount);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>, field: keyof LoanScenario) => {
+  useEffect(() => {
+      latestScenario.current = scenario;
+      latestLoanAmount.current = loanAmount;
+  }, [scenario, loanAmount]);
+
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>, field: keyof LoanScenario) => {
     const val = parseFloat(e.target.value);
-    setScenario({
-      ...scenario,
+    setScenario(prev => ({
+      ...prev,
       [field]: isNaN(val) ? 0 : val
-    });
-  };
+    }));
+  }, []);
 
-  const handleReset = () => {
+  const handleReset = useCallback(() => {
       if(confirm('Reset calculator to defaults?')) {
           setScenario(DEFAULT_SCENARIO);
           setAiAnalysis(null);
           showToast('Calculator reset', 'info');
       }
-  };
+  }, [showToast]);
 
-  const handleGetAnalysis = async () => {
+  // Optimization: Stabilized handler using refs for data access
+  const handleGetAnalysis = useCallback(async () => {
     setLoadingAi(true);
-    setAiAnalysis(null);
+    setAiAnalysis(''); 
+    textBuffer.current = "";
+
+    // Access current state via refs to avoid closure staleness without adding dependencies
+    const currentScenario = latestScenario.current;
+    const currentLoanAmount = latestLoanAmount.current;
+
+    let isStreaming = true;
+    const loop = () => {
+        if (!isStreaming) return;
+        setAiAnalysis(textBuffer.current);
+        analysisRafRef.current = requestAnimationFrame(loop);
+    };
+    loop();
+
     try {
-      const dataStr = `Jumbo Loan Scenario. Price: $${scenario.purchasePrice}, Loan: $${loanAmount}, IO: ${scenario.isInterestOnly}, Rate: ${scenario.interestRate}%, Dwn: ${scenario.downPaymentPercent}%`;
-      const result = await analyzeLoanScenario(dataStr);
-      setAiAnalysis(result);
+      const dataStr = `Jumbo Loan Scenario. Price: $${currentScenario.purchasePrice}, Loan: $${currentLoanAmount}, IO: ${currentScenario.isInterestOnly}, Rate: ${currentScenario.interestRate}%, Dwn: ${currentScenario.downPaymentPercent}%`;
+      const stream = streamAnalyzeLoanScenario(dataStr);
+      
+      for await (const chunk of stream) {
+          if (chunk) {
+              textBuffer.current += chunk;
+          }
+      }
     } catch (e) {
       console.error(e);
+      textBuffer.current += "\n\n[Analysis Error: Unable to complete report.]";
       showToast('AI Analysis failed', 'error');
     } finally {
+      isStreaming = false;
+      if (analysisRafRef.current) cancelAnimationFrame(analysisRafRef.current);
+      setAiAnalysis(textBuffer.current);
       setLoadingAi(false);
     }
-  };
+  }, [showToast]);
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto animate-fade-in pb-20 md:pb-8">
@@ -198,7 +348,7 @@ export const Calculator: React.FC = () => {
                         type="checkbox" 
                         className="hidden"
                         checked={scenario.isInterestOnly}
-                        onChange={(e) => setScenario({...scenario, isInterestOnly: e.target.checked})}
+                        onChange={(e) => setScenario(prev => ({...prev, isInterestOnly: e.target.checked}))}
                     />
                     <span className="text-sm font-medium text-gray-700 group-hover:text-brand-dark transition-colors">Interest Only Payment</span>
                  </label>
@@ -248,89 +398,8 @@ export const Calculator: React.FC = () => {
 
         {/* Results Column */}
         <div className="xl:col-span-8 flex flex-col gap-8">
-           {/* Chart Section */}
-           <div className="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-gray-200 flex-1 flex flex-col items-center justify-center min-h-[400px]">
-                <h3 className="text-lg font-bold text-brand-dark mb-8 self-start w-full border-b pb-2">Payment Breakdown</h3>
-                <div className="w-full h-[300px] flex items-center justify-center">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                            <Pie
-                                data={deferredChartData}
-                                cx="50%"
-                                cy="50%"
-                                innerRadius={80}
-                                outerRadius={120}
-                                paddingAngle={5}
-                                dataKey="value"
-                                isAnimationActive={false} // Disable animation for responsiveness
-                            >
-                                {deferredChartData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.color} />
-                                ))}
-                            </Pie>
-                            <RechartsTooltip 
-                                formatter={(value: number) => `$${value.toLocaleString(undefined, {maximumFractionDigits: 0})}`}
-                                contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}}
-                            />
-                        </PieChart>
-                    </ResponsiveContainer>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full mt-8">
-                    {deferredChartData.map((item, idx) => (
-                        <div key={idx} className="flex flex-col items-center p-3 rounded-lg bg-gray-50 border border-gray-100">
-                            <div className="flex items-center space-x-2 mb-1">
-                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
-                                <span className="text-xs font-bold text-gray-500 uppercase">{item.name}</span>
-                            </div>
-                            <span className="text-lg font-bold text-brand-dark">${item.value.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
-                        </div>
-                    ))}
-                </div>
-           </div>
-           
-           {/* AI Analysis Section */}
-           <div className="bg-brand-dark text-white p-6 rounded-xl shadow-lg relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-6 opacity-10">
-                    <BrainCircuit size={120} />
-                </div>
-                <div className="relative z-10">
-                    <div className="flex justify-between items-start mb-4">
-                        <div className="flex items-center space-x-3">
-                            <div className="bg-white/10 p-2 rounded-lg">
-                                <BrainCircuit className="text-brand-gold" size={24} />
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-lg">AI Scenario Auditor (Gemini Pro)</h3>
-                                <p className="text-xs text-gray-400">Deep-dive risk analysis & structuring advice</p>
-                            </div>
-                        </div>
-                        <button 
-                            onClick={handleGetAnalysis}
-                            disabled={loadingAi}
-                            className="px-4 py-2 bg-brand-red hover:bg-red-700 text-white text-sm font-bold rounded-lg transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center focus:outline-none focus:ring-2 focus:ring-white"
-                        >
-                            {loadingAi ? 'Analyzing...' : 'Run Analysis'}
-                        </button>
-                    </div>
-                    
-                    <div className="bg-white/5 border border-white/10 rounded-xl p-4 min-h-[100px] text-sm leading-relaxed text-gray-300">
-                        {loadingAi ? (
-                            <div className="flex items-center justify-center h-full text-brand-gold animate-pulse">
-                                <RefreshCcw className="animate-spin mr-2" /> Thinking...
-                            </div>
-                        ) : aiAnalysis ? (
-                            <div className="prose prose-invert prose-sm max-w-none">
-                                <MarkdownRenderer content={aiAnalysis} />
-                            </div>
-                        ) : (
-                            <div className="flex flex-col items-center justify-center h-full text-gray-500 opacity-60">
-                                <Info size={24} className="mb-2"/>
-                                <p>Run analysis to get AI feedback on DTI, reserves, and risk factors.</p>
-                            </div>
-                        )}
-                    </div>
-                </div>
-           </div>
+           <CalculatorResults chartData={chartData} totalMonthlyPayment={totalMonthlyPayment} />
+           <AiAnalysisSection aiAnalysis={aiAnalysis} loadingAi={loadingAi} onGetAnalysis={handleGetAnalysis} />
         </div>
       </div>
     </div>

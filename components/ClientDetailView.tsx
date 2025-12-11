@@ -1,5 +1,4 @@
-
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, memo } from 'react';
 import { 
     Users, ArrowUpRight, Edit2, Trash2, Sparkles, Loader2, Copy, 
     Square, Mic, Check, ChevronLeft, DollarSign, Save, Zap, Wand2, Mail, Phone, 
@@ -13,7 +12,8 @@ import {
     estimatePropertyDetails, generateSmartChecklist, generatePartnerUpdate, 
     generateDealArchitecture, extractClientDataFromImage, generateGiftSuggestions,
     transcribeAudio, parseNaturalLanguageCommand
-} from '../services';
+} from '../services/geminiService';
+import { Skeleton } from './Skeleton';
 
 interface ClientDetailViewProps {
     client: Client;
@@ -23,14 +23,85 @@ interface ClientDetailViewProps {
     onClose: () => void;
 }
 
-export const ClientDetailView: React.FC<ClientDetailViewProps> = ({ 
+// Helper for buffered inputs to prevent re-renders on every keystroke
+const BufferedInput = ({ 
+    value, 
+    onCommit, 
+    className, 
+    placeholder, 
+    type = "text" 
+}: { 
+    value: string | number, 
+    onCommit: (val: any) => void, 
+    className: string, 
+    placeholder?: string,
+    type?: string
+}) => {
+    const [localValue, setLocalValue] = useState(value);
+
+    useEffect(() => {
+        setLocalValue(value);
+    }, [value]);
+
+    const handleBlur = () => {
+        if (localValue !== value) {
+            onCommit(type === 'number' ? (parseFloat(localValue as string) || 0) : localValue);
+        }
+    };
+
+    return (
+        <input
+            type={type}
+            value={localValue}
+            onChange={(e) => setLocalValue(e.target.value)}
+            onBlur={handleBlur}
+            className={className}
+            placeholder={placeholder}
+        />
+    );
+};
+
+const BufferedTextArea = ({ 
+    value, 
+    onCommit, 
+    className, 
+    placeholder 
+}: { 
+    value: string, 
+    onCommit: (val: string) => void, 
+    className: string, 
+    placeholder?: string 
+}) => {
+    const [localValue, setLocalValue] = useState(value);
+
+    useEffect(() => {
+        setLocalValue(value);
+    }, [value]);
+
+    const handleBlur = () => {
+        if (localValue !== value) {
+            onCommit(localValue);
+        }
+    };
+
+    return (
+        <textarea
+            value={localValue}
+            onChange={(e) => setLocalValue(e.target.value)}
+            onBlur={handleBlur}
+            className={className}
+            placeholder={placeholder}
+        />
+    );
+};
+
+export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({ 
     client, dealStages, onUpdate, onDelete, onClose 
 }) => {
     const { showToast } = useToast();
     
     // UI State
     const [isEditing, setIsEditing] = useState(false);
-    const [activeTab, setActiveTab] = useState('OVERVIEW'); // Placeholder for future tabs if needed
 
     // Feature State: Document Scanning
     const [isScanningDoc, setIsScanningDoc] = useState(false);
@@ -60,8 +131,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
 
     // Feature State: Tasks
     const [newTaskLabel, setNewTaskLabel] = useState('');
-    const [newTaskDate, setNewTaskDate] = useState('');
-    const [checklistSearchQuery, setChecklistSearchQuery] = useState('');
     const [isGeneratingChecklist, setIsGeneratingChecklist] = useState(false);
 
     // Feature State: Valuation
@@ -211,12 +280,10 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
         const newItem: ChecklistItem = { 
             id: Date.now().toString(), 
             label: newTaskLabel, 
-            checked: false, 
-            reminderDate: newTaskDate || undefined
+            checked: false
         };
         onUpdate({ ...client, checklist: [...client.checklist, newItem] });
         setNewTaskLabel('');
-        setNewTaskDate('');
     };
 
     const handleToggleTask = (itemId: string, current: boolean) => {
@@ -322,7 +389,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
         }
     };
 
-    // Voice Command Handler (Scoped to this client)
+    // Voice Command Handler
     const handleVoiceCommand = async () => {
         if (isRecording) {
             mediaRecorderRef.current?.stop();
@@ -349,7 +416,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                                 const transcript = await transcribeAudio(base64Audio);
                                 const command = await parseNaturalLanguageCommand(transcript, dealStages.map(s => s.name));
                                 
-                                // Execute command locally on this client
                                 const payload = command.payload;
                                 const updated = { ...client };
                                 let hasUpdates = false;
@@ -422,9 +488,9 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                         <div>
                             {isEditing ? (
                                 <div className="flex items-center gap-3">
-                                    <input 
+                                    <BufferedInput 
                                         value={client.name} 
-                                        onChange={(e) => onUpdate({...client, name: e.target.value})}
+                                        onCommit={(val) => onUpdate({...client, name: val})}
                                         className="font-bold text-xl text-gray-900 border-b border-gray-300 focus:border-brand-red outline-none bg-transparent w-full md:w-auto" 
                                     />
                                     <button 
@@ -504,7 +570,11 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                     </div>
                     <div className="bg-white/5 rounded-lg p-3 min-h-[60px]">
                         {isSummarizing ? (
-                            <div className="flex items-center justify-center h-full text-xs text-gray-400 animate-pulse">Analyzing...</div>
+                             <div className="space-y-2">
+                                <Skeleton className="h-3 w-full bg-white/10" />
+                                <Skeleton className="h-3 w-[90%] bg-white/10" />
+                                <Skeleton className="h-3 w-[80%] bg-white/10" />
+                            </div>
                         ) : clientSummary ? (
                             <div className="text-sm text-gray-200 leading-relaxed"><MarkdownRenderer content={clientSummary} /></div>
                         ) : (
@@ -534,7 +604,16 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                     {showConcierge && (
                         <div className="animate-fade-in space-y-4">
                             {isGeneratingGifts ? (
-                                <div className="p-8 flex flex-col items-center justify-center text-rose-400"><Loader2 size={24} className="animate-spin mb-2"/><span className="text-xs font-medium">Curating...</span></div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                     {Array(3).fill(0).map((_, i) => (
+                                         <div key={i} className="p-4 rounded-xl border border-gray-100">
+                                             <Skeleton className="h-4 w-24 mb-2" />
+                                             <Skeleton className="h-3 w-16 mb-2" />
+                                             <Skeleton className="h-3 w-full mb-3" />
+                                             <Skeleton className="h-6 w-full" />
+                                         </div>
+                                     ))}
+                                 </div>
                             ) : giftSuggestions.length > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                     {giftSuggestions.map((gift, idx) => (
@@ -568,7 +647,16 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                     {showArchitect && (
                         <div className="animate-fade-in space-y-4">
                             {isArchitecting ? (
-                                <div className="p-8 flex flex-col items-center justify-center text-indigo-400"><Loader2 size={24} className="animate-spin mb-2"/><span className="text-xs font-medium">Analyzing...</span></div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                     {Array(3).fill(0).map((_, i) => (
+                                         <div key={i} className="p-4 rounded-xl border border-gray-100">
+                                             <Skeleton className="h-3 w-12 mb-2" />
+                                             <Skeleton className="h-4 w-32 mb-2" />
+                                             <Skeleton className="h-6 w-24 mb-2" />
+                                             <Skeleton className="h-3 w-full" />
+                                         </div>
+                                     ))}
+                                 </div>
                             ) : dealStrategies.length > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                     {dealStrategies.map((strategy, idx) => (
@@ -599,19 +687,19 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Email</label>
                                 <div className="relative"><Mail className="absolute left-3 top-2.5 text-gray-400" size={14} />
-                                    <input value={client.email} onChange={(e) => onUpdate({...client, email: e.target.value})} className="w-full pl-9 p-2 bg-gray-50 border border-gray-200 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="Email"/>
+                                    <BufferedInput value={client.email} onCommit={(val) => onUpdate({...client, email: val})} className="w-full pl-9 p-2 bg-gray-50 border border-gray-200 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="Email"/>
                                 </div>
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Phone</label>
                                 <div className="relative"><Phone className="absolute left-3 top-2.5 text-gray-400" size={14} />
-                                    <input value={client.phone} onChange={(e) => onUpdate({...client, phone: e.target.value})} className="w-full pl-9 p-2 bg-gray-50 border border-gray-200 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="Phone"/>
+                                    <BufferedInput value={client.phone} onCommit={(val) => onUpdate({...client, phone: val})} className="w-full pl-9 p-2 bg-gray-50 border border-gray-200 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="Phone"/>
                                 </div>
                             </div>
                             {isEditing && (
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Referral</label>
-                                    <input value={client.referralSource || ''} onChange={(e) => onUpdate({...client, referralSource: e.target.value})} placeholder="Referral Source" className="w-full p-2 bg-gray-50 border border-gray-200 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500"/>
+                                    <BufferedInput value={client.referralSource || ''} onCommit={(val) => onUpdate({...client, referralSource: val})} placeholder="Referral Source" className="w-full p-2 bg-gray-50 border border-gray-200 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500"/>
                                 </div>
                             )}
                             {!isEditing && client.referralSource && (
@@ -627,20 +715,20 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Address</label>
                                 <div className="flex space-x-2">
-                                    <input value={client.propertyAddress} onChange={(e) => onUpdate({...client, propertyAddress: e.target.value})} className="flex-1 p-2 bg-gray-50 border border-gray-200 rounded text-sm outline-none focus:border-brand-gold" placeholder="Address..."/>
+                                    <BufferedInput value={client.propertyAddress} onCommit={(val) => onUpdate({...client, propertyAddress: val})} className="flex-1 p-2 bg-gray-50 border border-gray-200 rounded text-sm outline-none focus:border-brand-gold" placeholder="Address..."/>
                                     <button onClick={handleEstimateValue} disabled={isEstimatingValue || !client.propertyAddress} className="bg-brand-gold text-brand-dark p-2 rounded hover:bg-yellow-500 disabled:opacity-50 transition-colors shadow-sm"><Wand2 size={16}/></button>
                                 </div>
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Loan Amount</label>
                                 <div className="relative"><span className="absolute left-3 top-2.5 text-gray-400 text-xs">$</span>
-                                    <input type="number" value={client.loanAmount} onChange={(e) => onUpdate({...client, loanAmount: parseFloat(e.target.value) || 0})} className="w-full pl-6 p-2 bg-gray-50 border border-gray-200 rounded text-sm focus:ring-2 focus:ring-brand-red outline-none"/>
+                                    <BufferedInput type="number" value={client.loanAmount} onCommit={(val) => onUpdate({...client, loanAmount: val})} className="w-full pl-6 p-2 bg-gray-50 border border-gray-200 rounded text-sm focus:ring-2 focus:ring-brand-red outline-none"/>
                                 </div>
                                 {client.estimatedPropertyValue && ltv !== null && <div className="mt-1 text-[10px] text-gray-500 text-right">LTV: <span className={ltv > 80 ? 'text-red-500 font-bold' : 'text-green-600 font-bold'}>{ltv.toFixed(1)}%</span></div>}
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Notes</label>
-                                <textarea value={client.notes} onChange={(e) => onUpdate({...client, notes: e.target.value})} className="w-full p-2 bg-gray-50 border border-gray-200 rounded text-sm min-h-[80px]" placeholder="Add notes..."/>
+                                <BufferedTextArea value={client.notes} onCommit={(val) => onUpdate({...client, notes: val})} className="w-full p-2 bg-gray-50 border border-gray-200 rounded text-sm min-h-[80px]" placeholder="Add notes..."/>
                             </div>
                         </div>
                     </div>
@@ -725,4 +813,4 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = ({
             </div>
         </div>
     );
-};
+});

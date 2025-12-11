@@ -1,7 +1,7 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { DollarSign, TrendingUp, ShieldCheck, Briefcase, CheckCircle2, PlusCircle, Sparkles, Loader2, ArrowUpRight, Settings, Calculator, BarChart3, PieChart, History, X, Save, Target, AlertTriangle } from 'lucide-react';
-import { loadFromStorage, saveToStorage, StorageKeys, generateGapStrategy } from '../services';
+import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
+import { generateGapStrategy } from '../services/geminiService';
 import { Client, ManualDeal } from '../types';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ReferenceLine, CartesianGrid } from 'recharts';
 import { useToast } from './Toast';
@@ -407,7 +407,7 @@ export const CompensationTracker: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="mt-4 pt-4 border-t border-blue-200">
+                    <div className="mt-4 pt-4 border-blue-200">
                          <div className="flex justify-between items-end">
                              <span className="text-xs text-blue-800 font-medium">Net Payout</span>
                              <span className="text-2xl font-bold text-blue-900">${quickCalcMyCut.toLocaleString(undefined, {maximumFractionDigits:0})}</span>
@@ -540,42 +540,33 @@ export const CompensationTracker: React.FC = () => {
                     {/* AI Revenue Strategy */}
                     <div className="bg-brand-light rounded-xl border border-brand-gold/30 overflow-hidden shadow-sm flex flex-col h-auto">
                         <div className="bg-brand-gold/10 p-4 border-b border-brand-gold/20 flex justify-between items-center">
-                            <div className="flex items-center space-x-2">
-                                <Target size={16} className="text-brand-dark"/>
-                                <span className="text-xs font-bold text-brand-dark uppercase tracking-wider">Revenue Forecast</span>
+                            <div className="flex items-center space-x-2 text-brand-dark">
+                                <Sparkles size={16} className="text-brand-gold"/>
+                                <h3 className="font-bold text-sm">Income Gap Strategy</h3>
                             </div>
                             <button 
                                 onClick={handleGenerateStrategy}
                                 disabled={isStrategizing}
-                                className="text-xs bg-white hover:bg-white/80 border border-brand-gold/30 px-3 py-1 rounded-full transition-colors flex items-center"
+                                className="text-[10px] bg-white hover:bg-white/80 border border-brand-gold/30 text-brand-dark px-2 py-1 rounded transition-colors disabled:opacity-50 flex items-center"
                             >
-                                {isStrategizing ? <Loader2 size={12} className="animate-spin mr-1"/> : <ArrowUpRight size={12} className="mr-1"/>}
-                                Strategic Gap Analysis
+                                {isStrategizing ? <Loader2 size={10} className="animate-spin mr-1"/> : <Target size={10} className="mr-1"/>}
+                                {gapStrategy ? "Refresh" : "Analyze"}
                             </button>
                         </div>
-                        <div className="p-5 flex-1 overflow-y-auto max-h-[300px]">
-                            {gapStrategy ? (
-                                <div className="text-sm text-gray-700 leading-relaxed font-sans">
+                        <div className="p-4 text-xs leading-relaxed">
+                            {isStrategizing ? (
+                                <div className="flex flex-col items-center justify-center py-4 text-gray-500">
+                                    <Loader2 size={20} className="animate-spin mb-2"/>
+                                    <span>Analyzing pipeline...</span>
+                                </div>
+                            ) : gapStrategy ? (
+                                <div className="prose prose-sm max-w-none">
                                     <MarkdownRenderer content={gapStrategy} />
                                 </div>
                             ) : (
-                                <div className="text-center py-6">
-                                    {incomeGap > 0 ? (
-                                        <div className="flex flex-col items-center">
-                                            <AlertTriangle size={24} className="text-orange-400 mb-2"/>
-                                            <p className="text-sm font-bold text-gray-700">Income Gap: ${incomeGap.toLocaleString()}</p>
-                                            <p className="text-xs text-gray-500 mt-1 max-w-[200px]">
-                                                Click "Gap Analysis" to get an AI action plan on bridging this gap.
-                                            </p>
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-col items-center">
-                                            <CheckCircle2 size={24} className="text-green-500 mb-2"/>
-                                            <p className="text-sm font-bold text-gray-700">On Target!</p>
-                                            <p className="text-xs text-gray-500 mt-1">You are currently exceeding your goal.</p>
-                                        </div>
-                                    )}
-                                </div>
+                                <p className="text-gray-500 italic text-center">
+                                    Click analyze to generate a plan to close the ${(incomeGap > 0 ? incomeGap : 0).toLocaleString()} gap.
+                                </p>
                             )}
                         </div>
                     </div>

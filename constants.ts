@@ -1,4 +1,3 @@
-
 import { Client, DealStage, SalesScript, MortgageTerm, SimulationScenario } from './types';
 
 export const INITIAL_CLIENTS: Client[] = [
