@@ -1,40 +1,20 @@
 import React, { useState, useRef, useEffect, memo } from 'react';
-import Users from 'lucide-react/dist/esm/icons/users';
-import ArrowUpRight from 'lucide-react/dist/esm/icons/arrow-up-right';
-import Edit2 from 'lucide-react/dist/esm/icons/edit-2';
-import Trash2 from 'lucide-react/dist/esm/icons/trash-2';
-import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
-import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
-import Copy from 'lucide-react/dist/esm/icons/copy';
-import Square from 'lucide-react/dist/esm/icons/square';
-import Mic from 'lucide-react/dist/esm/icons/mic';
-import Check from 'lucide-react/dist/esm/icons/check';
-import ChevronLeft from 'lucide-react/dist/esm/icons/chevron-left';
-import DollarSign from 'lucide-react/dist/esm/icons/dollar-sign';
-import Save from 'lucide-react/dist/esm/icons/save';
-import Zap from 'lucide-react/dist/esm/icons/zap';
-import Wand2 from 'lucide-react/dist/esm/icons/wand-2';
-import Mail from 'lucide-react/dist/esm/icons/mail';
-import Phone from 'lucide-react/dist/esm/icons/phone';
-import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
-import Scale from 'lucide-react/dist/esm/icons/scale';
-import CheckSquare from 'lucide-react/dist/esm/icons/check-square';
-import History from 'lucide-react/dist/esm/icons/history';
-import Gift from 'lucide-react/dist/esm/icons/gift';
-import PenTool from 'lucide-react/dist/esm/icons/pen-tool';
-import Camera from 'lucide-react/dist/esm/icons/camera';
-import X from 'lucide-react/dist/esm/icons/x';
-import Bell from 'lucide-react/dist/esm/icons/bell';
-import CalendarIcon from 'lucide-react/dist/esm/icons/calendar';
-import Percent from 'lucide-react/dist/esm/icons/percent';
-import RefreshCcw from 'lucide-react/dist/esm/icons/refresh-ccw';
+import { 
+    Users, ArrowUpRight, Edit2, Trash2, Sparkles, Loader2, Copy, 
+    Square, Mic, Check, ChevronLeft, DollarSign, Save, Zap, Wand2, Mail, Phone, 
+    UserPlus, Scale, CheckSquare, History, Gift, PenTool, Camera, X, Bell, Calendar as CalendarIcon, Percent, RefreshCcw
+} from 'lucide-react';
 import { Client, DealStage, ChecklistItem, EmailLog, DealStrategy, GiftSuggestion, CalendarEvent } from '../types';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { 
+    generateEmailDraft, generateSubjectLines, generateClientSummary, 
+    estimatePropertyDetails, generateSmartChecklist, generatePartnerUpdate, 
+    generateDealArchitecture, extractClientDataFromImage, generateGiftSuggestions,
+    transcribeAudio, parseNaturalLanguageCommand, organizeScratchpadNotes
+} from '../services/geminiService';
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
 import { Skeleton } from './Skeleton';
-const loadClientWorkspaceService = () => import('../services/gemini/clientWorkspaceService');
-const loadAssistantService = () => import('../services/gemini/assistantService');
 
 interface ClientDetailViewProps {
     client: Client;
@@ -189,7 +169,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
         reader.onloadend = async () => {
             try {
                 const base64Image = (reader.result as string).split(',')[1];
-                const { extractClientDataFromImage } = await loadClientWorkspaceService();
                 const extractedData = await extractClientDataFromImage(base64Image);
                 
                 onUpdate({
@@ -215,7 +194,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
     const handleGenerateSummary = async () => {
         setIsSummarizing(true);
         try {
-            const { generateClientSummary } = await loadClientWorkspaceService();
             const summary = await generateClientSummary(client);
             setClientSummary(summary || "No summary available.");
             onUpdate({ ...client, lastSummary: summary });
@@ -230,7 +208,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
         setIsArchitecting(true);
         setShowArchitect(true);
         try {
-            const { generateDealArchitecture } = await loadClientWorkspaceService();
             const strategies = await generateDealArchitecture(client);
             setDealStrategies(strategies);
         } catch (e) {
@@ -244,7 +221,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
     const handleGenerateGifts = async () => {
         setIsGeneratingGifts(true);
         try {
-            const { generateGiftSuggestions } = await loadClientWorkspaceService();
             const gifts = await generateGiftSuggestions(client);
             setGiftSuggestions(gifts);
         } catch (e) {
@@ -262,7 +238,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
         }
         setIsEstimatingValue(true);
         try {
-            const { estimatePropertyDetails } = await loadClientWorkspaceService();
             const result = await estimatePropertyDetails(client.propertyAddress);
             if (result.estimatedValue > 0) {
                 onUpdate({
@@ -283,7 +258,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
     const handleSmartChecklist = async () => {
         setIsGeneratingChecklist(true);
         try {
-            const { generateSmartChecklist } = await loadClientWorkspaceService();
             const suggestions = await generateSmartChecklist(client);
             if (suggestions.length > 0) {
                 const newItems: ChecklistItem[] = suggestions.map(label => ({
@@ -386,7 +360,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
         if (!client.notes || client.notes.trim().length === 0) return;
         setIsOrganizingNotes(true);
         try {
-            const { organizeScratchpadNotes } = await loadClientWorkspaceService();
             const organized = await organizeScratchpadNotes(client.notes);
             if (organized) {
                 onUpdate({ ...client, notes: organized });
@@ -407,7 +380,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
         }
         setIsDrafting(true);
         try {
-            const { generateEmailDraft } = await loadClientWorkspaceService();
             const draft = await generateEmailDraft(client, emailDraftTopic, 'Standard follow up');
             setCurrentDraft(draft || '');
         } catch (error) {
@@ -424,7 +396,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
         }
         setIsNotifyingPartner(true);
         try {
-            const { generatePartnerUpdate } = await loadClientWorkspaceService();
             const draft = await generatePartnerUpdate(client, client.referralSource);
             setCurrentDraft(draft || '');
             setEmailDraftTopic('Partner Status Update');
@@ -458,7 +429,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
         if (!emailDraftTopic) return;
         setIsGeneratingSubjects(true);
         try {
-            const { generateSubjectLines } = await loadClientWorkspaceService();
             const subjects = await generateSubjectLines(client, emailDraftTopic);
             setSuggestedSubjects(subjects);
         } catch (error) {
@@ -502,8 +472,6 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
                             const base64Audio = (reader.result as string).split(',')[1];
                             try {
                                 showToast('Transcribing...', 'info');
-                                const { transcribeAudio } = await loadClientWorkspaceService();
-                                const { parseNaturalLanguageCommand } = await loadAssistantService();
                                 const transcript = await transcribeAudio(base64Audio);
                                 const command = await parseNaturalLanguageCommand(transcript, dealStages.map(s => s.name));
                                 

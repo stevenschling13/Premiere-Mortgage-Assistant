@@ -1,10 +1,5 @@
 import React, { ReactNode } from 'react';
-import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
-import RefreshCcw from 'lucide-react/dist/esm/icons/refresh-ccw';
-import Database from 'lucide-react/dist/esm/icons/database';
-import FileJson from 'lucide-react/dist/esm/icons/file-json';
-import Copy from 'lucide-react/dist/esm/icons/copy';
-import Activity from 'lucide-react/dist/esm/icons/activity';
+import { AlertTriangle, RefreshCcw, Database, FileJson, Copy, Activity } from 'lucide-react';
 import { errorService } from '../services/errorService';
 
 interface ErrorBoundaryProps {
