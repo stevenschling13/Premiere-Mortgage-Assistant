@@ -1,9 +1,19 @@
 import React, { useState } from 'react';
-import { Save, Calendar, PenTool, Sparkles, Loader2, Copy, AlertCircle, Wand2, Mail } from 'lucide-react';
-import { analyzeRateTrends, organizeScratchpadNotes, generateRateSheetEmail } from '../services/geminiService';
+import Save from 'lucide-react/dist/esm/icons/save';
+import Calendar from 'lucide-react/dist/esm/icons/calendar';
+import PenTool from 'lucide-react/dist/esm/icons/pen-tool';
+import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
+import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import Copy from 'lucide-react/dist/esm/icons/copy';
+import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import Wand2 from 'lucide-react/dist/esm/icons/wand-2';
+import Mail from 'lucide-react/dist/esm/icons/mail';
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
+
+const loadMarketIntelligenceService = () => import('../services/gemini/marketIntelligenceService');
+const loadClientWorkspaceService = () => import('../services/gemini/clientWorkspaceService');
 
 // Internal Component for Validated Inputs
 interface RateInputProps {
@@ -89,6 +99,7 @@ export const RatesNotes: React.FC = () => {
     const handleAnalyzeRates = async () => {
         setIsAnalyzing(true);
         try {
+            const { analyzeRateTrends } = await loadMarketIntelligenceService();
             const result = await analyzeRateTrends(rates);
             setAiCommentary(result || 'Unable to generate commentary.');
         } catch (e) {
@@ -106,6 +117,7 @@ export const RatesNotes: React.FC = () => {
         }
         setIsFormatting(true);
         try {
+            const { organizeScratchpadNotes } = await loadClientWorkspaceService();
             const formatted = await organizeScratchpadNotes(notes);
             setNotes(formatted || notes);
             showToast('Notes formatted by AI', 'success');
@@ -124,6 +136,7 @@ export const RatesNotes: React.FC = () => {
         }
         setIsGeneratingBrief(true);
         try {
+            const { generateRateSheetEmail } = await loadMarketIntelligenceService();
             const result = await generateRateSheetEmail(rates, notes);
             setGeneratedBrief(result || '');
             showToast('Partner update drafted', 'success');
