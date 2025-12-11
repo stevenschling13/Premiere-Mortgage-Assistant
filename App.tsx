@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, ReactNode } from 'react';
+import React, { useState, useCallback, useEffect, ReactNode, useMemo } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Calculator } from './components/Calculator';
 import { ClientManager } from './components/ClientManager';
@@ -136,7 +136,14 @@ const AppContent: React.FC = () => {
       };
   }, [showToast]);
 
-  const renderContent = () => {
+  const handleChangeView = useCallback((view: AppView) => {
+    setCurrentView(view);
+    setIsSidebarOpen(false);
+  }, []);
+
+  const closeSidebar = useCallback(() => setIsSidebarOpen(false), []);
+
+  const renderContent: ReactNode = useMemo(() => {
     switch (currentView) {
       case AppView.DASHBOARD:
         return <ClientManager />;
@@ -157,7 +164,7 @@ const AppContent: React.FC = () => {
       default:
         return <ClientManager />;
     }
-  };
+  }, [currentView]);
 
   return (
     <ToastContext.Provider value={{ showToast }}>
@@ -172,20 +179,17 @@ const AppContent: React.FC = () => {
         <ToastContainer toasts={toasts} removeToast={removeToast} />
 
         {isSidebarOpen && (
-          <div 
+          <div
             className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm animate-fade-in"
-            onClick={() => setIsSidebarOpen(false)}
+            onClick={closeSidebar}
           />
         )}
 
-        <Sidebar 
-          currentView={currentView} 
-          onChangeView={(view) => {
-            setCurrentView(view);
-            setIsSidebarOpen(false);
-          }} 
+        <Sidebar
+          currentView={currentView}
+          onChangeView={handleChangeView}
           isOpen={isSidebarOpen}
-          onClose={() => setIsSidebarOpen(false)}
+          onClose={closeSidebar}
         />
 
         <div className="flex-1 flex flex-col md:ml-64 h-full transition-all duration-300 w-full relative bg-gray-50/50">
@@ -213,7 +217,7 @@ const AppContent: React.FC = () => {
             tabIndex={-1}
           >
             <ErrorBoundary>
-              {renderContent()}
+              {renderContent}
             </ErrorBoundary>
           </main>
         </div>

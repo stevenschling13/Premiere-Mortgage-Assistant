@@ -1,6 +1,17 @@
 
 import { Client, DealStage, SalesScript, MortgageTerm, SimulationScenario } from './types';
 
+interface AgencyGuideline {
+    name: string;
+    maxLTV: number;
+    standardLTV?: number;
+    maxDTI: number;
+    standardDTI: number;
+    reserves: string;
+    notes: string;
+    manualDTI?: number;
+}
+
 export const INITIAL_CLIENTS: Client[] = [
     {
         id: 'seed-john-doe',
@@ -39,7 +50,7 @@ export const COLOR_PALETTE = [
 ];
 
 // --- REAL UNDERWRITING GUIDELINES (Source: AllRegs/Selling Guides 2024) ---
-export const AGENCY_GUIDELINES = {
+export const AGENCY_GUIDELINES: Record<'CONVENTIONAL' | 'FHA' | 'VA' | 'JUMBO', AgencyGuideline> = {
     CONVENTIONAL: {
         name: 'Conventional (FNMA/FHLMC)',
         maxLTV: 97, // First time home buyer
@@ -47,7 +58,8 @@ export const AGENCY_GUIDELINES = {
         maxDTI: 50.00, // Absolute hard stop for DU/LPA
         standardDTI: 45.00, // Threshold requiring strong reserves/credit
         reserves: '2-6 months based on DTI/Credit',
-        notes: 'FNMA B3-6-02: DTI > 45% requires strong compensating factors or DU Approve/Eligible.'
+        notes: 'FNMA B3-6-02: DTI > 45% requires strong compensating factors or DU Approve/Eligible.',
+        manualDTI: 43.00,
     },
     FHA: {
         name: 'FHA (HUD 4000.1)',
@@ -64,7 +76,8 @@ export const AGENCY_GUIDELINES = {
         maxDTI: 60.00, // Soft cap, Residual Income is primary driver
         standardDTI: 41.00, // Benchmark
         reserves: 'None standard',
-        notes: 'Chapter 4: DTI is secondary to Residual Income. Ratios > 41% require rigorous justification.'
+        notes: 'Chapter 4: DTI is secondary to Residual Income. Ratios > 41% require rigorous justification.',
+        manualDTI: 41.00,
     },
     JUMBO: {
         name: 'Jumbo / Non-Agency',
@@ -72,7 +85,8 @@ export const AGENCY_GUIDELINES = {
         maxDTI: 43.00, // Strict QM definition usually
         standardDTI: 43.00,
         reserves: '12+ months post-closing liquidity',
-        notes: 'Investor Specific. Generally follows Appendix Q or strict 43% DTI hard stop.'
+        notes: 'Investor Specific. Generally follows Appendix Q or strict 43% DTI hard stop.',
+        manualDTI: 43.00,
     }
 };
 

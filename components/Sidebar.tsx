@@ -9,7 +9,7 @@ interface SidebarProps {
   onClose: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isOpen, onClose }) => {
+const SidebarComponent: React.FC<SidebarProps> = ({ currentView, onChangeView, isOpen, onClose }) => {
   
   const navItems = [
     { id: AppView.DASHBOARD, label: 'Client Dashboard', icon: Users },
@@ -134,3 +134,5 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isO
     </div>
   );
 };
+
+export const Sidebar = React.memo(SidebarComponent);

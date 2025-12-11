@@ -103,7 +103,7 @@ export const DtiAnalysis: React.FC = () => {
                 requiredResidual: selectedLoanType === 'VA' ? requiredResidual : undefined
             };
             const advice = await solveDtiScenario(financials);
-            setDealDoctorAdvice(advice);
+            setDealDoctorAdvice(advice ?? null);
         } catch (e) {
             console.error(e);
             showToast("DTI Optimizer unavailable.", "error");
