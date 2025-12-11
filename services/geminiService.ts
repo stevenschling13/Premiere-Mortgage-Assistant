@@ -356,6 +356,19 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
             thinkingConfig: { thinkingBudget: 2048 }
         }, 'gemini-2.5-flash');
 
+        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+        const sources = groundingChunks.flatMap((c: any) => {
+            if (!c.web) return [];
+            return [{ uri: String(c.web.uri || ""), title: String(c.web.title || "") }];
+        });
+
+        let parsed: any = { status: 'UNVERIFIABLE', text: 'Could not parse verification result.' };
+        try {
+            // Cleanup markdown json blocks if present
+            const cleaned = response.text?.replace(/```json/g, '').replace(/```/g, '').trim();
+            parsed = JSON.parse(cleaned || "{}");
+        } catch (e) {
+            parsed.text = response.text;
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const sources: { uri: string; title: string }[] = groundingChunks.reduce((acc: { uri: string; title: string }[], chunk: any) => {
         if (chunk?.web?.uri && chunk?.web?.title) {
@@ -434,6 +447,17 @@ export const fetchDailyMarketPulse = async (): Promise<{ indices: MarketIndex[],
         }, 'gemini-2.5-flash');
 
         const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+        const sources = groundingChunks.flatMap((c: any) => {
+            if (!c.web) return [];
+            return [{ uri: String(c.web.uri || ""), title: String(c.web.title || "") }];
+        });
+
+        let data = { indices: [], news: [] };
+        try {
+            data = JSON.parse(response.text || "{}");
+        } catch (e) {
+            console.error("Failed to parse market data JSON", e);
+        }
         const sources: { uri: string; title: string }[] = groundingChunks.reduce((acc: { uri: string; title: string }[], chunk: any) => {
             if (chunk?.web?.uri && chunk?.web?.title) {
                 acc.push({ uri: chunk.web.uri, title: chunk.web.title });
