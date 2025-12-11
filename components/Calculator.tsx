@@ -19,6 +19,74 @@ const DEFAULT_SCENARIO: LoanScenario = {
     isInterestOnly: false
 };
 
+// --- SUB-COMPONENT: Input Masking ---
+const NumberInput = ({ 
+    value, 
+    onChange, 
+    format = 'number', 
+    className, 
+    ...props 
+}: {
+    value: number;
+    onChange: (val: number) => void;
+    format?: 'currency' | 'percent' | 'number';
+    className?: string;
+    [key: string]: any;
+}) => {
+    const [localStr, setLocalStr] = useState('');
+    const [isFocused, setIsFocused] = useState(false);
+
+    // Sync with external value when not editing
+    useEffect(() => {
+        if (!isFocused) {
+            if (format === 'currency') {
+                setLocalStr(value.toLocaleString('en-US', { maximumFractionDigits: 0 }));
+            } else {
+                setLocalStr(value.toString());
+            }
+        }
+    }, [value, isFocused, format]);
+
+    const handleFocus = () => {
+        setIsFocused(true);
+        // Remove formatting for editing
+        setLocalStr(value.toString());
+    };
+
+    const handleBlur = () => {
+        setIsFocused(false);
+        // formatting happens in useEffect when isFocused becomes false
+    };
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const raw = e.target.value;
+        
+        // Allow digits and one dot
+        if (!/^[0-9]*\.?[0-9]*$/.test(raw)) return;
+
+        setLocalStr(raw);
+        const parsed = parseFloat(raw);
+        if (!isNaN(parsed)) {
+            onChange(parsed);
+        } else if (raw === '') {
+            onChange(0);
+        }
+    };
+
+    return (
+        <input
+            type="text"
+            inputMode="decimal"
+            value={localStr}
+            onChange={handleChange}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            className={className}
+            {...props}
+        />
+    );
+};
+
 // --- SUB-COMPONENT: Memoized Chart Section ---
 const CalculatorResults = memo(({ 
     chartData, 
@@ -90,20 +158,20 @@ const AiAnalysisSection = memo(({
                 <BrainCircuit size={120} />
             </div>
             <div className="relative z-10">
-                <div className="flex justify-between items-start mb-4">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
                     <div className="flex items-center space-x-3">
-                        <div className="bg-white/10 p-2 rounded-lg">
+                        <div className="bg-white/10 p-2 rounded-lg shrink-0">
                             <BrainCircuit className="text-brand-gold" size={24} />
                         </div>
                         <div>
-                            <h3 className="font-bold text-lg">AI Scenario Auditor (Gemini 3 Pro)</h3>
+                            <h3 className="font-bold text-lg">AI Scenario Auditor</h3>
                             <p className="text-xs text-gray-400">Deep-dive risk analysis & structuring advice</p>
                         </div>
                     </div>
                     <button 
                         onClick={onGetAnalysis}
                         disabled={loadingAi}
-                        className="px-4 py-2 bg-brand-red hover:bg-red-700 text-white text-sm font-bold rounded-lg transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center focus:outline-none focus:ring-2 focus:ring-white"
+                        className="w-full sm:w-auto px-4 py-2 bg-brand-red hover:bg-red-700 text-white text-sm font-bold rounded-lg transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-white"
                     >
                         {loadingAi ? 'Analyzing...' : 'Run Analysis'}
                     </button>
@@ -124,7 +192,7 @@ const AiAnalysisSection = memo(({
                     ) : (
                         <div className="flex flex-col items-center justify-center h-full text-gray-500 opacity-60">
                             <Info size={24} className="mb-2"/>
-                            <p>Run analysis to get AI feedback on DTI, reserves, and risk factors.</p>
+                            <p className="text-center">Run analysis to get AI feedback on DTI, reserves, and risk factors.</p>
                         </div>
                     )}
                 </div>
@@ -188,13 +256,9 @@ export const Calculator: React.FC = () => {
       latestLoanAmount.current = loanAmount;
   }, [scenario, loanAmount]);
 
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>, field: keyof LoanScenario) => {
-    const val = parseFloat(e.target.value);
-    setScenario(prev => ({
-      ...prev,
-      [field]: isNaN(val) ? 0 : val
-    }));
-  }, []);
+  const updateField = (field: keyof LoanScenario, value: number) => {
+    setScenario(prev => ({ ...prev, [field]: value }));
+  };
 
   const handleReset = useCallback(() => {
       if(confirm('Reset calculator to defaults?')) {
@@ -258,9 +322,9 @@ export const Calculator: React.FC = () => {
             >
                 <RotateCcw size={20} />
             </button>
-            <div className="bg-white px-8 py-4 rounded-xl border border-gray-200 shadow-sm text-right flex-1 md:flex-none">
+            <div className="bg-white px-6 py-4 rounded-xl border border-gray-200 shadow-sm text-right flex-1 md:flex-none">
                 <span className="block text-gray-400 text-xs uppercase tracking-wider font-semibold mb-1">Est. Monthly Payment</span>
-                <span className="text-4xl font-bold text-brand-red tracking-tight">
+                <span className="text-3xl md:text-4xl font-bold text-brand-red tracking-tight">
                     ${totalMonthlyPayment.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                 </span>
             </div>
@@ -280,67 +344,61 @@ export const Calculator: React.FC = () => {
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Purchase Price</label>
                 <div className="relative">
                   <span className="absolute left-3 top-3 text-gray-400">$</span>
-                  <input 
-                    type="number"
-                    inputMode="decimal"
+                  <NumberInput 
+                    format="currency"
                     value={scenario.purchasePrice}
-                    onChange={(e) => handleInputChange(e, 'purchasePrice')}
-                    className="w-full pl-6 p-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none transition-colors font-medium"
+                    onChange={(val) => updateField('purchasePrice', val)}
+                    className="w-full pl-6 p-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none transition-colors font-medium text-lg"
                   />
                 </div>
               </div>
 
-              <div className="flex gap-4">
+              <div className="flex flex-col sm:flex-row gap-4">
                 <div className="flex-1">
                   <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Down Payment (%)</label>
                   <div className="relative">
-                    <input 
-                      type="number"
-                      inputMode="decimal"
+                    <NumberInput 
+                      format="percent"
                       value={scenario.downPaymentPercent}
-                      onChange={(e) => handleInputChange(e, 'downPaymentPercent')}
-                      className="w-full p-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none transition-colors"
+                      onChange={(val) => updateField('downPaymentPercent', val)}
+                      className="w-full p-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none transition-colors font-medium"
                     />
                     <span className="absolute right-3 top-3 text-gray-400">%</span>
                   </div>
                 </div>
                 <div className="flex-1">
                   <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Loan Amount</label>
-                  <div className="p-3 bg-gray-100 text-gray-500 rounded-lg border border-transparent font-medium">
+                  <div className="p-3 bg-gray-100 text-gray-500 rounded-lg border border-transparent font-medium flex items-center h-[50px]">
                     ${(loanAmount / 1000).toFixed(0)}k
                   </div>
                 </div>
               </div>
 
-              <div className="flex gap-4">
+              <div className="flex flex-col sm:flex-row gap-4">
                 <div className="flex-1">
                   <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Interest Rate</label>
                   <div className="relative">
-                    <input 
-                      type="number"
-                      inputMode="decimal"
-                      step="0.125"
+                    <NumberInput 
+                      format="percent"
                       value={scenario.interestRate}
-                      onChange={(e) => handleInputChange(e, 'interestRate')}
-                      className="w-full p-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none transition-colors"
+                      onChange={(val) => updateField('interestRate', val)}
+                      className="w-full p-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none transition-colors font-medium"
                     />
                     <span className="absolute right-3 top-3 text-gray-400">%</span>
                   </div>
                 </div>
                 <div className="flex-1">
                   <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Term (Years)</label>
-                  <input 
-                    type="number"
-                    inputMode="numeric"
+                  <NumberInput 
                     value={scenario.loanTerm}
-                    onChange={(e) => handleInputChange(e, 'loanTerm')}
-                    className="w-full p-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none transition-colors"
+                    onChange={(val) => updateField('loanTerm', val)}
+                    className="w-full p-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none transition-colors font-medium"
                   />
                 </div>
               </div>
 
               <div className="pt-4 border-t border-gray-100">
-                 <label className="flex items-center space-x-3 cursor-pointer group">
+                 <label className="flex items-center space-x-3 cursor-pointer group select-none">
                     <div className={`w-6 h-6 rounded border flex items-center justify-center transition-colors ${scenario.isInterestOnly ? 'bg-brand-red border-brand-red' : 'bg-white border-gray-300'}`}>
                         {scenario.isInterestOnly && <RefreshCcw size={14} className="text-white" />}
                     </div>
@@ -361,33 +419,29 @@ export const Calculator: React.FC = () => {
              <div className="space-y-4">
                  <div>
                     <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Property Tax Rate (%)</label>
-                    <input 
-                      type="number"
-                      inputMode="decimal"
-                      step="0.01"
+                    <NumberInput 
+                      format="percent"
                       value={scenario.propertyTaxRate}
-                      onChange={(e) => handleInputChange(e, 'propertyTaxRate')}
+                      onChange={(val) => updateField('propertyTaxRate', val)}
                       className="w-full p-2 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none"
                     />
                  </div>
                  <div className="grid grid-cols-2 gap-4">
                      <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Insurance / Yr</label>
-                        <input 
-                          type="number"
-                          inputMode="decimal"
+                        <NumberInput 
+                          format="currency"
                           value={scenario.insuranceAnnual}
-                          onChange={(e) => handleInputChange(e, 'insuranceAnnual')}
+                          onChange={(val) => updateField('insuranceAnnual', val)}
                           className="w-full p-2 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none"
                         />
                      </div>
                      <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">HOA / Mo</label>
-                        <input 
-                          type="number"
-                          inputMode="decimal"
+                        <NumberInput 
+                          format="currency"
                           value={scenario.hoaMonthly}
-                          onChange={(e) => handleInputChange(e, 'hoaMonthly')}
+                          onChange={(val) => updateField('hoaMonthly', val)}
                           className="w-full p-2 bg-gray-50 text-gray-900 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-red outline-none"
                         />
                      </div>

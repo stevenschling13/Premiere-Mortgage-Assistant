@@ -1,11 +1,13 @@
 import React, { useState, useRef, useEffect, useTransition, memo, useCallback } from 'react';
-import { Send, Bot, User as UserIcon, Loader2, ExternalLink, Mic, Trash2, ShieldCheck, AlertTriangle, Swords, XCircle } from 'lucide-react';
+import { Send, Bot, User as UserIcon, Loader2, ExternalLink, Mic, Trash2, ShieldCheck, AlertTriangle, Swords, XCircle, Globe } from 'lucide-react';
 import { ChatMessage, SimulationScenario } from '../types';
 import { streamChatWithAssistant, verifyFactualClaims } from '../services/geminiService';
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
 import { SIMULATION_SCENARIOS, SUGGESTED_PROMPTS } from '../constants';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { useToast } from './Toast';
+
+// ... (MessageBubble and MessageList components remain same)
 
 // --- SUB-COMPONENT: Message Bubble (Memoized) ---
 const MessageBubble = memo(({ 
@@ -447,9 +449,16 @@ export const Assistant: React.FC = () => {
                  <h2 className="font-bold text-lg leading-tight">
                      {isSimulationMode ? `Simulation: ${selectedScenario?.title}` : 'Virtual Analyst'}
                  </h2>
-                 <p className={`text-xs ${isSimulationMode ? 'text-indigo-200' : 'text-gray-500'}`}>
-                     {isSimulationMode ? 'Roleplay & Training Mode' : 'Gemini 3 Pro • Reasoning Engine'}
-                 </p>
+                 <div className="flex items-center gap-2">
+                    <p className={`text-xs ${isSimulationMode ? 'text-indigo-200' : 'text-gray-500'}`}>
+                        {isSimulationMode ? 'Roleplay & Training Mode' : 'Gemini 3 Pro • Reasoning Engine'}
+                    </p>
+                    {!isSimulationMode && (
+                        <span className="flex items-center text-[10px] text-brand-gold bg-brand-gold/10 px-1.5 py-0.5 rounded border border-brand-gold/20">
+                            <Globe size={10} className="mr-1"/> Search On
+                        </span>
+                    )}
+                 </div>
              </div>
          </div>
          <div className="flex items-center gap-2">

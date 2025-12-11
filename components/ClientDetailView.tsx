@@ -2,17 +2,18 @@ import React, { useState, useRef, useEffect, memo } from 'react';
 import { 
     Users, ArrowUpRight, Edit2, Trash2, Sparkles, Loader2, Copy, 
     Square, Mic, Check, ChevronLeft, DollarSign, Save, Zap, Wand2, Mail, Phone, 
-    UserPlus, Scale, CheckSquare, History, Gift, PenTool, Camera, X
+    UserPlus, Scale, CheckSquare, History, Gift, PenTool, Camera, X, Bell, Calendar as CalendarIcon
 } from 'lucide-react';
-import { Client, DealStage, ChecklistItem, EmailLog, DealStrategy, GiftSuggestion } from '../types';
+import { Client, DealStage, ChecklistItem, EmailLog, DealStrategy, GiftSuggestion, CalendarEvent } from '../types';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { 
     generateEmailDraft, generateSubjectLines, generateClientSummary, 
     estimatePropertyDetails, generateSmartChecklist, generatePartnerUpdate, 
     generateDealArchitecture, extractClientDataFromImage, generateGiftSuggestions,
-    transcribeAudio, parseNaturalLanguageCommand
+    transcribeAudio, parseNaturalLanguageCommand, organizeScratchpadNotes
 } from '../services/geminiService';
+import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
 import { Skeleton } from './Skeleton';
 
 interface ClientDetailViewProps {
@@ -24,6 +25,7 @@ interface ClientDetailViewProps {
 }
 
 // Helper for buffered inputs to prevent re-renders on every keystroke
+// MOBILE OPTIMIZATION: Uses text-base on mobile to prevent iOS zoom on focus, text-sm on desktop
 const BufferedInput = ({ 
     value, 
     onCommit, 
@@ -55,7 +57,7 @@ const BufferedInput = ({
             value={localValue}
             onChange={(e) => setLocalValue(e.target.value)}
             onBlur={handleBlur}
-            className={className}
+            className={`${className} text-base md:text-sm`} 
             placeholder={placeholder}
         />
     );
@@ -89,7 +91,7 @@ const BufferedTextArea = ({
             value={localValue}
             onChange={(e) => setLocalValue(e.target.value)}
             onBlur={handleBlur}
-            className={className}
+            className={`${className} text-base md:text-sm`}
             placeholder={placeholder}
         />
     );
@@ -135,6 +137,9 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
 
     // Feature State: Valuation
     const [isEstimatingValue, setIsEstimatingValue] = useState(false);
+
+    // Feature State: Notes
+    const [isOrganizingNotes, setIsOrganizingNotes] = useState(false);
 
     // Feature State: Voice
     const [isRecording, setIsRecording] = useState(false);
@@ -313,6 +318,59 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
         showToast('Quick task added', 'success');
     };
 
+    const handleSetReminder = () => {
+        if (!client.nextActionDate) {
+            showToast('Please select a date first', 'error');
+            return;
+        }
+
+        // 1. Add to Checklist
+        const newItem: ChecklistItem = {
+            id: Date.now().toString(),
+            label: `Follow up: ${client.name}`,
+            checked: false,
+            reminderDate: client.nextActionDate
+        };
+        const updatedChecklist = [newItem, ...client.checklist];
+
+        // 2. Add to Calendar (Sync)
+        try {
+            const events = loadFromStorage<CalendarEvent[]>(StorageKeys.CALENDAR_EVENTS, []);
+            const newEvent: CalendarEvent = {
+                id: `reminder-${Date.now()}`,
+                title: `Follow up: ${client.name}`,
+                start: `${client.nextActionDate}T09:00:00`, // Default to 9am
+                end: `${client.nextActionDate}T09:30:00`,
+                type: 'TASK',
+                clientId: client.id,
+                notes: `Automated reminder from Client Detail. Status: ${client.status}`
+            };
+            saveToStorage(StorageKeys.CALENDAR_EVENTS, [...events, newEvent]);
+            showToast('Reminder added to Calendar & Tasks', 'success');
+        } catch (e) {
+            console.error("Failed to sync to calendar", e);
+            showToast('Added to Tasks (Calendar Sync Failed)', 'warning');
+        }
+
+        onUpdate({ ...client, checklist: updatedChecklist });
+    };
+
+    const handleOrganizeNotes = async () => {
+        if (!client.notes || client.notes.trim().length === 0) return;
+        setIsOrganizingNotes(true);
+        try {
+            const organized = await organizeScratchpadNotes(client.notes);
+            if (organized) {
+                onUpdate({ ...client, notes: organized });
+                showToast('Notes organized successfully', 'success');
+            }
+        } catch (e) {
+            showToast('Failed to organize notes', 'error');
+        } finally {
+            setIsOrganizingNotes(false);
+        }
+    };
+
     // Email Handlers
     const handleGenerateEmail = async () => {
         if (!emailDraftTopic) {
@@ -478,36 +536,36 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
             {/* Hidden Inputs */}
             <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleDocScan} />
 
-            {/* Header */}
-            <div className="bg-white border-b border-gray-200 p-4 safe-top shadow-sm">
+            {/* Header - Sticky for better mobile context */}
+            <div className="bg-white/95 backdrop-blur-sm border-b border-gray-200 p-4 safe-top shadow-sm sticky top-0 z-20 transition-all">
                 <div className="flex items-center justify-between">
-                    <div className="flex items-center">
-                        <button onClick={onClose} className="md:hidden mr-3 p-2 text-gray-500 hover:bg-gray-100 rounded-full" aria-label="Back">
+                    <div className="flex flex-1 items-center overflow-hidden">
+                        <button onClick={onClose} className="md:hidden mr-2 p-2 text-gray-500 hover:bg-gray-100 rounded-full shrink-0" aria-label="Back">
                             <ChevronLeft size={24}/>
                         </button>
-                        <div>
+                        <div className="flex-1 min-w-0">
                             {isEditing ? (
                                 <div className="flex items-center gap-3">
                                     <BufferedInput 
                                         value={client.name} 
                                         onCommit={(val) => onUpdate({...client, name: val})}
-                                        className="font-bold text-xl text-gray-900 border-b border-gray-300 focus:border-brand-red outline-none bg-transparent w-full md:w-auto" 
+                                        className="font-bold text-xl text-gray-900 border-b border-gray-300 focus:border-brand-red outline-none bg-transparent w-full" 
                                     />
                                     <button 
                                         onClick={() => fileInputRef.current?.click()}
                                         disabled={isScanningDoc}
-                                        className="text-xs bg-brand-light text-brand-dark border border-brand-dark/10 px-2 py-1 rounded flex items-center hover:bg-brand-dark/5 transition-colors disabled:opacity-50"
+                                        className="text-xs bg-brand-light text-brand-dark border border-brand-dark/10 px-2 py-1 rounded flex items-center hover:bg-brand-dark/5 transition-colors disabled:opacity-50 whitespace-nowrap"
                                         title="Auto-fill from image"
                                     >
                                         {isScanningDoc ? <Loader2 size={12} className="animate-spin mr-1"/> : <Camera size={12} className="mr-1"/>}
-                                        {isScanningDoc ? "Scanning..." : "Smart Extract"}
+                                        {isScanningDoc ? "Scanning..." : "Scan"}
                                     </button>
                                 </div>
                             ) : (
-                                <h2 className="font-bold text-xl text-brand-dark">{client.name}</h2>
+                                <h2 className="font-bold text-lg md:text-xl text-brand-dark truncate">{client.name}</h2>
                             )}
-                            <div className="flex items-center mt-1 space-x-2">
-                                <div className="relative group">
+                            <div className="flex flex-wrap items-center mt-2 gap-2 text-xs text-gray-500">
+                                <div className="relative group shrink-0">
                                     <select 
                                         value={client.status}
                                         onChange={(e) => onUpdate({...client, status: e.target.value})}
@@ -516,7 +574,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
                                             color: getStageColor(client.status),
                                             borderColor: `${getStageColor(client.status)}40`
                                         }}
-                                        className="text-xs font-bold border rounded-full px-3 py-1 pr-7 outline-none cursor-pointer appearance-none transition-all hover:brightness-95"
+                                        className="font-bold border rounded-full px-2 py-0.5 pr-6 outline-none cursor-pointer appearance-none transition-all hover:brightness-95 text-base md:text-xs"
                                     >
                                         {dealStages.map(stage => <option key={stage.name} value={stage.name}>{stage.name}</option>)}
                                         {!dealStages.find(s => s.name === client.status) && (
@@ -524,17 +582,15 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
                                         )}
                                     </select>
                                 </div>
-                                <span className="text-gray-300">|</span>
-                                <span className="text-xs font-bold text-gray-700 flex items-center bg-gray-100 px-2 py-0.5 rounded">
+                                <span className="font-bold text-gray-700 flex items-center bg-gray-100 px-2 py-0.5 rounded shrink-0">
                                     <DollarSign size={10} className="mr-1"/>
                                     {client.loanAmount.toLocaleString()}
                                 </span>
-                                <span className="text-gray-300">|</span>
-                                <span className="text-xs text-gray-500">{client.email || 'No email'}</span>
+                                <span className="truncate max-w-[150px]">{client.email}</span>
                             </div>
                         </div>
                     </div>
-                    <div className="flex space-x-2">
+                    <div className="flex space-x-1 shrink-0 ml-2">
                         <button 
                             onClick={handleVoiceCommand} 
                             disabled={isProcessingVoice} 
@@ -548,24 +604,24 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
                             {isProcessingVoice ? <Loader2 size={18} className="animate-spin" /> : isRecording ? <Square size={18} fill="currentColor" /> : <Mic size={18} />}
                         </button>
                         <button onClick={() => setIsEditing(!isEditing)} className={`p-2 rounded-full ${isEditing ? 'bg-brand-red text-white' : 'text-gray-400 hover:bg-gray-100'}`} aria-label="Edit Client"><Edit2 size={18}/></button>
-                        <button onClick={() => onDelete(client.id)} className="p-3 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors" aria-label="Delete Client"><Trash2 size={20}/></button>
+                        <button onClick={() => onDelete(client.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors" aria-label="Delete Client"><Trash2 size={20}/></button>
                     </div>
                 </div>
             </div>
 
             {/* Scrollable Content */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 md:pb-8 safe-bottom">
                 
-                {/* Executive Brief */}
+                {/* Situation Report */}
                 <div className="bg-gradient-to-r from-brand-dark to-slate-800 rounded-xl shadow-lg border border-gray-700 p-5 text-white">
                     <div className="flex justify-between items-start mb-3">
-                        <h3 className="font-bold flex items-center text-brand-gold"><Sparkles size={16} className="mr-2"/> Client Briefing</h3>
+                        <h3 className="font-bold flex items-center text-brand-gold"><Sparkles size={16} className="mr-2"/> Situation Report</h3>
                         <button 
                             onClick={handleGenerateSummary}
                             disabled={isSummarizing}
                             className="text-[10px] bg-white/10 hover:bg-white/20 px-2 py-1 rounded transition-colors disabled:opacity-50 flex items-center"
                         >
-                            {isSummarizing ? <Loader2 size={10} className="animate-spin mr-1"/> : (clientSummary ? "Refresh Brief" : "Generate Brief")}
+                            {isSummarizing ? <Loader2 size={10} className="animate-spin mr-1"/> : (clientSummary ? "Refresh Report" : "Generate Report")}
                         </button>
                     </div>
                     <div className="bg-white/5 rounded-lg p-3 min-h-[60px]">
@@ -578,7 +634,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
                         ) : clientSummary ? (
                             <div className="text-sm text-gray-200 leading-relaxed"><MarkdownRenderer content={clientSummary} /></div>
                         ) : (
-                            <p className="text-xs text-gray-500 italic text-center">Click 'Generate Brief' for an AI summary.</p>
+                            <p className="text-xs text-gray-500 italic text-center">Click 'Generate Report' for a comprehensive AI situation analysis.</p>
                         )}
                     </div>
                 </div>
@@ -705,6 +761,24 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
                             {!isEditing && client.referralSource && (
                                 <div className="flex items-center text-xs text-gray-500"><span className="font-bold uppercase mr-2">Referred By:</span><span className="bg-blue-50 text-blue-700 px-2 py-1 rounded font-medium border border-blue-100 flex items-center"><UserPlus size={10} className="mr-1"/>{client.referralSource}</span></div>
                             )}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Next Follow-up</label>
+                                <div className="flex space-x-2">
+                                    <input 
+                                        type="date" 
+                                        value={client.nextActionDate} 
+                                        onChange={(e) => onUpdate({...client, nextActionDate: e.target.value})}
+                                        className="flex-1 p-2 bg-gray-50 border border-gray-200 rounded text-sm text-gray-700 outline-none focus:ring-1 focus:ring-blue-500 text-base md:text-sm"
+                                    />
+                                    <button 
+                                        onClick={handleSetReminder}
+                                        className="px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 rounded transition-colors flex items-center"
+                                        title="Add Reminder Task & Calendar Event"
+                                    >
+                                        <Bell size={16} className="mr-1"/> <span className="text-xs font-bold">Set Reminder</span>
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -727,7 +801,17 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
                                 {client.estimatedPropertyValue && ltv !== null && <div className="mt-1 text-[10px] text-gray-500 text-right">LTV: <span className={ltv > 80 ? 'text-red-500 font-bold' : 'text-green-600 font-bold'}>{ltv.toFixed(1)}%</span></div>}
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Notes</label>
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="block text-xs font-bold text-gray-500 uppercase">Notes</label>
+                                    <button 
+                                        onClick={handleOrganizeNotes}
+                                        disabled={isOrganizingNotes || !client.notes}
+                                        className="text-[10px] text-purple-600 hover:text-purple-800 flex items-center disabled:opacity-50"
+                                        title="Format with AI"
+                                    >
+                                        {isOrganizingNotes ? <Loader2 size={10} className="animate-spin mr-1"/> : <Wand2 size={10} className="mr-1"/>} Organize
+                                    </button>
+                                </div>
                                 <BufferedTextArea value={client.notes} onCommit={(val) => onUpdate({...client, notes: val})} className="w-full p-2 bg-gray-50 border border-gray-200 rounded text-sm min-h-[80px]" placeholder="Add notes..."/>
                             </div>
                         </div>
@@ -749,12 +833,13 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
                                     {item.checked ? <Check size={14}/> : <div className="w-3.5 h-3.5"/>}
                                 </button>
                                 <span className={`flex-1 text-sm ${item.checked ? 'line-through text-gray-400' : 'text-gray-700'}`}>{item.label}</span>
+                                {item.reminderDate && <span className="text-[10px] bg-yellow-50 text-yellow-700 border border-yellow-200 px-1.5 py-0.5 rounded flex items-center"><CalendarIcon size={10} className="mr-1"/>{new Date(item.reminderDate).toLocaleDateString(undefined, {month:'numeric', day:'numeric'})}</span>}
                                 <button onClick={() => handleDeleteTask(item.id)} className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-opacity"><X size={14}/></button>
                             </div>
                         ))}
                     </div>
                     <div className="flex gap-2">
-                        <input value={newTaskLabel} onChange={(e) => setNewTaskLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddTask()} className="flex-1 p-2 bg-gray-50 border border-gray-200 rounded text-sm outline-none focus:border-brand-gold" placeholder="Add new task..."/>
+                        <input value={newTaskLabel} onChange={(e) => setNewTaskLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddTask()} className="flex-1 p-2 bg-gray-50 border border-gray-200 rounded text-base md:text-sm outline-none focus:border-brand-gold" placeholder="Add new task..."/>
                         <button onClick={handleAddTask} disabled={!newTaskLabel.trim()} className="p-2 bg-brand-dark text-white rounded hover:bg-gray-800 disabled:opacity-50"><Square size={16} fill="white"/></button>
                     </div>
                     <div className="mt-3 pt-3 border-t border-gray-100 flex gap-2 overflow-x-auto scrollbar-hide">
@@ -775,7 +860,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
                     </div>
                     <div className="space-y-3">
                         <div className="flex gap-2">
-                            <input value={emailDraftTopic} onChange={(e) => setEmailDraftTopic(e.target.value)} className="flex-1 p-2 bg-gray-50 border border-gray-200 rounded text-sm outline-none focus:border-brand-red" placeholder="e.g. Rate Lock Alert"/>
+                            <input value={emailDraftTopic} onChange={(e) => setEmailDraftTopic(e.target.value)} className="flex-1 p-2 bg-gray-50 border border-gray-200 rounded text-base md:text-sm outline-none focus:border-brand-red" placeholder="e.g. Rate Lock Alert"/>
                             <button onClick={handleGenerateEmail} disabled={isDrafting || !emailDraftTopic} className="bg-brand-dark text-white px-4 py-2 rounded text-sm hover:bg-gray-800 disabled:opacity-50 transition-colors flex items-center">
                                 {isDrafting ? <Loader2 size={16} className="animate-spin"/> : <Zap size={16}/>}
                             </button>
@@ -790,7 +875,7 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
                                         <button onClick={() => {navigator.clipboard.writeText(currentDraft); showToast('Copied', 'info')}} className="text-gray-400 hover:text-brand-dark"><Copy size={14}/></button>
                                     </div>
                                     {suggestedSubjects.length > 0 && <div className="mb-3 space-y-1">{suggestedSubjects.map((sub, idx) => <div key={idx} onClick={() => {navigator.clipboard.writeText(sub); showToast('Copied', 'info')}} className="text-xs p-1.5 bg-white border border-gray-200 rounded cursor-pointer hover:border-brand-gold text-gray-700 truncate">{sub}</div>)}</div>}
-                                    <textarea value={currentDraft} onChange={(e) => setCurrentDraft(e.target.value)} className="w-full bg-transparent border-none outline-none text-sm text-gray-700 h-32 resize-none leading-relaxed"/>
+                                    <textarea value={currentDraft} onChange={(e) => setCurrentDraft(e.target.value)} className="w-full bg-transparent border-none outline-none text-base md:text-sm text-gray-700 h-32 resize-none leading-relaxed"/>
                                 </div>
                                 <button onClick={handleLogEmail} className="w-full py-2 bg-green-50 text-green-700 hover:bg-green-100 rounded-lg text-xs font-bold border border-green-200 transition-colors flex items-center justify-center"><Save size={14} className="mr-2"/> Log to History</button>
                             </div>

@@ -144,7 +144,7 @@ const AppContent: React.FC = () => {
 
         <main 
           id="main-content"
-          className="flex-1 overflow-y-auto w-full relative scroll-smooth focus:outline-none"
+          className="flex-1 overflow-y-auto overflow-x-hidden w-full relative scroll-smooth focus:outline-none"
           tabIndex={-1}
         >
           <ErrorBoundary>

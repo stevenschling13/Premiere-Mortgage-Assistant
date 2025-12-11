@@ -172,10 +172,10 @@ export const DailyPlanner: React.FC = () => {
     const timeSlots = Array.from({ length: 11 }, (_, i) => i + 8); // 8 to 18
 
     return (
-        <div className="flex h-full bg-white relative animate-fade-in">
+        <div className="flex flex-col md:flex-row h-full bg-white relative animate-fade-in overflow-hidden">
             {/* Left Col: Calendar */}
-            <div className="flex-1 flex flex-col border-r border-gray-200 overflow-hidden">
-                <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 safe-top">
+            <div className="flex-1 flex flex-col border-r border-gray-200 overflow-hidden order-2 md:order-1">
+                <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 md:safe-top">
                     <div>
                         <h2 className="text-xl font-bold text-brand-dark flex items-center">
                             <CalendarIcon className="mr-2 text-brand-gold" size={20}/> 
@@ -202,7 +202,7 @@ export const DailyPlanner: React.FC = () => {
             </div>
 
             {/* Right Col: Chief of Staff Intelligence */}
-            <div className="w-[400px] bg-brand-light flex flex-col border-l border-gray-200 shadow-xl z-10">
+            <div className="w-full md:w-[400px] bg-brand-light flex flex-col border-l border-gray-200 shadow-xl z-10 order-1 md:order-2 shrink-0 h-[40%] md:h-full overflow-hidden">
                 <div className="p-5 bg-brand-dark text-white safe-top">
                     <div className="flex items-center space-x-3 mb-4">
                         <div className="p-2 bg-white/10 rounded-lg">

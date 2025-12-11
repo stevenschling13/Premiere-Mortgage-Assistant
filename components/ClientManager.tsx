@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, useDeferredValue, Suspense, useCallback, memo } from 'react';
 import { 
     Users, Search, Plus, Filter, Settings, Trash2, X, Sparkles, Loader2, 
-    CheckSquare, Square, Radar, XCircle, Briefcase, Headphones, Pause
+    CheckSquare, Square, Radar, XCircle, Briefcase, Headphones, Pause, Check, MoreHorizontal
 } from 'lucide-react';
 import { FixedSizeList as List, areEqual } from 'react-window';
 import { Client, DealStage, Opportunity } from '../types';
@@ -51,7 +51,7 @@ const useContainerSize = (ref: React.RefObject<HTMLDivElement | null>) => {
     return size;
 };
 
-// --- SUB-COMPONENT: Memoized List Item ---
+// --- SUB-COMPONENT: Memoized List Item (Premium Card Design) ---
 interface ClientListItemProps {
     client: Client;
     isSelected: boolean;
@@ -64,46 +64,85 @@ interface ClientListItemProps {
     style?: React.CSSProperties;
 }
 
-// Optimization: Removed `areEqual` from here. React.memo's default shallow compare is correct for these specific props.
-// `areEqual` from react-window expects { data, index, style }, which this component does not have.
 const ClientListItem = memo(({ client, isSelected, isMultiSelected, onSelect, onToggle, onPrefetch, stageColor, stageProgress, style }: ClientListItemProps) => {
     const leadScore = useMemo(() => calculateLeadScore(client, stageProgress), [client, stageProgress]);
+    const initials = useMemo(() => client.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase(), [client.name]);
     
-    let tempColor = 'text-blue-400'; 
-    let tempIcon = <span className="text-blue-200">❄️</span>;
-    if (leadScore > 75) { tempColor = 'text-red-500'; tempIcon = <span className="text-red-500 animate-pulse">🔥</span>; }
-    else if (leadScore > 40) { tempColor = 'text-orange-400'; tempIcon = <span className="text-orange-400">🌤️</span>; }
+    let scoreColor = 'bg-gray-100 text-gray-600'; 
+    if (leadScore > 75) scoreColor = 'bg-red-100 text-red-700 font-bold';
+    else if (leadScore > 50) scoreColor = 'bg-orange-100 text-orange-700 font-bold';
+
+    // Formatting currency shorthand
+    const loanDisplay = client.loanAmount >= 1000000 
+        ? `$${(client.loanAmount/1000000).toFixed(2)}M`
+        : `$${(client.loanAmount/1000).toFixed(0)}k`;
 
     return (
-        <div style={style} className="w-full box-border">
+        <div style={style} className="w-full box-border px-2 md:px-0 py-1">
             <div 
                 role="button" 
                 tabIndex={0} 
                 onClick={() => onSelect(client)} 
                 onMouseEnter={onPrefetch}
-                className={`relative h-full bg-white border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-all group ${isSelected ? 'bg-red-50/50 border-l-4 border-l-brand-red' : 'border-l-4 border-l-transparent'}`}
+                className={`
+                    relative h-full flex flex-col justify-between
+                    bg-white rounded-xl md:rounded-none md:border-b border-gray-100
+                    shadow-sm md:shadow-none border md:border-0 border-gray-200/60
+                    hover:bg-gray-50 cursor-pointer transition-all duration-200 group overflow-hidden
+                    ${isSelected ? 'ring-2 ring-brand-red ring-inset bg-red-50/20' : ''}
+                `}
             >
-                <div className="p-4 pb-6 h-full flex flex-col justify-between">
-                    <div className="flex justify-between items-start">
-                        <div className="flex items-center gap-2">
-                            <h3 className={`font-bold text-sm truncate max-w-[150px] ${isSelected ? 'text-brand-red' : 'text-gray-800'}`}>{client.name}</h3>
-                            {client.loanAmount > 2500000 && <span className="text-brand-gold shrink-0">👑</span>}
-                            <div className="flex items-center text-[10px] bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200 shrink-0" title={`Opportunity Score: ${leadScore}/100`}>
-                                {tempIcon} <span className={`ml-1 font-bold ${tempColor}`}>{leadScore}</span>
+                <div className="p-3 flex items-center gap-3 h-full">
+                    {/* Avatar / Status Indicator */}
+                    <div 
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm shrink-0 transition-transform group-hover:scale-105" 
+                        style={{ backgroundColor: stageColor }}
+                    >
+                        {initials}
+                    </div>
+
+                    {/* Main Content */}
+                    <div className="flex-1 min-w-0 flex flex-col justify-center h-full space-y-0.5">
+                        <div className="flex justify-between items-center">
+                            <h3 className={`font-bold text-sm truncate ${isSelected ? 'text-brand-red' : 'text-gray-900'}`}>{client.name}</h3>
+                            <span className="text-[10px] text-gray-400 font-medium whitespace-nowrap">
+                                {new Date(client.nextActionDate).toLocaleDateString(undefined, {month:'short', day:'numeric'})}
+                            </span>
+                        </div>
+                        
+                        <div className="flex justify-between items-center">
+                            <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <span className="font-semibold text-gray-700">{loanDisplay}</span>
+                                <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+                                <span className="truncate max-w-[80px] md:max-w-[120px]">{client.status}</span>
+                            </div>
+                            
+                            {/* Score Badge */}
+                            <div className={`text-[10px] px-1.5 py-0.5 rounded-md ${scoreColor} min-w-[24px] text-center`}>
+                                {leadScore}
                             </div>
                         </div>
-                        <span className="text-[10px] text-gray-400 shrink-0">{new Date(client.nextActionDate).toLocaleDateString(undefined, {month:'numeric', day:'numeric'})}</span>
                     </div>
-                    <div className="flex justify-between items-end">
-                        <div className="flex items-center gap-2 text-xs text-gray-600 font-medium">
-                            <span>${(client.loanAmount/1000000).toFixed(2)}M</span><span className="w-1 h-1 bg-gray-300 rounded-full"></span><span style={{color: stageColor}}>{client.status}</span>
-                        </div>
-                        <button onClick={(e) => onToggle(client.id, e)} className="p-2 -mr-2 cursor-pointer z-10 hover:bg-black/5 rounded-full text-gray-300 hover:text-brand-dark transition-colors">
-                            {isMultiSelected ? <CheckSquare size={18} className="text-brand-red" /> : <Square size={18} />}
-                        </button>
+
+                    {/* Selection Control (Mobile Friendly Hit Area) */}
+                    <div 
+                        className="shrink-0 h-10 w-8 flex items-center justify-center -mr-1 cursor-pointer"
+                        onClick={(e) => onToggle(client.id, e)}
+                    >
+                        {isMultiSelected ? (
+                            <div className="bg-brand-dark text-white rounded-full p-0.5 animate-scale-up">
+                                <Check size={14} strokeWidth={3}/>
+                            </div>
+                        ) : (
+                            <div className="w-5 h-5 rounded-full border-2 border-gray-200 group-hover:border-gray-300 transition-colors"></div>
+                        )}
                     </div>
                 </div>
-                <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-100"><div className="h-full bg-gradient-to-r from-brand-dark to-brand-red transition-all duration-500 opacity-80" style={{ width: `${stageProgress}%` }}/></div>
+
+                {/* Subtle Progress Bar at Bottom */}
+                <div className="absolute bottom-0 left-14 right-4 h-0.5 bg-gray-100/50 rounded-full overflow-hidden">
+                    <div className="h-full transition-all duration-700 ease-out opacity-60" style={{ width: `${stageProgress}%`, backgroundColor: stageColor }}/>
+                </div>
             </div>
         </div>
     );
@@ -145,53 +184,43 @@ const PipelineResults = memo(({
     if (!showSentry) return null;
 
     return (
-        <div className="mt-3 bg-white/10 rounded-lg border border-white/10 overflow-hidden animate-slide-up relative">
-            <button onClick={() => setShowSentry(false)} className="absolute top-2 right-2 text-gray-400 hover:text-white"><XCircle size={14}/></button>
-            <div className="p-3">
-                <h4 className="text-[10px] font-bold text-brand-gold uppercase tracking-wider mb-2 flex items-center">
-                    {isScanningPipeline ? <Loader2 size={10} className="animate-spin mr-1" /> : <Radar size={10} className="mr-1"/>}
-                    Pipeline Opportunities
+        <div className="mt-3 bg-white/10 rounded-xl border border-white/10 overflow-hidden animate-slide-up relative backdrop-blur-sm">
+            <button onClick={() => setShowSentry(false)} className="absolute top-2 right-2 text-white/50 hover:text-white transition-colors"><XCircle size={16}/></button>
+            <div className="p-4">
+                <h4 className="text-[10px] font-bold text-brand-gold uppercase tracking-wider mb-3 flex items-center">
+                    {isScanningPipeline ? <Loader2 size={12} className="animate-spin mr-1.5" /> : <Radar size={12} className="mr-1.5"/>}
+                    Pipeline Intelligence
                 </h4>
                 {isScanningPipeline ? (
-                    <div className="space-y-2">
-                         <div className="bg-brand-dark/50 p-2 rounded border border-white/5 flex items-start">
-                             <Skeleton className="w-1 h-8 rounded-full mr-2 bg-white/10" />
+                    <div className="space-y-3">
+                         <div className="bg-brand-dark/40 p-3 rounded-lg border border-white/5 flex items-start">
+                             <Skeleton className="w-1 h-8 rounded-full mr-3 bg-white/10" />
                              <div className="w-full">
-                                 <div className="flex justify-between items-center w-full mb-1">
+                                 <div className="flex justify-between items-center w-full mb-1.5">
                                      <Skeleton className="h-3 w-24 bg-white/10" />
                                      <Skeleton className="h-3 w-12 bg-white/10" />
                                  </div>
                                  <Skeleton className="h-2 w-3/4 bg-white/10" />
                              </div>
                         </div>
-                         <div className="bg-brand-dark/50 p-2 rounded border border-white/5 flex items-start">
-                             <Skeleton className="w-1 h-8 rounded-full mr-2 bg-white/10" />
-                             <div className="w-full">
-                                 <div className="flex justify-between items-center w-full mb-1">
-                                     <Skeleton className="h-3 w-20 bg-white/10" />
-                                     <Skeleton className="h-3 w-10 bg-white/10" />
-                                 </div>
-                                 <Skeleton className="h-2 w-1/2 bg-white/10" />
-                             </div>
-                        </div>
                     </div>
                 ) : sentryOpportunities.length > 0 ? (
                     <div className="space-y-2">
                         {sentryOpportunities.map((opp, idx) => (
-                            <div key={idx} className="bg-brand-dark/50 p-2 rounded border border-white/5 flex items-start cursor-pointer hover:bg-white/5 transition-colors" onClick={() => onSelectOpportunity(opp.clientId)}>
-                                <div className={`w-1 h-full rounded-full mr-2 ${opp.priority === 'HIGH' ? 'bg-red-500' : 'bg-blue-400'} shrink-0 mt-1`}></div>
-                                <div>
-                                    <div className="flex justify-between items-center w-full">
-                                        <span className="text-xs font-bold text-white">{opp.clientName}</span>
-                                        <span className="text-[9px] bg-white/10 px-1 rounded text-gray-300">{opp.trigger}</span>
+                            <div key={idx} className="bg-brand-dark/40 p-3 rounded-lg border border-white/5 flex items-start cursor-pointer hover:bg-white/10 transition-colors group" onClick={() => onSelectOpportunity(opp.clientId)}>
+                                <div className={`w-1 h-8 rounded-full mr-3 ${opp.priority === 'HIGH' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 'bg-blue-400'} shrink-0 mt-0.5`}></div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex justify-between items-center w-full mb-0.5">
+                                        <span className="text-xs font-bold text-white truncate">{opp.clientName}</span>
+                                        <span className="text-[9px] bg-white/10 px-1.5 py-0.5 rounded text-gray-300 whitespace-nowrap">{opp.trigger}</span>
                                     </div>
-                                    <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{opp.action}</p>
+                                    <p className="text-[10px] text-gray-400 leading-tight truncate group-hover:text-gray-300 transition-colors">{opp.action}</p>
                                 </div>
                             </div>
                         ))}
                     </div>
                 ) : (
-                    <div className="text-[10px] text-gray-400 italic">No urgent opportunities found.</div>
+                    <div className="text-[10px] text-gray-400 italic text-center py-2">No urgent opportunities detected.</div>
                 )}
             </div>
         </div>
@@ -219,24 +248,35 @@ const MemoDisplay = memo(({
     if ((!morningMemo && !loadingMemo) || !showMemo) return null;
 
     return (
-         <div className="mt-3 p-3 bg-white/10 rounded-lg border border-white/10 animate-slide-up relative">
-            <div className="flex justify-end absolute top-2 right-2 space-x-1">
-                <button onClick={onPlayBriefing} disabled={isLoadingAudio || loadingMemo} className="text-gray-400 hover:text-brand-gold transition-colors disabled:opacity-50">
-                    {isLoadingAudio ? <Loader2 size={14} className="animate-spin" /> : isPlayingAudio ? <Pause size={14} className="text-brand-gold" /> : <Headphones size={14} />}
+         <div className="mt-3 p-4 bg-white/5 rounded-xl border border-white/10 animate-slide-up relative backdrop-blur-sm group">
+            <div className="flex justify-end absolute top-3 right-3 space-x-2">
+                <button 
+                    onClick={onPlayBriefing} 
+                    disabled={isLoadingAudio || loadingMemo} 
+                    className={`p-1.5 rounded-full transition-all ${isPlayingAudio ? 'bg-brand-gold text-brand-dark' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}
+                >
+                    {isLoadingAudio ? <Loader2 size={14} className="animate-spin" /> : isPlayingAudio ? <Pause size={14} fill="currentColor" /> : <Headphones size={14} />}
                 </button>
-                <button onClick={() => setShowMemo(false)} className="text-gray-400 hover:text-white"><XCircle size={14} /></button>
+                <button onClick={() => setShowMemo(false)} className="text-gray-400 hover:text-white p-1.5 hover:bg-white/10 rounded-full transition-colors"><X size={14} /></button>
             </div>
-            <div className="text-xs leading-relaxed text-gray-200 pr-6">
+            
+            <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center">
+                <Sparkles size={10} className="mr-1.5 text-brand-gold"/> Executive Brief
+            </h4>
+
+            <div className="text-xs leading-relaxed text-gray-300 pr-8">
                 {loadingMemo && !morningMemo ? (
-                    <div className="space-y-2">
-                        <Skeleton className="h-3 w-full bg-white/10" />
-                        <Skeleton className="h-3 w-[90%] bg-white/10" />
-                        <Skeleton className="h-3 w-[95%] bg-white/10" />
+                    <div className="space-y-2.5">
+                        <Skeleton className="h-2 w-full bg-white/10" />
+                        <Skeleton className="h-2 w-[90%] bg-white/10" />
+                        <Skeleton className="h-2 w-[95%] bg-white/10" />
                     </div>
                 ) : (
                     <>
-                        <MarkdownRenderer content={morningMemo || ''} />
-                        {loadingMemo && <span className="inline-block w-2 h-4 bg-brand-gold ml-1 animate-pulse align-middle"></span>}
+                        <div className="max-h-24 overflow-y-auto custom-scrollbar">
+                            <MarkdownRenderer content={morningMemo || ''} />
+                        </div>
+                        {loadingMemo && <span className="inline-block w-1.5 h-3 bg-brand-gold ml-1 animate-pulse align-middle"></span>}
                     </>
                 )}
             </div>
@@ -258,22 +298,27 @@ const DashboardHeader = memo(({
     onBrief: () => void;
     isBriefing: boolean;
 }) => (
-    <div className="flex justify-between items-start">
-        <div>
-            <h2 className="text-lg font-bold flex items-center gap-2"><Briefcase size={18} className="text-brand-gold" /> Dashboard</h2>
-            <div className="text-xs text-gray-300 mt-1 flex items-center">
-                <span className={`w-2 h-2 rounded-full mr-2 ${urgentCount > 0 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`}></span>
-                {urgentCount} Urgent Tasks
-            </div>
+    <div className="flex justify-between items-center mb-1">
+        <div className="flex items-center">
+            <div className="bg-brand-red w-1.5 h-1.5 rounded-full mr-2 animate-pulse shadow-[0_0_8px_rgba(205,19,55,0.8)]"></div>
+            <h2 className="text-sm font-bold text-white uppercase tracking-wider">Private Bank Dashboard</h2>
         </div>
         <div className="flex gap-2">
-            <button onClick={onScan} disabled={isScanning} className="text-xs bg-brand-gold/20 hover:bg-brand-gold/30 text-brand-gold px-3 py-1.5 rounded-lg flex items-center transition-all border border-brand-gold/20 disabled:opacity-50">
-                {isScanning ? <Loader2 size={12} className="animate-spin mr-1"/> : <Radar size={12} className="mr-1"/>} 
-                {isScanning ? "Scanning..." : "Scan"}
+            <button 
+                onClick={onScan} 
+                disabled={isScanning} 
+                className="text-[10px] bg-brand-gold/10 hover:bg-brand-gold/20 text-brand-gold px-2.5 py-1.5 rounded-full flex items-center transition-all border border-brand-gold/20 disabled:opacity-50 font-medium"
+            >
+                {isScanning ? <Loader2 size={10} className="animate-spin mr-1"/> : <Radar size={10} className="mr-1"/>} 
+                {isScanning ? "Scanning" : "Scan"}
             </button>
-            <button onClick={onBrief} disabled={isBriefing} className="text-xs bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg flex items-center transition-all border border-white/10 disabled:opacity-50">
-                {isBriefing ? <Loader2 size={12} className="animate-spin mr-1"/> : <Sparkles size={12} className="text-gray-300 mr-1"/>} 
-                {isBriefing ? "Briefing..." : "Brief"}
+            <button 
+                onClick={onBrief} 
+                disabled={isBriefing} 
+                className="text-[10px] bg-white/10 hover:bg-white/20 text-white px-2.5 py-1.5 rounded-full flex items-center transition-all border border-white/10 disabled:opacity-50 font-medium"
+            >
+                {isBriefing ? <Loader2 size={10} className="animate-spin mr-1"/> : <Sparkles size={10} className="mr-1 opacity-80"/>} 
+                {isBriefing ? "Thinking" : "Brief"}
             </button>
         </div>
     </div>
@@ -393,8 +438,8 @@ const DashboardWidgets = memo(({
     }, [onGenerateMemo]);
 
     return (
-        <div className="flex flex-col bg-white shadow-sm shrink-0">
-            <div className="p-4 bg-brand-dark text-white safe-top">
+        <div className="flex flex-col bg-brand-dark/95 shadow-lg shrink-0 relative z-30">
+            <div className="p-4 safe-top">
                 <DashboardHeader 
                     urgentCount={urgentClients.length}
                     onScan={onScanPipeline}
@@ -444,26 +489,65 @@ const FilterToolbar = memo(({
     onManageStages,
     onCloseFilters
 }: any) => (
-    <div className="flex flex-col shrink-0 bg-white shadow-sm z-10">
-        <div className="p-3 border-b border-gray-200 bg-gray-50 flex space-x-2">
-            <div className="relative flex-1">
-                <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
-                <input type="text" placeholder="Search..." value={searchQuery} onChange={(e) => onSearchChange(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-red outline-none" />
+    <div className="flex flex-col shrink-0 bg-white/95 backdrop-blur-md shadow-sm z-20 sticky top-0">
+        <div className="p-3 border-b border-gray-100 flex space-x-3 items-center">
+            <div className="relative flex-1 group">
+                <Search className="absolute left-3 top-2.5 text-gray-400 group-focus-within:text-brand-red transition-colors" size={16} />
+                <input 
+                    type="text" 
+                    placeholder="Search clients..." 
+                    value={searchQuery} 
+                    onChange={(e) => onSearchChange(e.target.value)} 
+                    // MOBILE OPTIMIZATION: text-base on mobile prevents iOS zoom, text-sm on desktop
+                    className="w-full pl-10 pr-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-base md:text-sm focus:ring-2 focus:ring-brand-red/10 focus:border-brand-red outline-none transition-all" 
+                />
             </div>
-            <div className="flex space-x-1">
-                <button onClick={onAddClient} className="p-2 bg-brand-red text-white rounded-lg hover:bg-red-700 shadow-sm transition-colors"><Plus size={20} /></button>
-                <button onClick={onToggleFilter} className={`p-2 rounded-lg border transition-all ${isFilterOpen ? 'bg-brand-dark text-brand-gold border-brand-dark' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-100'}`}><Filter size={18} /></button>
+            <div className="flex space-x-2">
+                <button 
+                    onClick={onAddClient} 
+                    className="p-2.5 bg-brand-red text-white rounded-xl hover:bg-red-700 shadow-md hover:shadow-lg transition-all active:scale-95"
+                    aria-label="Add Client"
+                >
+                    <Plus size={20} />
+                </button>
+                <button 
+                    onClick={onToggleFilter} 
+                    className={`p-2.5 rounded-xl border transition-all active:scale-95 ${isFilterOpen ? 'bg-brand-dark text-brand-gold border-brand-dark shadow-inner' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                >
+                    <Filter size={18} />
+                </button>
             </div>
         </div>
         {isFilterOpen && (
-            <div className="p-4 bg-gray-50 border-b border-gray-200 text-sm space-y-4 animate-fade-in relative z-20">
+            <div className="p-4 bg-gray-50/50 border-b border-gray-200 text-sm space-y-4 animate-slide-up relative z-10 backdrop-blur-sm">
                 <div className="grid grid-cols-2 gap-3">
-                    <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Status</label><select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full p-2 bg-white border border-gray-200 rounded-lg outline-none"><option value="All">All Statuses</option>{dealStages.map((s:any) => <option key={s.name} value={s.name}>{s.name}</option>)}</select></div>
-                    <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Date</label><select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="w-full p-2 bg-white border border-gray-200 rounded-lg outline-none"><option value="All">Any Date</option><option value="Today">Today</option><option value="Upcoming">Next 7 Days</option></select></div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Status</label>
+                        <div className="relative">
+                            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg outline-none appearance-none text-gray-700 font-medium shadow-sm">
+                                <option value="All">All Statuses</option>
+                                {dealStages.map((s:any) => <option key={s.name} value={s.name}>{s.name}</option>)}
+                            </select>
+                            <MoreHorizontal className="absolute right-3 top-3 text-gray-400 pointer-events-none" size={14}/>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Date</label>
+                        <div className="relative">
+                            <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg outline-none appearance-none text-gray-700 font-medium shadow-sm">
+                                <option value="All">Any Date</option>
+                                <option value="Today">Today</option>
+                                <option value="Upcoming">Next 7 Days</option>
+                            </select>
+                            <MoreHorizontal className="absolute right-3 top-3 text-gray-400 pointer-events-none" size={14}/>
+                        </div>
+                    </div>
                 </div>
                 <div className="border-t border-gray-200 pt-3 flex justify-between items-center">
-                    <button onClick={onManageStages} className="text-xs text-brand-red font-medium hover:underline flex items-center"><Settings size={12} className="mr-1"/> Manage Stages</button>
-                    <button onClick={onCloseFilters} className="text-xs text-gray-500 hover:text-gray-800">Close</button>
+                    <button onClick={onManageStages} className="text-xs text-brand-dark font-bold hover:text-brand-red flex items-center bg-white px-3 py-1.5 rounded-full border border-gray-200 shadow-sm">
+                        <Settings size={12} className="mr-1.5"/> Manage Stages
+                    </button>
+                    <button onClick={onCloseFilters} className="text-xs font-medium text-gray-500 hover:text-gray-800">Dismiss</button>
                 </div>
             </div>
         )}
@@ -707,9 +791,9 @@ export const ClientManager: React.FC = () => {
     }), [filteredClients, selectedClient?.id, selectedIds, handleSelectClient, toggleSelection, prefetchDetailView, getStageColor, getStageProgress]);
 
     return (
-        <div className="flex h-full bg-white relative">
+        <div className="flex h-full bg-gray-50/50 relative overflow-hidden">
             {/* Left Panel: List */}
-            <div className={`flex-col border-r border-gray-200 w-full md:w-[400px] shrink-0 transition-all duration-300 ${selectedClient ? 'hidden md:flex' : 'flex'}`}>
+            <div className={`flex-col border-r border-gray-200 w-full md:w-[400px] shrink-0 transition-all duration-300 flex z-10 bg-white`}>
                 
                 <DashboardWidgets 
                     urgentClients={urgentClients}
@@ -751,7 +835,7 @@ export const ClientManager: React.FC = () => {
                              <input type="color" value={newStageColor} onChange={(e) => setNewStageColor(e.target.value)} className="w-8 h-full p-0 border-0 rounded cursor-pointer"/>
                              <button onClick={handleAddStage} disabled={!newStageName} className="bg-brand-dark text-white p-2 rounded disabled:opacity-50"><Plus size={14}/></button>
                         </div>
-                        <div className="space-y-1 max-h-32 overflow-y-auto">
+                        <div className="space-y-1 max-h-32 overflow-y-auto custom-scrollbar">
                              {dealStages.map(stage => (
                                  <div key={stage.name} className="flex justify-between items-center p-2 bg-white border rounded text-xs">
                                      <div className="flex items-center"><div className="w-3 h-3 rounded-full mr-2" style={{backgroundColor: stage.color}}></div>{stage.name}</div>
@@ -763,11 +847,14 @@ export const ClientManager: React.FC = () => {
                 )}
                 
                 {selectedIds.size > 0 && (
-                    <div className="bg-brand-dark text-white p-2 flex justify-between items-center text-xs px-4 animate-slide-up">
-                        <span>{selectedIds.size} selected</span>
-                        <div className="flex space-x-3">
-                            <button onClick={executeBulkDelete} className="hover:text-red-300">Delete</button>
-                            <button onClick={() => setSelectedIds(new Set())} className="hover:text-gray-300">Cancel</button>
+                    <div className="bg-brand-dark text-white p-3 flex justify-between items-center text-xs px-4 animate-slide-up shadow-md z-10">
+                        <div className="flex items-center font-bold">
+                            <CheckSquare size={14} className="mr-2"/>
+                            {selectedIds.size} Selected
+                        </div>
+                        <div className="flex space-x-4">
+                            <button onClick={executeBulkDelete} className="hover:text-red-300 font-bold transition-colors">Delete Selected</button>
+                            <button onClick={() => setSelectedIds(new Set())} className="hover:text-gray-300 transition-colors">Cancel</button>
                         </div>
                     </div>
                 )}
@@ -781,23 +868,25 @@ export const ClientManager: React.FC = () => {
                             itemSize={100} 
                             width={listWidth}
                             itemData={itemData}
+                            className="custom-scrollbar pt-2"
                         >
                             {ClientRow}
                         </List>
                     )}
                     {filteredClients.length === 0 && (
-                        <div className="p-8 text-center text-gray-400 text-sm">
-                            <Users size={48} className="mx-auto mb-3 opacity-20"/>
-                            <p>No clients found matching filters.</p>
+                        <div className="p-12 text-center text-gray-400 text-sm flex flex-col items-center">
+                            <Users size={48} className="mb-4 opacity-10"/>
+                            <p className="font-medium">No clients found.</p>
+                            <p className="text-xs mt-1 opacity-60">Adjust filters or add a new client.</p>
                         </div>
                     )}
                 </div>
             </div>
 
             {/* Right Panel: Detail View (Lazy Loaded) */}
-            <div className={`flex-1 flex flex-col h-full bg-gray-50 overflow-hidden absolute md:relative inset-0 z-20 md:z-0 transform transition-transform duration-300 ${selectedClient ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`}>
+            <div className={`flex-1 flex flex-col h-full bg-gray-50 overflow-hidden absolute md:relative inset-0 z-40 md:z-0 transform transition-transform duration-300 shadow-2xl md:shadow-none ${selectedClient ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`}>
                 {selectedClient ? (
-                    <Suspense fallback={<div className="flex h-full items-center justify-center"><Loader2 size={32} className="animate-spin text-brand-red"/></div>}>
+                    <Suspense fallback={<div className="flex h-full items-center justify-center bg-white"><Loader2 size={32} className="animate-spin text-brand-red"/></div>}>
                         <ClientDetailView 
                             client={selectedClient} 
                             dealStages={dealStages}
@@ -807,10 +896,12 @@ export const ClientManager: React.FC = () => {
                         />
                     </Suspense>
                 ) : (
-                    <div className="hidden md:flex flex-col items-center justify-center h-full text-gray-400">
-                        <Users size={64} className="mb-4 text-gray-200" />
-                        <p className="text-lg font-medium">Select a client to view details</p>
-                        <p className="text-sm mt-2 max-w-xs text-center text-gray-400">Manage loans, draft emails, and track deal stages from this dashboard.</p>
+                    <div className="hidden md:flex flex-col items-center justify-center h-full text-gray-300 bg-gray-50/50">
+                        <div className="w-24 h-24 rounded-full bg-gray-100 flex items-center justify-center mb-6 shadow-sm">
+                            <Users size={48} className="text-gray-300" />
+                        </div>
+                        <p className="text-xl font-bold text-gray-400">Select a client</p>
+                        <p className="text-sm mt-2 max-w-xs text-center text-gray-400">Manage loans, draft emails, and track deal stages.</p>
                     </div>
                 )}
             </div>

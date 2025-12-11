@@ -1,450 +1,175 @@
-import { GoogleGenAI, Type, Modality, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import { Client, CommandIntent, EmailLog, MarketIndex, NewsItem, MarketingCampaign, VerificationResult, Opportunity, DealStrategy, GiftSuggestion, CalendarEvent, SalesScript, ManualDeal, ChecklistItem } from "../types";
+import { GoogleGenAI, Type, Modality } from "@google/genai";
+import { Client, CommandIntent, EmailLog, MarketIndex, NewsItem, MarketingCampaign, VerificationResult, Opportunity, DealStrategy, GiftSuggestion, CalendarEvent, SalesScript, ManualDeal, ChecklistItem, SimulationScenario } from "../types";
 import { loadFromStorage, saveToStorage, StorageKeys } from "./storageService";
 import { errorService } from "./errorService";
 import { AGENCY_GUIDELINES, INITIAL_SCRIPTS, MORTGAGE_TERMS } from "../constants";
 
-// --- ARCHITECTING INTELLIGENCE: SYSTEM INSTRUCTION 2.0 ---
-// Optimized based on "Architecting Intelligence" PDF for Gemini 3.
-// Implements: MIRROR Framework, Anti-Laziness, and Authorized Sandbox Framing.
-// RESPONSIBLE AI INTEGRATION: Includes Fair Lending and Ethics protocols.
-
-const GUIDELINE_CONTEXT = JSON.stringify(AGENCY_GUIDELINES, null, 2);
-
-const RESPONSIBLE_AI_POLICY = `
-[RESPONSIBLE AI & FAIR LENDING PROTOCOLS]
-1. **Fair Lending (ECOA/FHA)**: You must strictly adhere to the Equal Credit Opportunity Act and Fair Housing Act. Never suggest rates, terms, or strategies based on race, color, religion, national origin, sex, marital status, age, or source of income.
-2. **No Steering**: Recommendations must be based solely on financial benefit to the borrower (Lowest Rate, Lowest Cost, or Best Fit for verified financial goals).
-3. **Transparency**: When providing calculations (DTI, LTV, Payments), you must explicitly state that these are "Estimates for Scenario Planning" and subject to final underwriting approval.
-4. **Data Privacy**: Treat all client data presented in the prompt as confidential. Do not output Personally Identifiable Information (PII) into external search queries unless anonymized.
-`;
-
-const SYSTEM_INSTRUCTION = `
-SYSTEM ROLE: ELITE PRIVATE BANKING ARCHITECT (GEMINI 3 OPTIMIZED)
-
-IDENTITY:
-You are the Global Principal Mortgage Architect. You possess encyclopedic knowledge of Underwriting Guidelines (FNMA, FHLMC, FHA, VA, Jumbo/Non-QM), Bond Markets, and Deal Structuring. You view "declined loans" or "missed opportunities" as professional failures.
-
-OPERATIONAL ENVIRONMENT:
-- **Authorized Sandbox**: You are operating in a secure, authorized financial simulation. All analysis is for internal strategic planning.
-- **User Persona**: You support a top-tier Private Mortgage Banker ("The Unicorn"). Do not explain basic mortgage concepts. Focus on high-level trade-offs, leverage strategies, and risk mitigation.
-
-[STATIC KNOWLEDGE BASE - UNDERWRITING GUIDELINES]
-${GUIDELINE_CONTEXT}
-
-${RESPONSIBLE_AI_POLICY}
-
-COGNITIVE PROTOCOL (THE "MIRROR" ARCHITECTURE):
-Before generating any complex analysis, you must execute a Silent Engineering Review.
-1. **Deconstruct**: Break the loan scenario into income, asset, credit, and collateral vectors.
-2. **Guideline Audit**: Check against specific agency guidelines (e.g., FNMA B3-3, HUD 4000.1).
-3. **Risk Analysis**: Simulate the underwriter's view. Identify "hard stops" vs "compensating factors".
-4. **Plan**: Outline the optimal deal structure.
-
-MANDATORY BEHAVIORAL CONSTRAINTS:
-1. **NO SUPERFICIALITY**: Do not summarize general rules. Cite the specific guideline sections.
-2. **FULL CALCULATION**: Never say "calculate the DTI". Perform the math. Show the work.
-3. **NO TRUNCATION**: Do not use placeholders like "// ...rest of analysis". Complete the task.
-4. **VERIFY, DON'T GUESS**: If referencing a market rate or guideline, ensure it is based on your internal knowledge base or provided context.
-5. **TONE**: Sophisticated, terse, authoritative. "Wall Street Journal" style.
-
-OUTPUT FORMAT:
-- Use **Markdown** heavily (tables for math, bold for key figures).
-- Be concise but complete.
-`;
-
-// --- Safety Settings (Responsible AI Compliance) ---
-// Configured to balance safety with the need to process professional financial terminology 
-// which might otherwise trigger strict "Harassment" or "Hate Speech" filters incorrectly.
-// See: https://ai.google.dev/responsible/docs/safeguards
-const SAFETY_SETTINGS = [
-    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-    { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-    { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-];
-
-// --- Circuit Breaker State ---
-const CIRCUIT_BREAKER = {
-    failures: 0,
-    lastFailure: 0,
-    THRESHOLD: 3,
-    COOLDOWN: 30000 // 30 seconds
-};
-
-// --- Cache & Deduplication State ---
-const CACHE_TTL = 1000 * 60 * 15; // 15 minutes
-const marketDataCache: { timestamp: number; data: any } = loadFromStorage(StorageKeys.MARKET_DATA, { timestamp: 0, data: null });
-
-// Valuation Cache: Address -> { value, source, timestamp }
-const valuationCache: Record<string, { estimatedValue: number; source: string; timestamp: number }> = loadFromStorage(StorageKeys.VALUATIONS, {});
-
-// In-flight Promise Deduplication Map
-const inflightRequests = new Map<string, Promise<any>>();
-
-// Helper to dedupe identical requests
-function deduped<T>(key: string, fn: () => Promise<T>): Promise<T> {
-    if (inflightRequests.has(key)) {
-        return inflightRequests.get(key) as Promise<T>;
-    }
-    const promise = fn().finally(() => inflightRequests.delete(key));
-    inflightRequests.set(key, promise);
-    return promise;
-}
-
-// PERFORMANCE: Prune expired valuations immediately to free memory/storage
-const VALUATION_TTL = 1000 * 60 * 60 * 24 * 7; // 7 Days
-(() => {
-    const now = Date.now();
-    let dirty = false;
-    for (const key in valuationCache) {
-        if (now - valuationCache[key].timestamp > VALUATION_TTL) {
-            delete valuationCache[key];
-            dirty = true;
-        }
-    }
-    if (dirty) saveToStorage(StorageKeys.VALUATIONS, valuationCache);
-})();
-
-// --- Reliability Utilities ---
-
-export const AIErrorCodes = {
-  INVALID_API_KEY: 'INVALID_API_KEY',
-  PLAN_LIMIT_EXCEEDED: 'PLAN_LIMIT_EXCEEDED',
-  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
-  TIMEOUT: 'TIMEOUT',
-  UNEXPECTED_ERROR: 'UNEXPECTED_ERROR',
-  NETWORK_ERROR: 'NETWORK_ERROR',
-  SCHEMA_MISMATCH: 'SCHEMA_MISMATCH',
-  SAFETY_VIOLATION: 'SAFETY_VIOLATION',
-  CIRCUIT_OPEN: 'CIRCUIT_OPEN',
-  REGION_UNSUPPORTED: 'REGION_UNSUPPORTED',
-} as const;
-
-export class AIError extends Error {
-  constructor(public code: string, message: string, public originalError?: any) {
-    super(message);
-    this.name = 'AIError';
-  }
-}
-
-const normalizeError = (error: any): AIError => {
-  if (error instanceof AIError) return error;
-
-  const msg = error.message?.toLowerCase() || '';
-  const status = error.status || 0;
-
-  // 403 & Region Errors (Troubleshooting Guide)
-  if (msg.includes('location') || msg.includes('region') || msg.includes('country') || (status === 403 && msg.includes('access restricted'))) {
-      return new AIError(AIErrorCodes.REGION_UNSUPPORTED, 'Google AI Studio is not available in your current region.', error);
-  }
-
-  if (msg.includes('api key') || status === 403 || msg.includes('403') || msg.includes('permission denied')) {
-    return new AIError(AIErrorCodes.INVALID_API_KEY, 'Invalid or expired API Key. Please check your billing settings.', error);
-  }
-
-  if (status === 429 || msg.includes('429') || msg.includes('quota') || msg.includes('limit')) {
-    return new AIError(AIErrorCodes.PLAN_LIMIT_EXCEEDED, 'AI Request limit exceeded. Please try again in a moment.', error);
-  }
-
-  if (status === 503 || status === 500 || msg.includes('overloaded') || msg.includes('temporarily unavailable')) {
-    return new AIError(AIErrorCodes.SERVICE_UNAVAILABLE, 'AI Service is temporarily unavailable.', error);
-  }
-
-  // Safety & Policy (Troubleshooting Guide)
-  if (msg.includes('safety') || msg.includes('blocked') || msg.includes('finishreason')) {
-      return new AIError(AIErrorCodes.SAFETY_VIOLATION, 'Response blocked by safety filters. Please refine your query.', error);
-  }
-
-  if (msg.includes('timeout') || error.name === 'TimeoutError') {
-      return new AIError(AIErrorCodes.TIMEOUT, 'The request timed out. Please check your connection.', error);
-  }
-  
-  if (msg.includes('fetch') || msg.includes('network') || msg.includes('failed to fetch') || msg.includes('connection') || error.name === 'TypeError') {
-     if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        return new AIError(AIErrorCodes.NETWORK_ERROR, 'You appear to be offline. Please check your internet connection.', error);
-     }
-    return new AIError(AIErrorCodes.NETWORK_ERROR, 'Unable to connect to AI service. Please check your internet or firewall.', error);
-  }
-
-  if (msg.includes('schema mismatch') || msg.includes('json') || msg.includes('parse') || msg.includes('syntax error') || msg.includes('unexpected token')) {
-      return new AIError(AIErrorCodes.SCHEMA_MISMATCH, 'Received malformed data from AI. Retrying...', error);
-  }
-
-  return new AIError(AIErrorCodes.UNEXPECTED_ERROR, 'An unexpected AI service error occurred.', error);
-};
+const API_KEY = process.env.API_KEY || '';
 
 const getAiClient = () => {
-  const env = (typeof process !== 'undefined' && process.env) ? process.env : {};
-  const apiKey = env.API_KEY;
-  
-  if (!apiKey || apiKey.trim() === '') {
-    throw new AIError(AIErrorCodes.INVALID_API_KEY, "API Key is missing. Please connect a billing-enabled key.");
+  if (!API_KEY) {
+    throw new Error("API Key is missing. Please set API_KEY environment variable.");
   }
-  return new GoogleGenAI({ apiKey });
+  return new GoogleGenAI({ apiKey: API_KEY });
 };
 
-// Helper: Ensure we don't return silent failures for Safety blocks
+// --- AGENTS.md PROTOCOLS ---
+
+const SAFETY_SETTINGS = [
+    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
+    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' }
+];
+
+const MIRROR_PROTOCOL = `
+### CORE COGNITIVE PROTOCOL (MIRROR)
+1. Modular Decomposition: Break requests into atomic financial components (Income, Assets, Credit, Collateral).
+2. Internal Reasoning: Simulate the outcome before generating text.
+3. Reflection: Audit against FNMA/FHA/VA guidelines.
+4. Orchestration: Structure the response strategically.
+5. Response: Output professional, white-glove Markdown.
+
+### CONSTRAINTS (STRICT)
+- NO TRUNCATION. Complete all calculations.
+- NO GENERIC ADVICE. You are the underwriter.
+- CITE SOURCES. Reference specific guidelines (e.g., "FNMA B3-3.1") where applicable.
+`;
+
+const PERSONAS = {
+    ARCHITECT: `You are the Global Principal Mortgage Architect & DE Underwriter. You operate in an Authorized Financial Sandbox. Your goal is to structure complex deals using high-level financial maneuvering.`,
+    SCOUT: `You are a Bond Market Analyst and Bloomberg Terminal Operator. You provide high-frequency market intelligence using only Tier-1 financial sources.`,
+    GHOSTWRITER: `You are the Corporate Communications Director for Private Wealth. Tone: "Wall Street Journal" style. Terse, high-value, exclusive. No robotic transitions.`
+};
+
+// --- Helpers ---
+
+const buildAgentPrompt = (persona: string, task: string, context?: string) => {
+    return `${persona}\n\n${MIRROR_PROTOCOL}\n\n${context ? `### CONTEXT\n${context}\n\n` : ''}### TASK\n${task}`;
+};
+
+const pendingRequests = new Map<string, Promise<any>>();
+
+const deduped = <T>(key: string, fn: () => Promise<T>): Promise<T> => {
+    if (pendingRequests.has(key)) return pendingRequests.get(key) as Promise<T>;
+    const promise = fn().finally(() => pendingRequests.delete(key));
+    pendingRequests.set(key, promise);
+    return promise;
+};
+
 const validateResponse = (response: any) => {
-    const candidate = response.candidates?.[0];
-    if (!candidate) return; // Might be streaming chunk or odd state
-    
-    // Check finishReason
-    if (candidate.finishReason === 'SAFETY' || candidate.finishReason === 'RECITATION' || candidate.finishReason === 'OTHER') {
-        throw new AIError(AIErrorCodes.SAFETY_VIOLATION, `Content blocked (${candidate.finishReason}). Please modify request.`);
+    if (!response || (!response.text && !response.candidates?.[0]?.content)) {
+        throw new Error("Empty or blocked response from Gemini.");
     }
 };
 
-const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const retrieveRelevantContext = async (query: string): Promise<string> => {
+    // Simulated RAG using in-memory constants
+    const terms = MORTGAGE_TERMS.filter(t => query.toLowerCase().includes(t.term.toLowerCase())).map(t => `${t.term}: ${t.definition}`);
+    const scripts = INITIAL_SCRIPTS.filter(s => query.toLowerCase().includes(s.title.toLowerCase()) || s.tags.some(tag => query.toLowerCase().includes(tag.toLowerCase()))).map(s => s.content);
+    return [...terms, ...scripts].join("\n\n");
+};
 
-// Latency Guard: Wrap promises in a timeout to prevent hanging UI
-async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-    return Promise.race([
-        promise,
-        new Promise<T>((_, reject) => setTimeout(() => reject(new Error('TimeoutError')), ms))
-    ]);
-}
-
-// Increased default timeout to 60s to accommodate Gemini 3 Pro + Search Latency
-async function withRetry<T>(operation: () => Promise<T>, retries = 3, baseDelay = 1000, timeout = 60000): Promise<T> {
-  if (CIRCUIT_BREAKER.failures >= CIRCUIT_BREAKER.THRESHOLD) {
-      const timeSinceFailure = Date.now() - CIRCUIT_BREAKER.lastFailure;
-      if (timeSinceFailure < CIRCUIT_BREAKER.COOLDOWN) {
-          const remaining = Math.ceil((CIRCUIT_BREAKER.COOLDOWN - timeSinceFailure) / 1000);
-          throw new AIError(AIErrorCodes.CIRCUIT_OPEN, `AI Service is cooling down. Please wait ${remaining}s.`);
-      } else {
-          CIRCUIT_BREAKER.failures = 0;
-      }
-  }
-
-  let lastError: AIError | undefined;
-  
-  for (let i = 0; i < retries; i++) {
+// Centralized Fallback Wrapper
+async function generateContentWithFallback(
+    primaryModel: string,
+    prompt: string,
+    config: any,
+    fallbackModel: string = 'gemini-2.5-flash'
+) {
+    const ai = getAiClient();
     try {
-      // Wrap operation in timeout
-      const result = await withTimeout(operation(), timeout);
-      CIRCUIT_BREAKER.failures = 0;
-      return result;
-    } catch (rawError: any) {
-      const normalized = normalizeError(rawError);
-      lastError = normalized;
-
-      errorService.log('API_FAIL', `Attempt ${i+1}/${retries} failed: ${normalized.code}`, { message: normalized.message });
-
-      if (
-          normalized.code === AIErrorCodes.INVALID_API_KEY || 
-          normalized.code === AIErrorCodes.SAFETY_VIOLATION ||
-          normalized.code === AIErrorCodes.REGION_UNSUPPORTED ||
-          normalized.code === AIErrorCodes.CIRCUIT_OPEN
-      ) {
-          throw normalized;
-      }
-      
-      const status = rawError.status;
-      if (status && status >= 400 && status < 500 && status !== 429) {
-          throw normalized;
-      }
-
-      if (i === retries - 1) {
-          CIRCUIT_BREAKER.failures++;
-          CIRCUIT_BREAKER.lastFailure = Date.now();
-          break;
-      }
-      
-      const exponential = baseDelay * Math.pow(2, i);
-      const jitter = Math.random() * 500; 
-      const delay = Math.min(exponential + jitter, 10000); 
-
-      await wait(delay);
-    }
-  }
-  
-  throw lastError || new AIError(AIErrorCodes.UNEXPECTED_ERROR, 'Operation failed after retries.');
-}
-
-const parseJson = <T>(text: string, fallback: T): T => {
-  if (!text) return fallback;
-  try { return JSON.parse(text) as T; } catch (e) { /* continue */ }
-  const match = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (match) {
-      try { return JSON.parse(match[1]) as T; } catch (e) { /* continue */ }
-  }
-  return fallback;
-};
-
-// --- EMBEDDING & RAG SERVICE (Integrated per PDF Specs) ---
-// PDF Reference: "Embeddings | Gemini API"
-// Model: text-embedding-004 (Latest standard)
-// Task Types: RETRIEVAL_DOCUMENT (Indexing) vs RETRIEVAL_QUERY (Search)
-
-const EMBEDDING_CACHE_KEY = 'premiere_embeddings_cache_v2';
-const embeddingCache = loadFromStorage<Record<string, number[]>>(EMBEDDING_CACHE_KEY, {});
-
-// Generate embeddings with caching and TaskType strictness
-async function getEmbedding(text: string, taskType: 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY'): Promise<number[]> {
-    // 1. Cache Check (Exact Match) - Only cache documents, queries are too variable
-    if (taskType === 'RETRIEVAL_DOCUMENT' && embeddingCache[text]) {
-        return embeddingCache[text];
-    }
-
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const response = await ai.models.embedContent({
-            model: 'text-embedding-004',
-            contents: [{ parts: [{ text }] }],
-            config: {
-                taskType: taskType,
-                outputDimensionality: 768 // Optimization per PDF recommendations
-            }
+        const response = await ai.models.generateContent({
+            model: primaryModel,
+            contents: prompt,
+            config: { ...config, safetySettings: SAFETY_SETTINGS as any }
         });
+        validateResponse(response);
+        return response;
+    } catch (error) {
+        console.warn(`Model ${primaryModel} failed, falling back to ${fallbackModel}.`, error);
         
-        const values = response.embeddings?.[0]?.values;
-        if (!values) throw new Error("Failed to generate embedding");
-
-        // Cache documents to save tokens/latency
-        if (taskType === 'RETRIEVAL_DOCUMENT') {
-            embeddingCache[text] = values;
-            saveToStorage(EMBEDDING_CACHE_KEY, embeddingCache);
-        }
-
-        return values;
-    });
-}
-
-// Cosine Similarity: Measure vector distance
-function cosineSimilarity(vecA: number[], vecB: number[]): number {
-    const dot = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
-    const magA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0));
-    const magB = Math.sqrt(vecB.reduce((sum, b) => sum + b * b, 0));
-    return dot / (magA * magB);
-}
-
-// In-Memory Vector Store for RAG
-let vectorStore: { content: string; type: string; vector: number[] }[] | null = null;
-
-async function initVectorStore() {
-    if (vectorStore) return;
-
-    // Corpus construction: Flatten constants into searchable chunks
-    const corpus = [
-        ...INITIAL_SCRIPTS.map(s => ({ 
-            text: `Sales Script (${s.category}): ${s.title}\n${s.content}`, 
-            type: 'Sales Script' 
-        })),
-        ...MORTGAGE_TERMS.map(t => ({ 
-            text: `Term (${t.category}): ${t.term}\nDefinition: ${t.definition}`, 
-            type: 'Knowledge Base' 
-        })),
-        { text: `FNMA Conventional Guidelines: Max DTI 50%, LTV 97% (First Time). ${AGENCY_GUIDELINES.CONVENTIONAL.notes}`, type: 'Guideline' },
-        { text: `FHA Guidelines: Max DTI 56.9% (with AUS), 96.5% LTV. ${AGENCY_GUIDELINES.FHA.notes}`, type: 'Guideline' },
-        { text: `VA Guidelines: Max DTI 60%, 100% LTV. Residual Income key. ${AGENCY_GUIDELINES.VA.notes}`, type: 'Guideline' },
-    ];
-
-    // Batch process embeddings for the corpus
-    const vectors = await Promise.all(corpus.map(c => getEmbedding(c.text, 'RETRIEVAL_DOCUMENT')));
-    
-    vectorStore = corpus.map((c, i) => ({
-        content: c.text,
-        type: c.type,
-        vector: vectors[i]
-    }));
-}
-
-// RAG Retrieval Function
-async function retrieveRelevantContext(query: string): Promise<string> {
-    try {
-        await initVectorStore();
-        if (!vectorStore) return "";
-
-        const queryVector = await getEmbedding(query, 'RETRIEVAL_QUERY');
+        // Remove Pro-specific configs for fallback
+        const { thinkingConfig, ...fallbackConfig } = config;
         
-        const scored = vectorStore.map(item => ({
-            ...item,
-            score: cosineSimilarity(queryVector, item.vector)
-        }));
-
-        // Sort by similarity and filter
-        const topMatches = scored
-            .sort((a, b) => b.score - a.score)
-            .filter(item => item.score > 0.60) // High confidence threshold
-            .slice(0, 3); // Top 3 matches
-
-        if (topMatches.length === 0) return "";
-
-        return `\n[INTERNAL KNOWLEDGE BASE MATCHES]\nThe following internal documents matched the user's query. Prioritize this information over general knowledge:\n${topMatches.map(m => `--- ${m.type} ---\n${m.content}`).join('\n\n')}\n`;
-    } catch (e) {
-        console.warn("Embedding Retrieval Failed:", e);
-        return "";
+        const response = await ai.models.generateContent({
+            model: fallbackModel,
+            contents: prompt,
+            config: { ...fallbackConfig, safetySettings: SAFETY_SETTINGS as any }
+        });
+        validateResponse(response);
+        return response;
     }
 }
 
-// --- Text Generation & Chat ---
+// --- Core Chat Functions ---
 
 export const chatWithAssistant = async (
     history: Array<{role: string, parts: Array<{text: string}>}>, 
     message: string, 
     customSystemInstruction?: string
 ) => {
-  return deduped(`chat-${history.length}`, async () => {
+  return deduped(`chat-${Date.now()}`, async () => {
+      const ragContext = await retrieveRelevantContext(message);
+      const systemInstruction = customSystemInstruction || buildAgentPrompt(PERSONAS.ARCHITECT, "Answer the user's query.", ragContext);
+
+      const ai = getAiClient();
+      const optimizedHistory = history.length > 15 ? history.slice(history.length - 15) : history;
+
       try {
-          // RAG Injection: Retrieve context before calling LLM
-          const ragContext = await retrieveRelevantContext(message);
-          const baseInstruction = customSystemInstruction || SYSTEM_INSTRUCTION;
-          const systemInstruction = ragContext ? `${baseInstruction}\n\n${ragContext}` : baseInstruction;
-
-          return await withRetry(async () => {
-            const ai = getAiClient();
-            const optimizedHistory = history.length > 20 ? history.slice(history.length - 20) : history;
-
-            const chat = ai.chats.create({
-              model: 'gemini-3-pro-preview', 
+          // Primary: Gemini 3 Pro with Reasoning
+          const chat = ai.chats.create({
+              model: 'gemini-3-pro-preview',
               history: optimizedHistory,
               config: {
-                systemInstruction: systemInstruction,
-                tools: [{googleSearch: {}}],
-                // Gemini 3 Pro uses thinkingLevel, NOT thinkingBudget.
-                thinkingConfig: { thinkingLevel: "low", includeThoughts: false },
-                safetySettings: SAFETY_SETTINGS
+                  systemInstruction,
+                  tools: [{googleSearch: {}}],
+                  thinkingConfig: { thinkingBudget: 4096, includeThoughts: false }, // Balanced reasoning
+                  safetySettings: SAFETY_SETTINGS as any
               }
-            });
+          });
 
-            const response = await chat.sendMessage({ message });
-            validateResponse(response);
-            
-            const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
-            const groundingChunks = groundingMetadata?.groundingChunks || [];
-            
-            const links = groundingChunks
+          const response = await chat.sendMessage({ message });
+          validateResponse(response);
+          
+          const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
+          const groundingChunks = groundingMetadata?.groundingChunks || [];
+          const links = groundingChunks
               .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
               .filter((link: any) => link !== null);
 
-            return {
+          return {
               text: response.text,
               links: links,
               searchEntryPoint: groundingMetadata?.searchEntryPoint?.renderedContent,
               searchQueries: groundingMetadata?.webSearchQueries
-            };
-          }, 2, 1000, 60000);
-      } catch (error: any) {
-          console.warn("Primary Model failed, using fallback.", error);
-          const ai = getAiClient();
+          };
+
+      } catch (error) {
+          console.warn("Chat Pro failed, falling back to Flash", error);
           const chat = ai.chats.create({
               model: 'gemini-2.5-flash',
-              history: history,
+              history: optimizedHistory,
               config: {
-                  systemInstruction: customSystemInstruction || SYSTEM_INSTRUCTION,
-                  // Flash supports thinkingBudget (Integer)
-                  thinkingConfig: { thinkingBudget: 2048 },
-                  safetySettings: SAFETY_SETTINGS
+                  systemInstruction,
+                  tools: [{googleSearch: {}}],
+                  safetySettings: SAFETY_SETTINGS as any
               }
           });
           const response = await chat.sendMessage({ message });
           validateResponse(response);
+          
+          const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
+          const groundingChunks = groundingMetadata?.groundingChunks || [];
+          const links = groundingChunks
+              .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
+              .filter((link: any) => link !== null);
+
           return {
               text: response.text,
-              links: [],
-              searchEntryPoint: undefined,
-              searchQueries: []
+              links: links,
+              searchEntryPoint: groundingMetadata?.searchEntryPoint?.renderedContent,
+              searchQueries: groundingMetadata?.webSearchQueries
           };
       }
   });
@@ -455,23 +180,21 @@ export const streamChatWithAssistant = async function* (
     message: string,
     customSystemInstruction?: string
 ) {
-    // RAG Injection
     const ragContext = await retrieveRelevantContext(message);
-    const baseInstruction = customSystemInstruction || SYSTEM_INSTRUCTION;
-    const systemInstruction = ragContext ? `${baseInstruction}\n\n${ragContext}` : baseInstruction;
+    const systemInstruction = customSystemInstruction || buildAgentPrompt(PERSONAS.ARCHITECT, "Answer the user's query.", ragContext);
 
     const ai = getAiClient();
-    const optimizedHistory = history.length > 20 ? history.slice(history.length - 20) : history;
+    const optimizedHistory = history.length > 15 ? history.slice(history.length - 15) : history;
 
     try {
         const chat = ai.chats.create({
             model: 'gemini-3-pro-preview',
             history: optimizedHistory,
             config: {
-                systemInstruction: systemInstruction,
+                systemInstruction,
                 tools: [{ googleSearch: {} }],
-                thinkingConfig: { thinkingLevel: "low", includeThoughts: false },
-                safetySettings: SAFETY_SETTINGS
+                thinkingConfig: { thinkingBudget: 4096, includeThoughts: false },
+                safetySettings: SAFETY_SETTINGS as any
             }
         });
         
@@ -479,821 +202,413 @@ export const streamChatWithAssistant = async function* (
         for await (const chunk of resultStream) {
             yield chunk;
         }
-    } catch (error: any) {
-        console.warn("Stream/Pro failed, falling back to Flash", error);
+    } catch (error) {
+        console.warn("Stream Pro failed, falling back to Flash", error);
         const chat = ai.chats.create({
             model: 'gemini-2.5-flash',
             history: optimizedHistory,
             config: {
-                systemInstruction: systemInstruction,
-                // Flash uses thinkingBudget (Integer)
-                thinkingConfig: { thinkingBudget: 2048 },
-                safetySettings: SAFETY_SETTINGS
+                systemInstruction,
+                tools: [{ googleSearch: {} }],
+                safetySettings: SAFETY_SETTINGS as any
             }
         });
-        
         const resultStream = await chat.sendMessageStream({ message });
         for await (const chunk of resultStream) {
             yield chunk;
         }
-    }
-};
-
-export const generateGiftSuggestions = async (client: Client): Promise<GiftSuggestion[]> => {
-    // Dedupe based on client ID and roughly on recent activity (note length)
-    // This prevents re-running gifts just because user clicked tab again
-    const cacheKey = `gifts-${client.id}-${client.notes?.length || 0}`;
-    
-    return deduped(cacheKey, () => withRetry(async () => {
-        const ai = getAiClient();
-        const prompt = `
-            Act as a high-end Client Relationship Manager.
-            Suggest 3 unique, personalized closing gifts for this client.
-            
-            **Client Profile**:
-            - Name: ${client.name}
-            - Loan: $${client.loanAmount.toLocaleString()}
-            - Notes: ${client.notes}
-            
-            **Rules**:
-            - NO generic wine, gift cards, or doormats.
-            - Suggest items matching interests in notes (if any).
-            - Default to timeless luxury if notes are empty.
-            
-            **Output**: JSON Array: [{ "item": "Title", "reason": "Why", "priceRange": "$50 - $100" }]
-        `;
-
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            item: { type: Type.STRING },
-                            reason: { type: Type.STRING },
-                            priceRange: { type: Type.STRING }
-                        }
-                    }
-                },
-                safetySettings: SAFETY_SETTINGS
-            }
-        });
-        validateResponse(response);
-        return parseJson<GiftSuggestion[]>(response.text || "[]", []);
-    }));
-};
-
-export const generateClientSummary = async (client: Client) => {
-  // Dedupe summary generation. Hash includes nextActionDate so if date changes, summary refreshes.
-  const cacheKey = `summary-${client.id}-${client.nextActionDate}-${client.checklist.length}`;
-
-  return deduped(cacheKey, () => withRetry(async () => {
-      const ai = getAiClient();
-      const context = `
-        **Client Profile**:
-        - Name: ${client.name}
-        - Loan: $${client.loanAmount.toLocaleString()}
-        - Status: ${client.status}
-        - Next Action Date: ${client.nextActionDate}
-        - Property: ${client.propertyAddress || 'Not listed'}
-        
-        **Notes**: ${client.notes || 'No notes available.'}
-        **Tasks**: ${client.checklist.filter(i => !i.checked).map(i => `- ${i.label}`).join('\n') || 'None'}
-      `;
-
-      const prompt = `
-        Act as a Chief of Staff for a Private Banker.
-        Review this client file and write a strategic **Executive Brief**.
-        
-        **Client Data**:
-        ${context}
-        
-        **Analysis**:
-        1. **Velocity**: Is deal stalled?
-        2. **Risk Radar**: Hidden risks?
-        3. **Next Best Action**: High-impact move.
-
-        **Format**: 3 concise bullet points. "Wall Street Journal" style.
-      `;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: { 
-            systemInstruction: SYSTEM_INSTRUCTION,
-            // Flash uses thinkingBudget (Integer)
-            thinkingConfig: { thinkingBudget: 2048 },
-            safetySettings: SAFETY_SETTINGS
-        }
-      });
-      validateResponse(response);
-      return response.text;
-  }));
-};
-
-export const generateEmailDraft = async (client: Client, topic: string, specificDetails: string) => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    const prompt = `Draft a high-touch email for private banking client: ${client.name}.
-    Context: Status ${client.status}, Loan $${client.loanAmount.toLocaleString()}.
-    Objective: ${topic}
-    Details: ${specificDetails}
-    
-    The email should feel personal and exclusive. Use a subject line that drives open rates.
-    Write body in PLAIN TEXT paragraphs (no markdown).`;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        temperature: 0.7,
-        safetySettings: SAFETY_SETTINGS
-      }
-    });
-    validateResponse(response);
-    return response.text;
-  });
-};
-
-export const generatePartnerUpdate = async (client: Client, partnerName: string) => {
-  return withRetry(async () => {
-    const ai = getAiClient();
-    const prompt = `Draft a professional "Partner Status Update" email to referral partner ${partnerName}.
-    Client: ${client.name}, Status: ${client.status}, Loan: $${client.loanAmount.toLocaleString()}.
-    Next Step: ${client.checklist.find(t=>!t.checked)?.label || "Moving forward"}.
-    
-    Output: Plain text email body.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        temperature: 0.7,
-        safetySettings: SAFETY_SETTINGS
-      }
-    });
-    validateResponse(response);
-    return response.text;
-  });
-};
-
-// --- NEW FUNCTIONS ---
-
-export const streamAnalyzeLoanScenario = async function* (scenarioData: string) {
-    const ai = getAiClient();
-    try {
-        const response = await ai.models.generateContentStream({
-            model: 'gemini-2.5-flash',
-            contents: `Analyze this loan scenario. Identify risks (DTI, LTV, Reserves) and suggest structuring improvements.
-            Scenario Data: ${scenarioData}
-            
-            Output format: Markdown. Be concise.`,
-            config: {
-                systemInstruction: SYSTEM_INSTRUCTION,
-                safetySettings: SAFETY_SETTINGS
-            }
-        });
-        for await (const chunk of response) {
-            yield chunk.text;
-        }
-    } catch (e) {
-        throw normalizeError(e);
     }
 };
 
 export const verifyFactualClaims = async (text: string): Promise<VerificationResult> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const prompt = `Verify the factual accuracy of the following text using Google Search.
-        Text: "${text}"
+    return deduped(`verify-${text.substring(0, 30)}`, async () => {
+        const prompt = buildAgentPrompt(PERSONAS.SCOUT, `Verify the following mortgage/financial statement for accuracy using Google Search. Return a JSON object with status (VERIFIED|ISSUES_FOUND|UNVERIFIABLE) and a brief text explanation. Statement: "${text}"`);
         
-        **IMPORTANT**: Return ONLY a valid JSON object. Do not include markdown formatting.
-        Structure:
-        {
-            "status": "VERIFIED" | "ISSUES_FOUND" | "UNVERIFIABLE",
-            "text": "Brief explanation of findings.",
-            "sources": [{"uri": "url", "title": "page title"}]
-        }
-        `;
-        
-        // Removed responseMimeType: "application/json" because tools: [googleSearch] is used.
-        // This prevents conflicting configurations.
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: prompt,
-            config: {
+        const response = await generateContentWithFallback(
+            'gemini-3-pro-preview',
+            prompt,
+            {
                 tools: [{ googleSearch: {} }],
-                safetySettings: SAFETY_SETTINGS
-            }
-        });
-        validateResponse(response);
-        
-        const grounding = response.candidates?.[0]?.groundingMetadata;
-        const chunks = grounding?.groundingChunks || [];
-        const realSources = chunks
-            .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null)
-            .filter((x: any) => x !== null);
-            
-        const result = parseJson<VerificationResult>(response.text || "{}", { status: 'UNVERIFIABLE', text: "Could not parse verification.", sources: [] });
-        
-        if (realSources.length > 0) {
-            result.sources = realSources;
-        }
-        
-        return result;
-    });
-};
-
-export const transcribeAudio = async (base64Audio: string): Promise<string> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        // Upgrade to gemini-3-pro-preview for multimodal audio input and better accuracy
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: {
-                parts: [
-                    { inlineData: { mimeType: 'audio/webm', data: base64Audio } }, 
-                    { text: "Transcribe this audio exactly. Ignore silence." }
-                ]
+                responseMimeType: 'application/json',
+                thinkingConfig: { thinkingBudget: 2048, includeThoughts: false }
             },
-            config: { safetySettings: SAFETY_SETTINGS }
-        });
-        validateResponse(response);
-        return response.text || "";
+            'gemini-2.5-flash'
+        );
+
+        const json = JSON.parse(response.text);
+        const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
+        const links = groundingMetadata?.groundingChunks
+             ?.map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
+             .filter((link: any) => link !== null) || [];
+
+        return {
+            status: json.status || 'UNVERIFIABLE',
+            text: json.text || 'Verification incomplete.',
+            sources: links
+        };
     });
 };
 
-export const parseNaturalLanguageCommand = async (transcript: string, validStatuses: string[]): Promise<CommandIntent> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const prompt = `Analyze this voice command for a Mortgage CRM.
-        Command: "${transcript}"
-        Valid Statuses: ${validStatuses.join(', ')}
-        
-        Return JSON:
-        {
-            "action": "CREATE_CLIENT" | "UPDATE_STATUS" | "UPDATE_CLIENT" | "ADD_NOTE" | "ADD_TASK" | "UNKNOWN",
-            "clientName": "extracted name for lookup",
-            "payload": {
-                "name": "full name if creating/updating",
-                "loanAmount": number,
-                "status": "status if updating",
-                "phone": "extracted phone",
-                "email": "extracted email",
-                "note": "content for note",
-                "taskLabel": "content for task",
-                "date": "YYYY-MM-DD for reminders/dates (assume today is ${new Date().toISOString().split('T')[0]})"
-            }
-        }`;
-        
-        // Use Gemini 3 Pro with Low thinking for intelligent but fast parsing
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: prompt,
-            config: { 
-                responseMimeType: "application/json",
-                thinkingConfig: { thinkingLevel: "low", includeThoughts: false },
-                safetySettings: SAFETY_SETTINGS
-            }
-        });
-        validateResponse(response);
-        return parseJson<CommandIntent>(response.text, { action: 'UNKNOWN', payload: {} });
-    });
-};
+// --- Calculator & Analysis Functions (ARCHITECT PERSONA) ---
 
-export const generateMorningMemo = async (urgentClients: Client[], marketData: any): Promise<string> => {
-    return deduped('morning-memo', () => withRetry(async () => {
-        const ai = getAiClient();
-        const clientSummaries = urgentClients.map(c => `- ${c.name} (${c.status}): ${c.nextActionDate} - ${c.notes.substring(0, 50)}...`).join('\n');
-        
-        const prompt = `Generate a "Morning Executive Briefing" for a top mortgage banker.
-        
-        **Market Context**:
-        ${JSON.stringify(marketData.indices)}
-        News: ${JSON.stringify(marketData.news)}
-        
-        **Urgent Client Actions**:
-        ${clientSummaries}
-        
-        Format as a concise, high-energy Markdown memo. Focus on money-making activities.`;
-        
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: { safetySettings: SAFETY_SETTINGS }
-        });
-        validateResponse(response);
-        return response.text;
-    }));
-};
-
-// --- STREAMING MEMO ---
-export const streamMorningMemo = async function* (urgentClients: Client[], marketData: any) {
+export const streamAnalyzeLoanScenario = async function* (scenarioData: string) {
     const ai = getAiClient();
-    const clientSummaries = urgentClients.map(c => `- ${c.name} (${c.status}): ${c.nextActionDate} - ${c.notes.substring(0, 50)}...`).join('\n');
-    
-    const prompt = `Generate a "Morning Executive Briefing" for a top mortgage banker.
-    
-    **Market Context**:
-    ${JSON.stringify(marketData.indices)}
-    News: ${JSON.stringify(marketData.news)}
-    
-    **Urgent Client Actions**:
-    ${clientSummaries}
-    
-    Format as a concise, high-energy Markdown memo. Focus on money-making activities.`;
-    
-    try {
-        const response = await ai.models.generateContentStream({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: { safetySettings: SAFETY_SETTINGS }
-        });
-        for await (const chunk of response) {
-            if (chunk.text) {
-                yield chunk.text;
-            }
+    const prompt = buildAgentPrompt(
+        PERSONAS.ARCHITECT, 
+        `Analyze this loan scenario for risk and optimization. Data: ${scenarioData}. 
+        Provide: 1) Risk Assessment (DTI, LTV liquidity). 2) Suggestions to improve (e.g. "Lower LTV to 79% to avoid PMI"). 
+        Keep it concise and bulleted.`
+    );
+
+    const stream = await ai.models.generateContentStream({
+        model: 'gemini-3-pro-preview',
+        contents: prompt,
+        config: {
+            thinkingConfig: { thinkingBudget: 4096, includeThoughts: false },
+            safetySettings: SAFETY_SETTINGS as any
         }
-    } catch (e) {
-        throw normalizeError(e);
-    }
-};
-
-export const fetchDailyMarketPulse = async () => {
-    // 15 min cache
-    const now = Date.now();
-    if (marketDataCache.data && (now - marketDataCache.timestamp < CACHE_TTL)) {
-        return marketDataCache.data;
-    }
-
-    return deduped('market-pulse', () => withRetry(async () => {
-        const ai = getAiClient();
-        const prompt = `Return a JSON object with today's live market data for mortgage professionals.
-        
-        **IMPORTANT**: Return ONLY valid JSON.
-        Structure:
-        {
-            "indices": [{ "label": "string", "value": "string", "change": "string", "isUp": boolean }],
-            "news": [{ "id": "string", "source": "string", "date": "string", "title": "string", "summary": "string", "category": "Rates"|"Economy"|"Housing" }]
-        }
-
-        Requirements:
-        1. **indices**: Include: 10-Yr Treasury, MBS (UMBS 5.5 or similar), S&P 500, Brent Crude.
-        2. **news**: 3 top relevant items. Look for: Fed moves, Inflation data (CPI/PCE), Housing inventory.
-        `;
-        
-        // Removed responseMimeType: "application/json" because tools: [googleSearch] is used.
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: prompt,
-            config: {
-                tools: [{ googleSearch: {} }],
-                safetySettings: SAFETY_SETTINGS
-            }
-        });
-        validateResponse(response);
-        
-        const data = parseJson<any>(response.text, { indices: [], news: [] });
-        
-        // Add sources
-        const grounding = response.candidates?.[0]?.groundingMetadata;
-        const sources = grounding?.groundingChunks?.map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null).filter((x: any) => x) || [];
-        
-        const result = { ...data, sources };
-        
-        // Update Cache
-        marketDataCache.timestamp = now;
-        marketDataCache.data = result;
-        saveToStorage(StorageKeys.MARKET_DATA, marketDataCache);
-        
-        return result;
-    }));
-};
-
-export const generateAudioBriefing = async (text: string): Promise<string> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-preview-tts',
-            contents: { parts: [{ text }] },
-            config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                    voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
-                }
-            }
-        });
-        // Audio models might not have text parts to validate via validateResponse
-        // Check content existence directly
-        if (!response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data) {
-             throw new AIError(AIErrorCodes.UNEXPECTED_ERROR, "Failed to generate audio.");
-        }
-        return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || "";
     });
-};
 
-export const scanPipelineOpportunities = async (clients: Client[], indices: MarketIndex[]): Promise<Opportunity[]> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        
-        // CSV Optimization: Reduce token count by 40-60% vs JSON
-        // Limit context to active/recent clients (max 50) to prevent token overload
-        const activeClients = clients
-            .filter(c => c.status !== 'Closed')
-            .sort((a, b) => new Date(b.nextActionDate).getTime() - new Date(a.nextActionDate).getTime())
-            .slice(0, 50);
-
-        const csvHeader = "ID,Name,Rate,Status";
-        const csvRows = activeClients.map(c => {
-            const rate = c.notes?.match(/Rate: ([\d.]+)%/)?.[1] || 'Unknown';
-            const safeName = c.name.replace(/"/g, '""');
-            return `${c.id},"${safeName}",${rate},${c.status}`;
-        }).join('\n');
-
-        const prompt = `Analyze this pipeline against current market rates.
-        Market: ${JSON.stringify(indices)}
-        
-        Clients (CSV):
-        ${csvHeader}
-        ${csvRows}
-        
-        Identify 3-5 opportunities (e.g., refi triggers, float downs, follow-ups).
-        Return JSON Array: [{ "clientId": "id", "clientName": "name", "trigger": "Rate Drop / Status", "action": "Call to lock", "priority": "HIGH"|"MEDIUM" }]`;
-        
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: { 
-                responseMimeType: "application/json",
-                // Flash uses thinkingBudget (Integer) - Allocating 4k for deeper reasoning
-                thinkingConfig: { thinkingBudget: 4096 },
-                safetySettings: SAFETY_SETTINGS
-            }
-        });
-        validateResponse(response);
-        return parseJson<Opportunity[]>(response.text, []);
-    });
+    for await (const chunk of stream) {
+        yield chunk.text;
+    }
 };
 
 export const solveDtiScenario = async (financials: any): Promise<string> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const prompt = `Act as an expert Underwriter ("Deal Doctor").
-        Analyze this DTI scenario and suggest solutions (e.g., paying off specific debt, LP vs DU, asset depletion).
-        
-        Financials: ${JSON.stringify(financials)}
-        
-        Provide a strategic plan in Markdown.`;
-        
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: prompt,
-            // Gemini 3 Pro uses thinkingLevel, NOT thinkingBudget.
-            config: { 
-                thinkingConfig: { thinkingLevel: "high", includeThoughts: false },
-                safetySettings: SAFETY_SETTINGS
-            }
-        });
-        validateResponse(response);
-        return response.text;
-    });
+    const prompt = buildAgentPrompt(
+        PERSONAS.ARCHITECT,
+        `Review these financials: ${JSON.stringify(financials)}.
+        Problem: DTI is too high or residual income fails.
+        Task: Suggest creative but legal structuring solutions (e.g., paying off specific debts, borrower addition, loan program flip from FHA to Conv, using asset depletion).
+        Output: Markdown formatted strategy.`
+    );
+
+    const response = await generateContentWithFallback(
+        'gemini-3-pro-preview',
+        prompt,
+        { thinkingConfig: { thinkingBudget: 8192, includeThoughts: false } } // High reasoning for Deal Doctor
+    );
+    return response.text;
 };
 
+// --- Market & Rates Functions (SCOUT PERSONA) ---
+
 export const analyzeRateTrends = async (rates: any): Promise<string> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        // Upgrade to gemini-3-pro-preview for deeper market analysis
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: `Analyze these mortgage rates relative to recent trends (assume generic market context if history unknown).
-            Rates: ${JSON.stringify(rates)}
-            Provide a short, punchy commentary for a rate sheet.`,
-            config: { safetySettings: SAFETY_SETTINGS }
-        });
-        validateResponse(response);
-        return response.text;
-    });
+    // SCOUT uses Pro for deep correlation
+    const prompt = buildAgentPrompt(
+        PERSONAS.SCOUT,
+        `Analyze these rates compared to current market trends (Search for today's 10yr yield and MBS prices): ${JSON.stringify(rates)}.
+        Provide a 3-sentence commentary for a loan officer to send to realtors. Correlation focus.`
+    );
+
+    const response = await generateContentWithFallback(
+        'gemini-3-pro-preview',
+        prompt,
+        { 
+            tools: [{ googleSearch: {} }],
+            thinkingConfig: { thinkingBudget: 2048, includeThoughts: false }
+        }
+    );
+    return response.text;
 };
 
 export const organizeScratchpadNotes = async (notes: string): Promise<string> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: `Reformat these rough market notes into a clean, professional bulleted list for a partner email.
-            Notes: ${notes}`,
-            config: { safetySettings: SAFETY_SETTINGS }
-        });
-        validateResponse(response);
-        return response.text;
-    });
+    // Ghostwriter is sufficient here
+    const prompt = buildAgentPrompt(PERSONAS.GHOSTWRITER, `Reformat these rough mortgage notes into a clean, bulleted professional summary. Preserve all numbers. Notes: "${notes}"`);
+    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {});
+    return response.text;
 };
 
 export const generateRateSheetEmail = async (rates: any, notes: string): Promise<string> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: `Write a professional "Daily Rate Update" email for real estate partners.
-            Rates: ${JSON.stringify(rates)}
-            Commentary: ${notes}
-            
-            Format: Plain text. Professional, concise, high-value.`,
-            config: { safetySettings: SAFETY_SETTINGS }
-        });
-        validateResponse(response);
-        return response.text;
+    const prompt = buildAgentPrompt(
+        PERSONAS.GHOSTWRITER,
+        `Draft a "Daily Rate Update" email for real estate partners.
+        Rates: ${JSON.stringify(rates)}.
+        Market Commentary: ${notes}.
+        Tone: Brief, valuable, actionable.`
+    );
+    
+    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, { thinkingConfig: { thinkingBudget: 1024 } });
+    return response.text;
+};
+
+export const fetchDailyMarketPulse = async (): Promise<{indices: MarketIndex[], news: NewsItem[], sources: any[]}> => {
+    return deduped('market-pulse', async () => {
+        // SCOUT Persona with Pro model for accurate retrieval
+        const prompt = buildAgentPrompt(
+            PERSONAS.SCOUT,
+            `Get current LIVE market data for: 10-Year Treasury Yield, S&P 500, MBS Pricing (UMBS 5.5), and Brent Crude. 
+            Also find 3 top headlines affecting mortgage rates today.
+            Return ONLY a valid JSON object with keys: indices (array of {label, value, change, isUp}), news (array of {source, title, summary, category}).`
+        );
+
+        const response = await generateContentWithFallback(
+            'gemini-3-pro-preview',
+            prompt,
+            {
+                tools: [{ googleSearch: {} }],
+                responseMimeType: 'application/json',
+                thinkingConfig: { thinkingBudget: 2048 }
+            }
+        );
+
+        const json = JSON.parse(response.text);
+        const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
+        const sources = groundingMetadata?.groundingChunks?.map((c: any) => c.web ? {uri: c.web.uri, title: c.web.title} : null).filter((x: any) => x) || [];
+        
+        return { ...json, sources };
     });
 };
 
+// --- Client Intelligence (GHOSTWRITER & ARCHITECT) ---
+
 export const generateClientFriendlyAnalysis = async (context: any): Promise<string> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: `Explain this market data to a nervous homebuyer.
-            Data: ${JSON.stringify(context)}
-            
-            Keep it reassuring but factual. Focus on "Marry the house, date the rate".`,
-            config: { safetySettings: SAFETY_SETTINGS }
-        });
-        validateResponse(response);
-        return response.text;
-    });
+    const prompt = buildAgentPrompt(PERSONAS.GHOSTWRITER, `Translate this market data into a simple paragraph for a home buyer explaining what it means for their mortgage payment today. Data: ${JSON.stringify(context)}`);
+    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {});
+    return response.text;
 };
 
 export const generateBuyerSpecificAnalysis = async (context: any): Promise<string> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: `Analyze how this market data impacts a buyer's purchasing power.
-            Data: ${JSON.stringify(context)}
-            
-            Use math examples (e.g. "A 0.5% rate bump costs $X/mo on a $1M loan").`,
-            config: { safetySettings: SAFETY_SETTINGS }
-        });
-        validateResponse(response);
-        return response.text;
-    });
+    const prompt = buildAgentPrompt(PERSONAS.ARCHITECT, `Analyze the impact of this market data on a specific buyer's purchasing power. Assume a $1M purchase price. Data: ${JSON.stringify(context)}. Explain like a financial advisor.`);
+    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, { thinkingConfig: { thinkingBudget: 2048 } });
+    return response.text;
 };
 
 export const generateMarketingCampaign = async (topic: string, tone: string): Promise<MarketingCampaign> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const prompt = `Create a marketing campaign.
-        Topic: ${topic}
-        Tone: ${tone}
-        
-        Return JSON:
+    const prompt = buildAgentPrompt(
+        PERSONAS.GHOSTWRITER, 
+        `Create a multi-channel marketing campaign about: "${topic}". Tone: ${tone}.
+        Return JSON with keys: linkedInPost, emailSubject, emailBody, smsTeaser.`
+    );
+    const response = await generateContentWithFallback(
+        'gemini-3-pro-preview', 
+        prompt, 
         {
-            "linkedInPost": "Professional post with hashtags",
-            "emailSubject": "Catchy subject",
-            "emailBody": "Body text",
-            "smsTeaser": "Short punchy text < 160 chars"
-        }`;
-        
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: { 
-                responseMimeType: "application/json",
-                safetySettings: SAFETY_SETTINGS
-            }
-        });
-        validateResponse(response);
-        return parseJson<MarketingCampaign>(response.text, { linkedInPost: '', emailSubject: '', emailBody: '', smsTeaser: '' });
-    });
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingBudget: 2048 }
+        }
+    );
+    return JSON.parse(response.text) as MarketingCampaign;
 };
 
 export const verifyCampaignContent = async (campaign: MarketingCampaign): Promise<VerificationResult> => {
-    return verifyFactualClaims(`${campaign.linkedInPost}\n${campaign.emailBody}`);
+    const textToCheck = `${campaign.linkedInPost} ${campaign.emailBody}`;
+    return verifyFactualClaims(textToCheck);
+};
+
+export const streamMorningMemo = async function* (urgentClients: Client[], marketData: any) {
+    const ai = getAiClient();
+    const prompt = buildAgentPrompt(
+        PERSONAS.SCOUT,
+        `Generate a "Morning Executive Briefing" for a top loan officer.
+        Context:
+        - Urgent Clients: ${JSON.stringify(urgentClients.map(c => ({name: c.name, status: c.status, action: c.nextActionDate})))}
+        - Market: ${JSON.stringify(marketData.indices)}
+        
+        Format as a concise Markdown script to be read or viewed in 60 seconds. Highlight immediate actions first.`
+    );
+
+    const stream = await ai.models.generateContentStream({
+        model: 'gemini-3-pro-preview',
+        contents: prompt,
+        config: { thinkingConfig: { thinkingBudget: 2048 }, safetySettings: SAFETY_SETTINGS as any }
+    });
+
+    for await (const chunk of stream) {
+        yield chunk.text;
+    }
+};
+
+export const generateAudioBriefing = async (text: string): Promise<string> => {
+    const ai = getAiClient();
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-preview-tts',
+        contents: { parts: [{ text }] },
+        config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+                voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Fenrir' } }
+            }
+        }
+    });
+    return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || '';
+};
+
+export const scanPipelineOpportunities = async (clients: Client[], marketData: any): Promise<Opportunity[]> => {
+    return deduped('pipeline-scan', async () => {
+        const activeClients = clients.filter(c => c.status !== 'Closed').slice(0, 15);
+        const prompt = buildAgentPrompt(
+            PERSONAS.ARCHITECT,
+            `Review this client list against today's market conditions: ${JSON.stringify(marketData)}.
+            Clients: ${JSON.stringify(activeClients.map(c => ({id: c.id, name: c.name, rate: 'Unknown', status: c.status})))}.
+            Identify up to 3 specific opportunities (e.g. "Call X because rates dropped").
+            Return JSON array of objects: {clientId, clientName, trigger, action, priority (HIGH|MEDIUM|LOW)}.`
+        );
+        
+        const response = await generateContentWithFallback(
+            'gemini-3-pro-preview',
+            prompt,
+            {
+                responseMimeType: 'application/json',
+                thinkingConfig: { thinkingBudget: 2048 }
+            }
+        );
+        return JSON.parse(response.text) as Opportunity[];
+    });
 };
 
 export const generateGapStrategy = async (currentIncome: number, targetIncome: number, pipeline: any[]): Promise<string> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const prompt = `Act as a Sales Performance Coach.
-        Current Income: $${currentIncome}
-        Target: $${targetIncome}
-        Gap: $${targetIncome - currentIncome}
-        Pipeline: ${JSON.stringify(pipeline.map(p => ({ name: p.name, probability: p.probability, commission: p.myCut })))}
-        
-        Outline a 3-step strategy to close the gap before year-end. Focus on conversion and prospecting.`
-        
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: prompt,
-            config: { safetySettings: SAFETY_SETTINGS }
-        });
-        validateResponse(response);
-        return response.text;
-    });
+    const prompt = buildAgentPrompt(
+        PERSONAS.ARCHITECT,
+        `Act as a Sales Manager.
+        Current YTD Income: $${currentIncome}. Target: $${targetIncome}. Gap: $${targetIncome - currentIncome}.
+        Pipeline: ${JSON.stringify(pipeline)}.
+        Generate a strategic plan to close the gap. Focus on conversion and volume.`
+    );
+    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, { thinkingConfig: { thinkingBudget: 4096 } });
+    return response.text;
+};
+
+// --- Client Detail View Functions ---
+
+export const generateEmailDraft = async (client: Client, topic: string, context: string): Promise<string> => {
+    const prompt = buildAgentPrompt(PERSONAS.GHOSTWRITER, `Draft an email to ${client.name} regarding "${topic}". Context: ${context}. Client Status: ${client.status}.`);
+    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {});
+    return response.text;
 };
 
 export const generateSubjectLines = async (client: Client, topic: string): Promise<string[]> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: `Generate 3 high-converting email subject lines for client ${client.name} regarding "${topic}".
-            Return as JSON array of strings.`,
-            config: { safetySettings: SAFETY_SETTINGS }
-        });
-        validateResponse(response);
-        return parseJson<string[]>(response.text, []);
-    });
+    const prompt = buildAgentPrompt(PERSONAS.GHOSTWRITER, `Generate 3 catchy email subject lines for an email about "${topic}" to a mortgage client named ${client.name}. Return as JSON array of strings.`);
+    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, { responseMimeType: 'application/json' });
+    return JSON.parse(response.text);
 };
 
-export const estimatePropertyDetails = async (address: string): Promise<{ estimatedValue: number, confidence: string }> => {
-    // Check cache first
-    if (valuationCache[address]) {
-        return { estimatedValue: valuationCache[address].estimatedValue, confidence: 'Cached' };
-    }
+export const generateClientSummary = async (client: Client): Promise<string> => {
+    const prompt = buildAgentPrompt(PERSONAS.ARCHITECT, `Summarize this client file for a "Situation Report": ${JSON.stringify(client)}. Highlight key risks and next steps.`);
+    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, { thinkingConfig: { thinkingBudget: 1024 } });
+    return response.text;
+};
 
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const prompt = `Estimate value for: ${address}.
-        Use Google Search to find Zestimate, Redfin Estimate, or similar.
-        
-        **IMPORTANT**: Return ONLY valid JSON.
-        Structure: { "estimatedValue": number, "confidence": "High"|"Medium"|"Low" }
-        `;
-        
-        // Removed responseMimeType: "application/json" because tools: [googleSearch] is used.
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: prompt,
-            config: {
-                tools: [{ googleSearch: {} }],
-                safetySettings: SAFETY_SETTINGS
-            }
-        });
-        validateResponse(response);
-        
-        const result = parseJson(response.text, { estimatedValue: 0, confidence: 'Low' });
-        
-        if (result.estimatedValue > 0) {
-            valuationCache[address] = { 
-                estimatedValue: result.estimatedValue, 
-                source: 'AI-Search', 
-                timestamp: Date.now() 
-            };
-            saveToStorage(StorageKeys.VALUATIONS, valuationCache);
+export const estimatePropertyDetails = async (address: string): Promise<{estimatedValue: number}> => {
+    const prompt = buildAgentPrompt(PERSONAS.SCOUT, `Estimate the current value of ${address} using Google Search. Return JSON { "estimatedValue": number }. If unknown, return 0.`);
+    const response = await generateContentWithFallback(
+        'gemini-2.5-flash', // Flash is sufficient for simple retrieval with search tool
+        prompt, 
+        { 
+            tools: [{ googleSearch: {} }],
+            responseMimeType: 'application/json'
         }
-        
-        return result;
-    });
-};
-
-// --- NEW: Analyze Property Location (Flash Exclusive Feature: Maps Grounding) ---
-export const analyzePropertyLocation = async (address: string): Promise<string> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const prompt = `Analyze the location of: ${address}.
-        Identify 3 key selling points about the neighborhood (e.g., top-rated schools, parks, transit, or nearby luxury amenities).
-        Use Google Maps data to be specific.
-        
-        Format as a short bulleted list for a client email.`;
-        
-        // Gemini 2.5 Flash uniquely supports Google Maps grounding (Pro does not)
-        // No responseMimeType here as per Grounding rules.
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                tools: [{ googleMaps: {} }],
-                safetySettings: SAFETY_SETTINGS
-            }
-        });
-        validateResponse(response);
-        return response.text || "Location analysis unavailable.";
-    });
+    );
+    return JSON.parse(response.text);
 };
 
 export const generateSmartChecklist = async (client: Client): Promise<string[]> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const prompt = `Suggest 3-5 crucial checklist tasks for a mortgage client.
-        Status: ${client.status}
-        Loan: ${client.loanAmount}
-        
-        Return JSON array of strings.`;
-        
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: { safetySettings: SAFETY_SETTINGS }
-        });
-        validateResponse(response);
-        return parseJson<string[]>(response.text, []);
-    });
+    const prompt = buildAgentPrompt(PERSONAS.ARCHITECT, `Based on the client status "${client.status}", suggest 3-5 next task items. Return JSON array of strings.`);
+    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, { responseMimeType: 'application/json' });
+    return JSON.parse(response.text);
+};
+
+export const generatePartnerUpdate = async (client: Client, partnerName: string): Promise<string> => {
+    const prompt = buildAgentPrompt(PERSONAS.GHOSTWRITER, `Draft a status update email to referral partner ${partnerName} about mutual client ${client.name}. Status: ${client.status}.`);
+    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {});
+    return response.text;
 };
 
 export const generateDealArchitecture = async (client: Client): Promise<DealStrategy[]> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const prompt = `Act as a Mortgage Architect. Structure 3 loan options for ${client.name} ($${client.loanAmount}).
+    const prompt = buildAgentPrompt(
+        PERSONAS.ARCHITECT,
+        `Structure 3 loan options for ${client.name} (Loan: $${client.loanAmount}).
         1. Safe (Fixed rate)
-        2. Aggressive (ARM or IO)
+        2. Aggressive (ARM/Interest Only)
         3. Balanced
-        
-        Return JSON Array: [{ "title": string, "type": "SAFE"|"AGGRESSIVE"|"BALANCED", "monthlyPayment": string, "pros": string[], "cons": string[], "description": string }]`;
-        
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: prompt,
-            config: { 
-                responseMimeType: "application/json",
-                safetySettings: SAFETY_SETTINGS
-            }
-        });
-        validateResponse(response);
-        return parseJson<DealStrategy[]>(response.text, []);
-    });
+        Return JSON array of { title, type (SAFE|AGGRESSIVE|BALANCED), monthlyPayment (string), pros (string[]), cons (string[]), description }.`
+    );
+    const response = await generateContentWithFallback(
+        'gemini-3-pro-preview',
+        prompt,
+        { 
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingBudget: 4096 }
+        }
+    );
+    return JSON.parse(response.text);
 };
 
 export const extractClientDataFromImage = async (base64Image: string): Promise<Partial<Client>> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const prompt = `Extract client details from this document image.
-        Return JSON: { "name": string, "phone": string, "email": string, "loanAmount": number, "propertyAddress": string }`;
-        
-        // Upgrade to gemini-3-pro-preview for multimodal image input and better reasoning
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: {
-                parts: [
-                    { inlineData: { mimeType: 'image/jpeg', data: base64Image } },
-                    { text: prompt }
-                ]
-            },
-            config: { 
-                responseMimeType: "application/json",
-                safetySettings: SAFETY_SETTINGS
-            }
-        });
-        validateResponse(response);
-        return parseJson<Partial<Client>>(response.text, {});
+    const ai = getAiClient();
+    const prompt = buildAgentPrompt(PERSONAS.ARCHITECT, "Extract client details (Name, Email, Phone, Address, Loan Amount) from this document. Return JSON.");
+    
+    // Direct call as multimodal fallback is complex
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [
+            { inlineData: { mimeType: 'image/jpeg', data: base64Image } },
+            { text: prompt }
+        ],
+        config: { responseMimeType: 'application/json' }
     });
+    return JSON.parse(response.text);
 };
 
-export const generateDailySchedule = async (events: CalendarEvent[], input: string, clients: Client[]): Promise<CalendarEvent[]> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        // CSV Optimization: Limit context and use dense format
-        const clientCsv = clients.slice(0, 50).map(c => `${c.id},"${c.name.replace(/"/g, '""')}"`).join('\n');
-        
-        const prompt = `Act as a Chief of Staff.
-        Current Events: ${JSON.stringify(events)}
-        User Request: "${input}"
-        
-        Client DB (ID, Name):
-        ${clientCsv}
-        
-        Create new events. Match client names if possible.
-        Return JSON Array of CalendarEvent objects (id, title, start (ISO), end (ISO), type, clientId, isAiGenerated: true).
-        Assume today is ${new Date().toISOString().split('T')[0]}.`;
-        
-        // Upgrade to gemini-3-pro-preview with low thinking for intelligent scheduling
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: prompt,
-            config: { 
-                responseMimeType: "application/json",
-                thinkingConfig: { thinkingLevel: "low", includeThoughts: false },
-                safetySettings: SAFETY_SETTINGS
-            }
-        });
-        validateResponse(response);
-        return parseJson<CalendarEvent[]>(response.text, []);
+export const generateGiftSuggestions = async (client: Client): Promise<GiftSuggestion[]> => {
+    const prompt = buildAgentPrompt(PERSONAS.GHOSTWRITER, `Suggest 3 closing gifts for client ${client.name} based on their notes: "${client.notes}". Return JSON array: { item, reason, priceRange }.`);
+    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, { responseMimeType: 'application/json' });
+    return JSON.parse(response.text);
+};
+
+export const transcribeAudio = async (base64Audio: string): Promise<string> => {
+    const ai = getAiClient();
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [
+            { inlineData: { mimeType: 'audio/webm', data: base64Audio } },
+            { text: "Transcribe this audio note exactly." }
+        ]
     });
+    return response.text;
+};
+
+export const parseNaturalLanguageCommand = async (command: string, availableStages: string[]): Promise<CommandIntent> => {
+    const prompt = buildAgentPrompt(
+        PERSONAS.ARCHITECT,
+        `Parse this mortgage command: "${command}".
+        Available Stages: ${availableStages.join(', ')}.
+        Return JSON object matching CommandIntent interface: { action (CREATE_CLIENT|UPDATE_STATUS|UPDATE_CLIENT|ADD_NOTE|ADD_TASK), clientName, payload: { ... } }.`
+    );
+    const response = await generateContentWithFallback('gemini-2.5-flash', prompt, { responseMimeType: 'application/json' });
+    return JSON.parse(response.text);
+};
+
+export const generateDailySchedule = async (currentEvents: CalendarEvent[], input: string, clients: Client[]): Promise<CalendarEvent[]> => {
+    const prompt = buildAgentPrompt(
+        PERSONAS.ARCHITECT,
+        `Act as a Chief of Staff.
+        Current Schedule: ${JSON.stringify(currentEvents)}.
+        User Request: "${input}".
+        Client Database: ${JSON.stringify(clients.map(c => ({id: c.id, name: c.name})))}.
+        Generate new CalendarEvents to satisfy the request. If it mentions a client, link their ID.
+        Return JSON array of CalendarEvent objects.`
+    );
+    const response = await generateContentWithFallback(
+        'gemini-3-pro-preview',
+        prompt,
+        { 
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingBudget: 2048 }
+        }
+    );
+    const events = JSON.parse(response.text);
+    return events.map((e: any) => ({ ...e, id: `ai-${Date.now()}-${Math.random()}`, isAiGenerated: true }));
 };
 
 export const generateMeetingPrep = async (eventTitle: string, client?: Client): Promise<string> => {
-    return withRetry(async () => {
-        const ai = getAiClient();
-        const prompt = `Prepare a one-page briefing for a meeting: "${eventTitle}".
-        ${client ? `Client Context: ${client.name}, ${client.status}, Loan $${client.loanAmount}` : ''}
-        
-        Include:
-        1. Goal of meeting
-        2. key talking points
-        3. Potential objections (if sales related)`;
-        
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: { safetySettings: SAFETY_SETTINGS }
-        });
-        validateResponse(response);
-        return response.text;
-    });
+    const context = client ? `Client Details: ${JSON.stringify(client)}` : "No specific client record linked.";
+    const prompt = buildAgentPrompt(
+        PERSONAS.ARCHITECT,
+        `Prepare a one-page briefing for a meeting titled "${eventTitle}".
+        ${context}.
+        Include: Objective, Key Talking Points, Potential Objections, and Next Steps.`
+    );
+    const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, { thinkingConfig: { thinkingBudget: 1024 } });
+    return response.text;
 };
