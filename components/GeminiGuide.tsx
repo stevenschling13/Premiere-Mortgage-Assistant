@@ -135,6 +135,50 @@ const repetitiveIssues = [
   }
 ];
 
+const installCommands = [
+  {
+    language: 'Python',
+    before: 'pip install -U -q "google-generativeai"',
+    after: 'pip install -U -q "google-genai"'
+  },
+  {
+    language: 'JavaScript',
+    before: 'npm install @google/generative-ai',
+    after: 'npm install @google/genai'
+  },
+  {
+    language: 'Go',
+    before: 'go get github.com/google/generative-ai-go',
+    after: 'go get google.golang.org/genai'
+  }
+];
+
+const callPatterns = [
+  {
+    scenario: 'Create a client and generate text',
+    before:
+      'Python: model = genai.GenerativeModel("gemini-1.5-flash"); response = model.generate_content("Tell me a story...")',
+    after:
+      "Python: client = genai.Client(); response = client.models.generate_content({ model: 'gemini-2.0-flash', contents: 'Tell me a story...' })"
+  },
+  {
+    scenario: 'Streaming responses',
+    before: 'JS: model.generateContentStream(prompt).stream for await (chunk) { ... }',
+    after:
+      'JS: ai.models.generateContentStream({ model: "gemini-2.0-flash", contents: prompt }) then iterate response async iterator'
+  },
+  {
+    scenario: 'Centralized services',
+    before: 'Separate clients for models, files, and caching',
+    after: 'One Client object exposes models, chats, files, caches, and tunings under client.<service>'
+  },
+  {
+    scenario: 'Authentication defaults',
+    before: 'Manual configure() calls per SDK',
+    after: 'Client picks up GEMINI_API_KEY or GOOGLE_API_KEY env vars; apiKey overrides are optional'
+  }
+];
+
 export const GeminiGuide: React.FC = () => {
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-8 animate-fade-in">
@@ -155,6 +199,87 @@ export const GeminiGuide: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 md:p-6 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="flex items-center gap-2 text-brand-dark">
+            <Rocket className="w-5 h-5" />
+            <h2 className="text-lg font-bold text-gray-900">Google GenAI SDK migration cheat sheet</h2>
+          </div>
+          <span className="text-xs font-semibold text-brand-red bg-brand-red/10 px-3 py-1 rounded-full">GA with Gemini 2.0+</span>
+        </div>
+
+        <p className="text-sm text-gray-700">
+          The legacy SDKs used separate clients and ad hoc auth. The new Google GenAI SDK centers all calls on a single <code>Client</code>, streamlines auth via <code>GEMINI_API_KEY</code>/<code>GOOGLE_API_KEY</code>, and ships new packages for each language.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {installCommands.map(cmd => (
+            <div key={cmd.language} className="border border-gray-200 rounded-xl p-4 shadow-sm bg-gray-50">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-semibold text-gray-900">{cmd.language}</span>
+                <span className="text-[10px] uppercase font-bold text-brand-dark">Install</span>
+              </div>
+              <div className="text-xs text-gray-700 space-y-1 font-mono">
+                <div className="bg-white border border-gray-200 rounded-lg p-2">
+                  <span className="font-semibold text-brand-red mr-2">Before</span>
+                  {cmd.before}
+                </div>
+                <div className="bg-white border border-gray-200 rounded-lg p-2">
+                  <span className="font-semibold text-green-700 mr-2">After</span>
+                  {cmd.after}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="border border-gray-200 rounded-xl p-4 space-y-2 shadow-sm">
+            <div className="flex items-center gap-2 text-brand-dark">
+              <Brain className="w-4 h-4" />
+              <span className="font-semibold">Client-first architecture</span>
+            </div>
+            <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
+              <li>Instantiate once: <code>const client = new GoogleGenAI(&#123; apiKey &#125;)</code> or <code>client = genai.Client()</code>.</li>
+              <li>Use services from the client: <code>client.models.generate_content</code>, <code>client.chats.create</code>, <code>client.files.upload</code>, <code>client.caches.create</code>, <code>client.tunings.tune</code>.</li>
+              <li>Prefer stateless calls; chats and Live sessions are the stateful exceptions.</li>
+            </ul>
+          </div>
+          <div className="border border-gray-200 rounded-xl p-4 space-y-2 shadow-sm">
+            <div className="flex items-center gap-2 text-brand-dark">
+              <BookOpen className="w-4 h-4" />
+              <span className="font-semibold">Config highlights</span>
+            </div>
+            <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
+              <li>Optional inputs live under a <code>config</code> object (<code>GenerateContentConfig</code> / plain objects).</li>
+              <li>Safety, tools, temperature, max tokens, and response schemas share the same config shape across languages.</li>
+              <li>Streaming mirrors non-streaming APIs: <code>models.generate_content_stream</code> (Python) or <code>models.generateContentStream</code> (JS).</li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 text-gray-600">
+                <th className="px-3 py-2 text-left font-semibold">Workflow</th>
+                <th className="px-3 py-2 text-left font-semibold">Before</th>
+                <th className="px-3 py-2 text-left font-semibold">After</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {callPatterns.map((row, idx) => (
+                <tr key={idx} className="align-top">
+                  <td className="px-3 py-3 font-semibold text-gray-900 w-48">{row.scenario}</td>
+                  <td className="px-3 py-3 text-gray-700">{row.before}</td>
+                  <td className="px-3 py-3 text-gray-800">{row.after}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-2">
