@@ -292,8 +292,8 @@ export const chatWithAssistant = async (
         const groundingChunks = groundingMetadata?.groundingChunks || [];
 
         const links = groundingChunks
-          .map((chunk: any) => chunk.web ? { uri: String(chunk.web.uri), title: String(chunk.web.title) } : null)
-          .filter((link): link is { uri: string; title: string } => Boolean(link));
+          .map((chunk: any) => chunk.web ? { uri: chunk.web.uri, title: chunk.web.title } : null)
+          .filter((link): link is { uri: string; title: string } => !!(link && link.uri && link.title));
 
         return {
           text: response.text ?? '',
