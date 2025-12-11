@@ -11,6 +11,18 @@ import X from 'lucide-react/icons/x';
 import TrendingUp from 'lucide-react/icons/trending-up';
 import Download from 'lucide-react/icons/download';
 import Calendar from 'lucide-react/icons/calendar';
+import Users from 'lucide-react/dist/esm/icons/users';
+import Calculator from 'lucide-react/dist/esm/icons/calculator';
+import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
+import Building2 from 'lucide-react/dist/esm/icons/building-2';
+import LogOut from 'lucide-react/dist/esm/icons/log-out';
+import Megaphone from 'lucide-react/dist/esm/icons/megaphone';
+import FileText from 'lucide-react/dist/esm/icons/file-text';
+import PieChart from 'lucide-react/dist/esm/icons/pie-chart';
+import X from 'lucide-react/dist/esm/icons/x';
+import TrendingUp from 'lucide-react/dist/esm/icons/trending-up';
+import Download from 'lucide-react/dist/esm/icons/download';
+import Calendar from 'lucide-react/dist/esm/icons/calendar';
 import { AppView } from '../types';
 
 interface SidebarProps {

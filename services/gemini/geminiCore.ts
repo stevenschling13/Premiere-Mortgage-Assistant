@@ -7,6 +7,7 @@ import {
 import { MORTGAGE_TERMS, INITIAL_SCRIPTS } from "../../constants";
 
 export const API_KEY = (globalThis as any).process?.env?.API_KEY || "";
+export const API_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 
 export const getAiClient = () => {
   if (!API_KEY) {

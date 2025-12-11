@@ -1,4 +1,5 @@
 declare module "lucide-react/icons/*" {
+declare module "lucide-react/dist/esm/icons/*" {
   import { ForwardRefExoticComponent, RefAttributes, SVGProps } from "react";
   export interface LucideProps extends Partial<SVGProps<SVGSVGElement>>, RefAttributes<SVGSVGElement> {
     size?: string | number;

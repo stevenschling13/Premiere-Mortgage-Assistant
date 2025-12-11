@@ -17,6 +17,13 @@ export default defineConfig({
           'vendor-ai': ['@google/genai'],
           'vendor-charts': ['recharts'],
           'vendor-icons': ['lucide-react']
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+
+          if (id.includes('lucide-react')) return 'vendor-icons';
+          if (id.includes('react')) return 'vendor-react';
+          if (id.includes('@google/genai')) return 'vendor-ai';
+          if (id.includes('recharts')) return 'vendor-charts';
         }
       }
     }

@@ -5,6 +5,11 @@ import CheckCircle from 'lucide-react/icons/check-circle';
 import AlertCircle from 'lucide-react/icons/alert-circle';
 import Info from 'lucide-react/icons/info';
 import AlertTriangle from 'lucide-react/icons/alert-triangle';
+import X from 'lucide-react/dist/esm/icons/x';
+import CheckCircle from 'lucide-react/dist/esm/icons/check-circle';
+import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import Info from 'lucide-react/dist/esm/icons/info';
+import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
 import { ToastMessage, ToastType } from '../types';
 
 // Context Definition

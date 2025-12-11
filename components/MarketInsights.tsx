@@ -18,6 +18,24 @@ import AlertTriangle from 'lucide-react/icons/alert-triangle';
 import LinkIcon from 'lucide-react/icons/link';
 import Home from 'lucide-react/icons/home';
 import Wallet from 'lucide-react/icons/wallet';
+import TrendingUp from 'lucide-react/dist/esm/icons/trending-up';
+import Megaphone from 'lucide-react/dist/esm/icons/megaphone';
+import BrainCircuit from 'lucide-react/dist/esm/icons/brain-circuit';
+import RefreshCw from 'lucide-react/dist/esm/icons/refresh-cw';
+import Linkedin from 'lucide-react/dist/esm/icons/linkedin';
+import Mail from 'lucide-react/dist/esm/icons/mail';
+import MessageSquare from 'lucide-react/dist/esm/icons/message-square';
+import Layers from 'lucide-react/dist/esm/icons/layers';
+import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
+import Copy from 'lucide-react/dist/esm/icons/copy';
+import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
+import Trash2 from 'lucide-react/dist/esm/icons/trash-2';
+import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check';
+import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
+import LinkIcon from 'lucide-react/dist/esm/icons/link';
+import Home from 'lucide-react/dist/esm/icons/home';
+import Wallet from 'lucide-react/dist/esm/icons/wallet';
 import {
     fetchDailyMarketPulse,
     generateClientFriendlyAnalysis,

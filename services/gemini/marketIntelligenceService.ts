@@ -106,6 +106,7 @@ export const analyzeRateTrends = async (context: any): Promise<string> => {
 };
 
 export const generateRateSheetEmail = async (context: any): Promise<string> => {
+export const generateRateSheetEmail = async (context: { rates: any; notes: string }): Promise<string> => {
     const prompt = buildAgentPrompt(
         PERSONAS.MARKETER,
         `Write a "Rate Sheet Alert" email with actionable guidance.
