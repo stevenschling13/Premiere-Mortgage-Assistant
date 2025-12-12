@@ -14,7 +14,6 @@ import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { INITIAL_CLIENTS, DEFAULT_DEAL_STAGES, COLOR_PALETTE } from '../constants';
 import { Skeleton } from './Skeleton';
-import { CreateClientModal } from './clients/CreateClientModal';
 
 // Performance: Define import factory for prefetching
 const clientDetailViewPromise = () => import('./ClientDetailView');
@@ -604,6 +603,7 @@ export const ClientManager: React.FC = () => {
 
     // -- Add Client Modal State --
     const [isAddClientModalOpen, setIsAddClientModalOpen] = useState(false);
+    const [newClientData, setNewClientData] = useState({ name: '', email: '', phone: '', loanAmount: '' });
 
     // -- Effects --
     useEffect(() => {
@@ -683,14 +683,34 @@ export const ClientManager: React.FC = () => {
     }, []);
 
     const handleOpenAddClient = useCallback(() => {
+        setNewClientData({ name: '', email: '', phone: '', loanAmount: '' });
         setIsAddClientModalOpen(true);
     }, []);
 
-    const handleConfirmAddClient = useCallback((newClient: Client) => {
+    const handleConfirmAddClient = useCallback(() => {
+        if (!newClientData.name.trim()) {
+            showToast('Client name is required', 'error');
+            return;
+        }
+
+        const newClient: Client = {
+            id: Date.now().toString(),
+            name: newClientData.name,
+            email: newClientData.email,
+            phone: newClientData.phone,
+            loanAmount: parseFloat(newClientData.loanAmount) || 0,
+            propertyAddress: '',
+            status: dealStages[0]?.name || 'Lead',
+            nextActionDate: new Date().toISOString().split('T')[0],
+            notes: '',
+            checklist: [],
+            emailHistory: []
+        };
         setClients(prev => [newClient, ...prev]);
         setSelectedClient(newClient); 
+        setIsAddClientModalOpen(false);
         showToast('New client added', 'success');
-    }, [showToast]);
+    }, [newClientData, dealStages, showToast]);
 
     const handleDeleteClient = useCallback((id: string) => {
         if (confirm('Are you sure you want to delete this client?')) {
@@ -903,12 +923,92 @@ export const ClientManager: React.FC = () => {
             </div>
 
             {/* Add Client Modal */}
-            <CreateClientModal 
-                isOpen={isAddClientModalOpen}
-                onClose={() => setIsAddClientModalOpen(false)}
-                onSave={handleConfirmAddClient}
-                initialStatus={dealStages[0]?.name || 'Lead'}
-            />
+            {isAddClientModalOpen && (
+                <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+                        <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                            <h3 className="font-bold text-gray-800 flex items-center">
+                                <Users size={18} className="mr-2 text-brand-red"/> New Client Record
+                            </h3>
+                            <button onClick={() => setIsAddClientModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Full Name <span className="text-red-500">*</span></label>
+                                <div className="relative">
+                                    <User size={16} className="absolute left-3 top-3 text-gray-400"/>
+                                    <input 
+                                        type="text" 
+                                        placeholder="Jane Doe" 
+                                        className="w-full pl-10 p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand-red/20 focus:border-brand-red"
+                                        value={newClientData.name}
+                                        onChange={(e) => setNewClientData({...newClientData, name: e.target.value})}
+                                        autoFocus
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Email Address</label>
+                                <div className="relative">
+                                    <Mail size={16} className="absolute left-3 top-3 text-gray-400"/>
+                                    <input 
+                                        type="email" 
+                                        placeholder="jane@example.com" 
+                                        className="w-full pl-10 p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand-red/20 focus:border-brand-red"
+                                        value={newClientData.email}
+                                        onChange={(e) => setNewClientData({...newClientData, email: e.target.value})}
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex gap-4">
+                                <div className="flex-1">
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Phone</label>
+                                    <div className="relative">
+                                        <Phone size={16} className="absolute left-3 top-3 text-gray-400"/>
+                                        <input 
+                                            type="tel" 
+                                            placeholder="(555) 555-5555" 
+                                            className="w-full pl-10 p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand-red/20 focus:border-brand-red"
+                                            value={newClientData.phone}
+                                            onChange={(e) => setNewClientData({...newClientData, phone: e.target.value})}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex-1">
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Loan Amount</label>
+                                    <div className="relative">
+                                        <DollarSign size={14} className="absolute left-3 top-3 text-gray-400"/>
+                                        <input 
+                                            type="number" 
+                                            placeholder="0" 
+                                            className="w-full pl-8 p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand-red/20 focus:border-brand-red"
+                                            value={newClientData.loanAmount}
+                                            onChange={(e) => setNewClientData({...newClientData, loanAmount: e.target.value})}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end space-x-3">
+                            <button 
+                                onClick={() => setIsAddClientModalOpen(false)}
+                                className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={handleConfirmAddClient}
+                                disabled={!newClientData.name.trim()}
+                                className="px-6 py-2 bg-brand-red text-white text-sm font-bold rounded-lg hover:bg-red-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Create Record
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

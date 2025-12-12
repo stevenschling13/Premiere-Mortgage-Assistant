@@ -28,8 +28,7 @@ const writeCache = new Map<string, string>();
 // Debounce State
 const pendingWrites = new Map<string, any>();
 const writeTimers = new Map<string, any>();
-// Increased debounce to 1000ms for better performance during rapid typing
-const DEBOUNCE_DELAY = 1000; 
+const DEBOUNCE_DELAY = 300; // ms
 
 // Helper: Recursively clean data to try and fit into storage (e.g. remove large Base64 images)
 const sanitizeForStorage = (data: any, depth = 0): any => {

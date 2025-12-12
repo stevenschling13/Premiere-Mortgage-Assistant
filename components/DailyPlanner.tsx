@@ -8,7 +8,6 @@ import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storage
 import { generateDailySchedule, generateMeetingPrep } from '../services/geminiService';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
-import { EventModal } from './planner/EventModal';
 
 // --- SUB-COMPONENT: Time Slot Row (Memoized) ---
 const TimeSlotRow = memo(({ 
@@ -36,12 +35,11 @@ const TimeSlotRow = memo(({
                 {timeLabel}
             </div>
             <div className="flex-1 relative p-1">
-                {/* Hover 'Add' Button - Accessible via Focus */}
+                {/* Hover 'Add' Button */}
                 <button 
                     onClick={(e) => { e.stopPropagation(); onAddEvent(hour); }}
-                    className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 text-gray-300 hover:text-brand-dark transition-opacity z-10" 
-                    title={`Add Event at ${timeLabel}`}
-                    aria-label={`Add Event at ${timeLabel}`}
+                    className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-brand-dark transition-opacity z-10" 
+                    title="Add Event"
                 >
                     <Plus size={14}/>
                 </button>
@@ -49,11 +47,8 @@ const TimeSlotRow = memo(({
                 {hourEvents.map(event => (
                     <div 
                         key={event.id}
-                        role="button"
-                        tabIndex={0}
                         onClick={() => onEventClick(event)}
-                        onKeyDown={(e) => e.key === 'Enter' && onEventClick(event)}
-                        className={`absolute inset-x-2 p-2 rounded-lg border text-xs cursor-pointer hover:brightness-95 transition-all shadow-sm flex items-center justify-between z-0 ${
+                        className={`absolute inset-x-2 p-2 rounded-lg border text-xs cursor-pointer hover:brightness-95 transition-all shadow-sm flex items-center justify-between ${
                             event.type === 'MEETING' ? 'bg-blue-50 border-blue-200 text-blue-700' :
                             event.type === 'CALL' ? 'bg-green-50 border-green-200 text-green-700' :
                             event.type === 'BLOCK' ? 'bg-gray-100 border-gray-300 text-gray-600' :
@@ -105,6 +100,7 @@ export const DailyPlanner: React.FC = () => {
 
     // Add Event Modal
     const [newEventModal, setNewEventModal] = useState<{isOpen: boolean, hour: number | null}>({isOpen: false, hour: null});
+    const [newEventTitle, setNewEventTitle] = useState('');
 
     useEffect(() => {
         saveToStorage(StorageKeys.CALENDAR_EVENTS, events);
@@ -215,20 +211,27 @@ export const DailyPlanner: React.FC = () => {
 
     const onAddEventClick = useCallback((hour: number) => {
         setNewEventModal({isOpen: true, hour});
+        setNewEventTitle('');
     }, []);
 
-    const handleSaveNewEvent = (eventData: Partial<CalendarEvent>) => {
+    const handleCreateEvent = () => {
+        if (!newEventTitle.trim() || newEventModal.hour === null) return;
+        
+        const startHour = newEventModal.hour.toString().padStart(2, '0');
+        const start = `${dateStr}T${startHour}:00:00`;
+        const end = `${dateStr}T${startHour}:30:00`;
+
         const newEvent: CalendarEvent = {
             id: `evt-${Date.now()}`,
-            title: eventData.title || 'New Event',
-            start: eventData.start || '',
-            end: eventData.end || '',
-            type: eventData.type || 'BLOCK',
-            notes: eventData.notes || '',
-            clientId: eventData.clientId
+            title: newEventTitle,
+            start,
+            end,
+            type: 'BLOCK', 
+            notes: 'Manually added'
         };
         
         setEvents(prev => [...prev, newEvent]);
+        setNewEventModal({isOpen: false, hour: null});
         showToast('Event added', 'success');
     };
 
@@ -356,14 +359,41 @@ export const DailyPlanner: React.FC = () => {
             </div>
 
             {/* Quick Event Modal */}
-            <EventModal 
-                isOpen={newEventModal.isOpen} 
-                onClose={() => setNewEventModal({isOpen: false, hour: null})}
-                onSave={handleSaveNewEvent}
-                initialHour={newEventModal.hour}
-                dateStr={dateStr}
-                clients={clients}
-            />
+            {newEventModal.isOpen && (
+                <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+                        <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                            <h3 className="font-bold text-gray-800 flex items-center">
+                                <Clock size={16} className="mr-2 text-brand-dark"/> New Event @ {newEventModal.hour}:00
+                            </h3>
+                            <button onClick={() => setNewEventModal({isOpen: false, hour: null})} className="text-gray-400 hover:text-gray-600">
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="p-4">
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Event Title</label>
+                            <input 
+                                type="text" 
+                                placeholder="Client Call, Deep Work, etc." 
+                                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand-gold"
+                                value={newEventTitle}
+                                onChange={(e) => setNewEventTitle(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleCreateEvent()}
+                                autoFocus
+                            />
+                        </div>
+                        <div className="p-4 border-t border-gray-100 flex justify-end">
+                            <button 
+                                onClick={handleCreateEvent}
+                                disabled={!newEventTitle.trim()}
+                                className="px-4 py-2 bg-brand-dark text-white text-sm font-bold rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+                            >
+                                Add to Calendar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
