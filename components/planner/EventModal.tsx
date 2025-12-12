@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -30,15 +30,15 @@ export const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, onSave,
     resolver: zodResolver(eventSchema),
     defaultValues: {
       title: '',
-      startTime: initialHour !== null ? `${initialHour.toString().padStart(2, '0')}:00` : '09:00',
-      endTime: initialHour !== null ? `${initialHour.toString().padStart(2, '0')}:30` : '09:30',
+      startTime: initialHour ? `${initialHour.toString().padStart(2, '0')}:00` : '09:00',
+      endTime: initialHour ? `${initialHour.toString().padStart(2, '0')}:30` : '09:30',
       type: 'MEETING',
       notes: ''
     }
   });
 
   // Reset form when modal opens with new hour
-  useEffect(() => {
+  React.useEffect(() => {
     if (isOpen && initialHour !== null) {
       reset({
         title: '',
