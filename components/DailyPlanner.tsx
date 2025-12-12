@@ -8,6 +8,7 @@ import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storage
 import { generateDailySchedule, generateMeetingPrep } from '../services/geminiService';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { AddEventModal } from '../features/planner/components/AddEventModal';
 
 // --- SUB-COMPONENT: Time Slot Row (Memoized) ---
 const TimeSlotRow = memo(({ 
@@ -35,9 +36,8 @@ const TimeSlotRow = memo(({
                 {timeLabel}
             </div>
             <div className="flex-1 relative p-1">
-                {/* Hover 'Add' Button */}
                 <button
-                    className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-brand-dark transition-opacity"
+                    className="absolute top-1 right-1 p-1 text-gray-500 hover:text-brand-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-red rounded"
                     title="Add Event"
                     aria-label={`Add event at ${timeLabel}`}
                     onClick={() => onAddEvent(hour)}
@@ -88,6 +88,8 @@ export const DailyPlanner: React.FC = () => {
     const [isPrepping, setIsPrepping] = useState(false);
     const [isOptimizing, setIsOptimizing] = useState(false);
     const [naturalInput, setNaturalInput] = useState('');
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [modalHour, setModalHour] = useState<number>(8);
 
     const navigateDay = useCallback((direction: 1 | -1) => {
         const nextDate = new Date(currentDate);
@@ -96,27 +98,15 @@ export const DailyPlanner: React.FC = () => {
     }, [currentDate]);
 
     const handleAddEvent = useCallback((hour: number) => {
-        const title = window.prompt('Add event title');
-        if (!title) {
-            return;
-        }
+        setModalHour(hour);
+        setIsAddModalOpen(true);
+    }, []);
 
-        const startDate = new Date(`${currentDate}T${String(hour).padStart(2, '0')}:00:00`);
-        const endDate = new Date(startDate);
-        endDate.setMinutes(endDate.getMinutes() + 30);
-
-        const newEvent: CalendarEvent = {
-            id: `evt-${Date.now()}`,
-            title: title.trim(),
-            start: startDate.toISOString(),
-            end: endDate.toISOString(),
-            type: 'MEETING',
-            isAiGenerated: false
-        };
-
+    const handleCreateEvent = useCallback((newEvent: CalendarEvent) => {
         setEvents(prev => [...prev, newEvent]);
+        setSelectedEvent(newEvent);
         showToast('Event added to your planner.', 'success');
-    }, [currentDate, showToast]);
+    }, [showToast]);
 
     useEffect(() => {
         saveToStorage(StorageKeys.CALENDAR_EVENTS, events);
@@ -333,6 +323,14 @@ export const DailyPlanner: React.FC = () => {
                     )}
                 </div>
             </div>
+            <AddEventModal
+                isOpen={isAddModalOpen}
+                onClose={() => setIsAddModalOpen(false)}
+                onCreate={handleCreateEvent}
+                date={currentDate}
+                defaultHour={modalHour}
+                clients={clients}
+            />
         </div>
     );
 };
