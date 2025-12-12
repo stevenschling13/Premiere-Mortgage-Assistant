@@ -18,11 +18,3 @@ View your app in AI Studio: https://ai.studio/apps/drive/186_Uuec2HzFHN-DoXsysBS
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
-
-## Quality & Testing
-
-- `npm run lint` – ESLint static analysis
-- `npm run typecheck` – strict TypeScript checks
-- `npm run test` – Vitest unit/integration suite
-- `npm run test:e2e` – Playwright smoke tests (spins up the dev server automatically)
-- `npm run build` – production build

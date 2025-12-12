@@ -8,26 +8,23 @@ import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storage
 import { generateDailySchedule, generateMeetingPrep } from '../services/geminiService';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
-import { AddEventModal } from '../features/planner/components/AddEventModal';
 
 // --- SUB-COMPONENT: Time Slot Row (Memoized) ---
 const TimeSlotRow = memo(({ 
-    hour,
-    events,
-    currentDate,
-    onEventClick,
-    onAddEvent
-}: {
-    hour: number,
-    events: CalendarEvent[],
-    currentDate: string,
-    onEventClick: (e: CalendarEvent) => void,
-    onAddEvent: (hour: number) => void
+    hour, 
+    events, 
+    today, 
+    onEventClick 
+}: { 
+    hour: number, 
+    events: CalendarEvent[], 
+    today: string, 
+    onEventClick: (e: CalendarEvent) => void 
 }) => {
     const timeLabel = hour > 12 ? `${hour - 12} PM` : hour === 12 ? `12 PM` : `${hour} AM`;
     const hourEvents = events.filter(e => {
         const eventDate = new Date(e.start);
-        return eventDate.getHours() === hour && e.start.startsWith(currentDate);
+        return eventDate.getHours() === hour && e.start.startsWith(today);
     });
 
     return (
@@ -36,12 +33,8 @@ const TimeSlotRow = memo(({
                 {timeLabel}
             </div>
             <div className="flex-1 relative p-1">
-                <button
-                    className="absolute top-1 right-1 p-1 text-gray-500 hover:text-brand-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-red rounded"
-                    title="Add Event"
-                    aria-label={`Add event at ${timeLabel}`}
-                    onClick={() => onAddEvent(hour)}
-                >
+                {/* Hover 'Add' Button */}
+                <button className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-brand-dark transition-opacity" title="Add Event">
                     <Plus size={14}/>
                 </button>
                 
@@ -74,7 +67,17 @@ const TimeSlotRow = memo(({
 
 export const DailyPlanner: React.FC = () => {
     const { showToast } = useToast();
-    const [currentDate, setCurrentDate] = useState(() => new Date().toISOString().split('T')[0]);
+    
+    // State for Current View Date
+    const [currentDate, setCurrentDate] = useState(() => new Date());
+    
+    // Helper: Local YYYY-MM-DD
+    const getYYYYMMDD = (d: Date) => {
+        const offset = d.getTimezoneOffset() * 60000;
+        return new Date(d.getTime() - offset).toISOString().split('T')[0];
+    };
+
+    const dateStr = getYYYYMMDD(currentDate);
     
     // Data State
     const [events, setEvents] = useState<CalendarEvent[]>(() => 
@@ -88,38 +91,39 @@ export const DailyPlanner: React.FC = () => {
     const [isPrepping, setIsPrepping] = useState(false);
     const [isOptimizing, setIsOptimizing] = useState(false);
     const [naturalInput, setNaturalInput] = useState('');
-    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-    const [modalHour, setModalHour] = useState<number>(8);
-
-    const navigateDay = useCallback((direction: 1 | -1) => {
-        const nextDate = new Date(currentDate);
-        nextDate.setDate(nextDate.getDate() + direction);
-        setCurrentDate(nextDate.toISOString().split('T')[0]);
-    }, [currentDate]);
-
-    const handleAddEvent = useCallback((hour: number) => {
-        setModalHour(hour);
-        setIsAddModalOpen(true);
-    }, []);
-
-    const handleCreateEvent = useCallback((newEvent: CalendarEvent) => {
-        setEvents(prev => [...prev, newEvent]);
-        setSelectedEvent(newEvent);
-        showToast('Event added to your planner.', 'success');
-    }, [showToast]);
 
     useEffect(() => {
         saveToStorage(StorageKeys.CALENDAR_EVENTS, events);
     }, [events]);
 
+    // Date Navigation
+    const handlePrevDay = () => {
+        const next = new Date(currentDate);
+        next.setDate(next.getDate() - 1);
+        setCurrentDate(next);
+    };
+
+    const handleNextDay = () => {
+        const next = new Date(currentDate);
+        next.setDate(next.getDate() + 1);
+        setCurrentDate(next);
+    };
+    
+    const handleGoToday = () => {
+        setCurrentDate(new Date());
+    };
+
     const handleOptimizeSchedule = useCallback(async () => {
         if (!naturalInput.trim()) {
-            showToast("Tell the Chief of Staff what you need to do today.", "info");
+            showToast("Tell the Chief of Staff what you need to do.", "info");
             return;
         }
         setIsOptimizing(true);
         try {
-            const newEvents = await generateDailySchedule(events, naturalInput, clients);
+            // Filter events to only send relevant context for the target day
+            const dayEvents = events.filter(e => e.start.startsWith(dateStr));
+            
+            const newEvents = await generateDailySchedule(dayEvents, naturalInput, clients, dateStr);
             setEvents(prev => [...prev, ...newEvents]);
             setNaturalInput('');
             
@@ -154,7 +158,7 @@ export const DailyPlanner: React.FC = () => {
             if (hasUpdates) {
                 setClients(updatedClients);
                 saveToStorage(StorageKeys.CLIENTS, updatedClients);
-                showToast(`Schedule created. Synced ${syncedCount} clients.`, "success");
+                showToast(`Schedule created for ${dateStr}. Synced ${syncedCount} clients.`, "success");
             } else {
                 showToast("Schedule updated by Chief of Staff", "success");
             }
@@ -165,7 +169,7 @@ export const DailyPlanner: React.FC = () => {
         } finally {
             setIsOptimizing(false);
         }
-    }, [naturalInput, events, clients, showToast]);
+    }, [naturalInput, events, clients, showToast, dateStr]);
 
     const handleEventClick = useCallback(async (event: CalendarEvent) => {
         setSelectedEvent(event);
@@ -204,39 +208,32 @@ export const DailyPlanner: React.FC = () => {
                 <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 md:safe-top">
                     <div>
                         <h2 className="text-xl font-bold text-brand-dark flex items-center">
-                            <CalendarIcon className="mr-2 text-brand-gold" size={20}/>
+                            <CalendarIcon className="mr-2 text-brand-gold" size={20}/> 
                             Daily Planner
                         </h2>
-                        <p className="text-xs text-gray-500">{new Date(`${currentDate}T00:00:00`).toLocaleDateString(undefined, {weekday: 'long', month: 'long', day: 'numeric'})}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                            <p className="text-xs text-gray-500 font-medium">
+                                {currentDate.toLocaleDateString(undefined, {weekday: 'long', month: 'long', day: 'numeric'})}
+                            </p>
+                            {dateStr === getYYYYMMDD(new Date()) && (
+                                <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">Today</span>
+                            )}
+                        </div>
                     </div>
-                    <div className="flex items-center space-x-2">
-                        <button
-                            onClick={() => navigateDay(-1)}
-                            className="p-2 hover:bg-white rounded-full transition-colors text-gray-500"
-                            aria-label="Previous day"
-                            title="Previous day"
-                        >
-                            <ChevronLeft size={20}/>
-                        </button>
-                        <button
-                            onClick={() => navigateDay(1)}
-                            className="p-2 hover:bg-white rounded-full transition-colors text-gray-500"
-                            aria-label="Next day"
-                            title="Next day"
-                        >
-                            <ChevronRight size={20}/>
-                        </button>
+                    <div className="flex items-center space-x-1 bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
+                        <button onClick={handlePrevDay} className="p-1.5 hover:bg-gray-100 rounded-md transition-colors text-gray-600" aria-label="Previous Day"><ChevronLeft size={18}/></button>
+                        <button onClick={handleGoToday} className="px-3 py-1.5 hover:bg-gray-100 rounded-md transition-colors text-xs font-bold text-brand-dark">Today</button>
+                        <button onClick={handleNextDay} className="p-1.5 hover:bg-gray-100 rounded-md transition-colors text-gray-600" aria-label="Next Day"><ChevronRight size={18}/></button>
                     </div>
                 </div>
                 <div className="flex-1 overflow-y-auto">
                     {timeSlots.map(hour => (
-                        <TimeSlotRow
-                            key={hour}
-                            hour={hour}
-                            events={events}
-                            currentDate={currentDate}
-                            onEventClick={handleEventClick}
-                            onAddEvent={handleAddEvent}
+                        <TimeSlotRow 
+                            key={hour} 
+                            hour={hour} 
+                            events={events} 
+                            today={dateStr} 
+                            onEventClick={handleEventClick} 
                         />
                     ))}
                 </div>
@@ -260,7 +257,7 @@ export const DailyPlanner: React.FC = () => {
                             value={naturalInput}
                             onChange={(e) => setNaturalInput(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleOptimizeSchedule()}
-                            placeholder='E.g. "Book call with Smith at 2pm"'
+                            placeholder={`Plan for ${dateStr === getYYYYMMDD(new Date()) ? 'today' : 'this date'}...`}
                             className="w-full pl-4 pr-12 py-3 bg-white/10 border border-white/20 rounded-xl text-sm text-white placeholder-gray-400 focus:ring-2 focus:ring-brand-gold outline-none"
                         />
                         <button 
@@ -323,14 +320,6 @@ export const DailyPlanner: React.FC = () => {
                     )}
                 </div>
             </div>
-            <AddEventModal
-                isOpen={isAddModalOpen}
-                onClose={() => setIsAddModalOpen(false)}
-                onCreate={handleCreateEvent}
-                date={currentDate}
-                defaultHour={modalHour}
-                clients={clients}
-            />
         </div>
     );
 };

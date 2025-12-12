@@ -6,7 +6,7 @@ import {
 } from '../types';
 import { MORTGAGE_TERMS, INITIAL_SCRIPTS } from '../constants';
 
-const API_KEY = import.meta.env.VITE_API_KEY || (typeof process !== 'undefined' ? process.env.API_KEY : '') || '';
+const API_KEY = process.env.API_KEY || '';
 
 const getAiClient = () => {
   if (!API_KEY) {
@@ -48,7 +48,7 @@ const PERSONAS = {
 
 // --- UTILITIES ---
 
-// Request Deduplication to prevent double-firing in React Strict Mode or fast clicks
+// Request Deduplication to prevent double-firing in React Strict Mode
 const pendingRequests = new Map<string, Promise<any>>();
 
 const deduped = <T>(key: string, fn: () => Promise<T>): Promise<T> => {
@@ -64,32 +64,28 @@ const validateResponse = (response: any) => {
     }
 };
 
-// In-Memory RAG: Retrieve context from constants before hitting LLM
+// In-Memory RAG: Retrieve context from constants
 const retrieveRelevantContext = async (query: string): Promise<string> => {
     const queryLower = query.toLowerCase();
     
-    // Scan Terms
     const relevantTerms = MORTGAGE_TERMS
         .filter(t => queryLower.includes(t.term.toLowerCase()))
         .map(t => `TERM: ${t.term} - ${t.definition}`);
         
-    // Scan Scripts
     const relevantScripts = INITIAL_SCRIPTS
         .filter(s => queryLower.includes(s.title.toLowerCase()) || s.tags.some(tag => queryLower.includes(tag.toLowerCase())))
         .map(s => `SCRIPT: ${s.title} - ${s.content}`);
 
     if (relevantTerms.length === 0 && relevantScripts.length === 0) return "";
 
-    return `\n### KNOWLEDGE BASE (CONTEXT)\n${relevantTerms.join('\n')}\n${relevantScripts.join('\n')}\n`;
+    return `\n### KNOWLEDGE BASE\n${relevantTerms.join('\n')}\n${relevantScripts.join('\n')}\n`;
 };
 
-// Prompt Builder with Protocol Injection
 const buildAgentPrompt = (persona: string, task: string, context: string = "") => {
     return `${persona}\n\n${MIRROR_PROTOCOL}\n${context}\n### TASK\n${task}`;
 };
 
 // Centralized Fallback Generator
-// Tries Premium Model -> Falls back to Faster/Cheaper model on error
 async function generateContentWithFallback(
     primaryModel: string,
     prompt: string | any,
@@ -108,7 +104,7 @@ async function generateContentWithFallback(
     } catch (error) {
         console.warn(`Model ${primaryModel} failed, falling back to ${fallbackModel}.`, error);
         
-        // Strip Pro-specific configs (like thinkingBudget) for the fallback model
+        // Strip Pro-specific configs (like thinkingBudget) for fallback
         const { thinkingConfig, ...fallbackConfig } = config || {};
         
         const response = await ai.models.generateContent({
@@ -126,7 +122,6 @@ async function generateContentWithFallback(
 // ------------------------------------------------------------------
 
 export const generateClientSummary = async (client: Client): Promise<string> => {
-    // Optimize context window by selecting relevant recent history only
     const recentEmails = client.emailHistory?.slice(0, 5).map(e => ({ date: e.date, subject: e.subject })) || [];
     const recentTasks = client.checklist?.filter(t => t.checked).slice(0, 5).map(t => t.label) || [];
     
@@ -138,7 +133,7 @@ export const generateClientSummary = async (client: Client): Promise<string> => 
             currentRate: client.currentRate || 'Unknown',
             lastContact: client.nextActionDate
         },
-        notes: client.notes?.substring(0, 800), // Recent notes focus
+        notes: client.notes?.substring(0, 800),
         recentActivity: { emails: recentEmails, completedTasks: recentTasks }
     };
 
@@ -214,12 +209,9 @@ export async function* streamChatWithAssistant(
     systemInstruction?: string
 ) {
     const ai = getAiClient();
-    
-    // Inject RAG Context
     const ragContext = await retrieveRelevantContext(message);
     const finalSystemInstruction = systemInstruction || buildAgentPrompt(PERSONAS.ARCHITECT, "Answer the user's query.", ragContext);
 
-    // Optimize history to prevent token overflow
     const optimizedHistory = history.length > 15 ? history.slice(history.length - 15) : history;
 
     try {
@@ -240,7 +232,6 @@ export async function* streamChatWithAssistant(
         }
     } catch (e) {
         console.warn("Pro Chat failed, fallback to Flash");
-        // Fallback Chat
         const chat = ai.chats.create({
             model: 'gemini-2.5-flash',
             history: optimizedHistory,
@@ -258,7 +249,6 @@ export async function* streamChatWithAssistant(
 }
 
 export const verifyFactualClaims = async (text: string): Promise<VerificationResult> => {
-    // Deduplicate verification calls
     return deduped(`verify-${text.substring(0, 30)}`, async () => {
         const prompt = buildAgentPrompt(
             PERSONAS.SCOUT,
@@ -279,16 +269,12 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
         }, 'gemini-2.5-flash');
 
         const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-        const sources = groundingChunks.flatMap((c: any) => {
-            if (c.web && c.web.uri && c.web.title) {
-                return [{ uri: String(c.web.uri), title: String(c.web.title) }];
-            }
-            return [];
-        });
+        const sources = groundingChunks
+            .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null)
+            .filter((x: any) => x !== null);
 
         let parsed: any = { status: 'UNVERIFIABLE', text: 'Could not parse verification result.' };
         try {
-            // Cleanup markdown json blocks if present
             const cleaned = response.text?.replace(/```json/g, '').replace(/```/g, '').trim();
             parsed = JSON.parse(cleaned || "{}");
         } catch (e) {
@@ -351,7 +337,7 @@ export const fetchDailyMarketPulse = async (): Promise<{ indices: MarketIndex[],
             PERSONAS.SCOUT,
             `Get current LIVE market data.
             1. Values: 10-Year Treasury, S&P 500, UMBS 5.5, Brent Crude.
-            2. News: 3 most important mortgage headlines today.
+            2. News: 3 most important mortgage headlines.
             
             Output JSON: { "indices": [...], "news": [...] }`
         );
@@ -363,12 +349,9 @@ export const fetchDailyMarketPulse = async (): Promise<{ indices: MarketIndex[],
         }, 'gemini-2.5-flash');
 
         const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-        const sources = groundingChunks.flatMap((c: any) => {
-            if (c.web && c.web.uri && c.web.title) {
-                return [{ uri: String(c.web.uri), title: String(c.web.title) }];
-            }
-            return [];
-        });
+        const sources = groundingChunks
+            .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null)
+            .filter((x: any) => x !== null);
 
         let data = { indices: [], news: [] };
         try {
@@ -442,8 +425,6 @@ export const verifyCampaignContent = async (campaign: MarketingCampaign): Promis
 export const scanPipelineOpportunities = async (clients: Client[], marketIndices: MarketIndex[]): Promise<Opportunity[]> => {
     return deduped('pipeline-scan', async () => {
         const activeClients = clients.filter(c => c.status !== 'Closed').slice(0, 20);
-        
-        // Advanced math prompting
         const prompt = buildAgentPrompt(
             PERSONAS.ARCHITECT,
             `Analyze this client pipeline against LIVE market data: ${JSON.stringify(marketIndices)}.
@@ -458,9 +439,9 @@ export const scanPipelineOpportunities = async (clients: Client[], marketIndices
             })))}.
 
             TASK:
-            1. **Rate Differential**: Identify clients whose 'currentRate' is significantly higher (>0.5%) than today's market rates (estimate market rate from 10yr yield/MBS data).
-            2. **Cash-Out Triggers**: Identify 'Equity' or 'Debt Consolidation' plays based on notes.
-            3. **Stale Leads**: Identify active clients with no action in > 14 days.
+            1. Identify clients whose 'currentRate' is significantly higher (>0.5%) than today's market rates (estimate market rate from 10yr yield/MBS data).
+            2. Identify 'Equity' or 'Cash-Out' plays based on notes.
+            3. Ignore clients with 'Unknown' rates unless notes suggest urgency.
 
             Return JSON array of Opportunity objects.`
         );
@@ -470,7 +451,7 @@ export const scanPipelineOpportunities = async (clients: Client[], marketIndices
             prompt,
             {
                 responseMimeType: 'application/json',
-                thinkingConfig: { thinkingBudget: 4096 } // Higher budget for math reasoning
+                thinkingConfig: { thinkingBudget: 4096 } // Higher budget for rate math
             }
         );
         return JSON.parse(response.text || "[]");
@@ -478,6 +459,7 @@ export const scanPipelineOpportunities = async (clients: Client[], marketIndices
 };
 
 export async function* streamMorningMemo(urgentClients: Client[], marketData: any) {
+    const ai = getAiClient();
     const prompt = buildAgentPrompt(
         PERSONAS.CHIEF_OF_STAFF,
         `Generate an audio-script style "Morning Memo" for the Mortgage Banker.
@@ -489,7 +471,6 @@ export async function* streamMorningMemo(urgentClients: Client[], marketData: an
         Format: "Good morning. Here is your briefing..."`
     );
 
-    const ai = getAiClient();
     const stream = await ai.models.generateContentStream({
         model: 'gemini-3-pro-preview',
         contents: prompt,
@@ -503,21 +484,26 @@ export async function* streamMorningMemo(urgentClients: Client[], marketData: an
 
 export const generateAudioBriefing = async (text: string): Promise<string> => {
     const ai = getAiClient();
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-preview-tts',
-        contents: { parts: [{ text }] },
-        config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: {
-                voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Fenrir' } }
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash-preview-tts',
+            contents: { parts: [{ text }] },
+            config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: {
+                    voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Fenrir' } }
+                }
             }
-        }
-    });
-    
-    return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || "";
+        });
+        return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || "";
+    } catch (e) {
+        console.error("TTS Failed", e);
+        return "";
+    }
 };
 
 export async function* streamAnalyzeLoanScenario(scenarioText: string) {
+    const ai = getAiClient();
     const prompt = buildAgentPrompt(
         PERSONAS.ARCHITECT,
         `Analyze this Jumbo Loan Scenario for risk and structure.
@@ -531,7 +517,6 @@ export async function* streamAnalyzeLoanScenario(scenarioText: string) {
         Format: Markdown.`
     );
     
-    const ai = getAiClient();
     const stream = await ai.models.generateContentStream({
         model: 'gemini-3-pro-preview',
         contents: prompt,
@@ -631,6 +616,7 @@ export const generateGapStrategy = async (current: number, target: number, pipel
 
 export const estimatePropertyDetails = async (address: string): Promise<{ estimatedValue: number }> => {
     const prompt = buildAgentPrompt(PERSONAS.SCOUT, `Estimate value for: ${address}. Return JSON: { "estimatedValue": number }.`);
+    // Using search to find Zillow/Redfin data implicitly via model knowledge + search tool
     const response = await generateContentWithFallback('gemini-2.5-flash', prompt, {
         tools: [{ googleSearch: {} }],
         responseMimeType: 'application/json'
@@ -685,19 +671,19 @@ export const generateDealArchitecture = async (client: Client): Promise<DealStra
 };
 
 export const extractClientDataFromImage = async (base64Image: string): Promise<Partial<Client>> => {
-    const ai = getAiClient();
     const prompt = "Extract client details (Name, Address, Loan Amount, Rate, Phone, Email) from this document. Return JSON.";
     
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash', 
-        contents: {
+    // Robust fallback handling
+    const response = await generateContentWithFallback(
+        'gemini-2.5-flash',
+        {
             parts: [
                 { inlineData: { mimeType: 'image/jpeg', data: base64Image } },
                 { text: prompt }
             ]
         },
-        config: { responseMimeType: 'application/json' }
-    });
+        { responseMimeType: 'application/json' }
+    );
     
     return JSON.parse(response.text || "{}");
 };
@@ -723,16 +709,16 @@ export const generateGiftSuggestions = async (client: Client): Promise<GiftSugge
 };
 
 export const transcribeAudio = async (base64Audio: string): Promise<string> => {
-    const ai = getAiClient();
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: {
+    const response = await generateContentWithFallback(
+        'gemini-2.5-flash',
+        {
             parts: [
                 { inlineData: { mimeType: 'audio/webm', data: base64Audio } },
                 { text: "Transcribe this audio exactly." }
             ]
-        }
-    });
+        },
+        {}
+    );
     return response.text || "";
 };
 
@@ -740,15 +726,18 @@ export const transcribeAudio = async (base64Audio: string): Promise<string> => {
 // PLANNER
 // ------------------------------------------------------------------
 
-export const generateDailySchedule = async (currentEvents: CalendarEvent[], input: string, clients: Client[]): Promise<CalendarEvent[]> => {
+export const generateDailySchedule = async (currentEvents: CalendarEvent[], input: string, clients: Client[], targetDate?: string): Promise<CalendarEvent[]> => {
+    const dateContext = targetDate || new Date().toISOString().split('T')[0];
+
     const prompt = buildAgentPrompt(
         PERSONAS.CHIEF_OF_STAFF,
-        `Act as Chief of Staff. Update the schedule based on: "${input}".
-        Current Schedule: ${JSON.stringify(currentEvents)}.
+        `Act as Chief of Staff. Update the schedule for ${dateContext} based on: "${input}".
+        Current Schedule for ${dateContext}: ${JSON.stringify(currentEvents)}.
         Available Clients: ${JSON.stringify(clients.map(c => ({ id: c.id, name: c.name })))}.
         
         If input implies meeting a client, link clientId.
-        Return JSON array of NEW CalendarEvents to add.`
+        Return JSON array of NEW CalendarEvents to add.
+        IMPORTANT: Ensure all ISO timestamps use the date ${dateContext} (e.g. "${dateContext}T09:00:00").`
     );
     
     const response = await generateContentWithFallback('gemini-3-pro-preview', prompt, {
@@ -756,13 +745,13 @@ export const generateDailySchedule = async (currentEvents: CalendarEvent[], inpu
         thinkingConfig: { thinkingBudget: 2048 }
     });
     
-    // Helper to ensure dates are today if not specified by LLM
+    // Helper to ensure dates are correct if not specified by LLM
     const events: CalendarEvent[] = JSON.parse(response.text || "[]");
-    const today = new Date().toISOString().split('T')[0];
     return events.map(e => ({
         ...e,
-        start: e.start.includes('T') ? e.start : `${today}T${e.start}`,
-        end: e.end.includes('T') ? e.end : `${today}T${e.end}`,
+        // Guard against LLM returning time-only or wrong date
+        start: e.start.includes('T') ? e.start : `${dateContext}T${e.start}`,
+        end: e.end.includes('T') ? e.end : `${dateContext}T${e.end}`,
         isAiGenerated: true
     }));
 };
