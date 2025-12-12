@@ -14,6 +14,7 @@ import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { INITIAL_CLIENTS, DEFAULT_DEAL_STAGES, COLOR_PALETTE } from '../constants';
 import { Skeleton } from './Skeleton';
+import { CreateClientModal } from '../features/clients/components/CreateClientModal';
 
 // Performance: Define import factory for prefetching
 const clientDetailViewPromise = () => import('./ClientDetailView');
@@ -597,6 +598,7 @@ export const ClientManager: React.FC = () => {
     const [isManageStagesOpen, setIsManageStagesOpen] = useState(false);
     const [newStageName, setNewStageName] = useState('');
     const [newStageColor, setNewStageColor] = useState(COLOR_PALETTE[0]);
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
     // -- Bulk Actions State --
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -678,23 +680,11 @@ export const ClientManager: React.FC = () => {
         setSelectedClient(updatedClient);
     }, []);
 
-    const handleCreateClient = useCallback(() => {
-        const newClient: Client = {
-            id: Date.now().toString(),
-            name: 'New Client',
-            email: '',
-            phone: '',
-            loanAmount: 0,
-            propertyAddress: '',
-            status: dealStages[0]?.name || 'Lead',
-            nextActionDate: new Date().toISOString().split('T')[0],
-            notes: '',
-            checklist: [],
-            emailHistory: []
-        };
+    const handleCreateClient = useCallback((newClient: Client) => {
         setClients(prev => [newClient, ...prev]);
-        setSelectedClient(newClient); // Direct selection
-    }, [dealStages]);
+        setSelectedClient(newClient);
+        showToast('Client created', 'success');
+    }, [showToast]);
 
     const handleDeleteClient = useCallback((id: string) => {
         if (confirm('Are you sure you want to delete this client?')) {
@@ -809,10 +799,10 @@ export const ClientManager: React.FC = () => {
                     onSelectOpportunity={handleSelectOpportunity}
                 />
 
-                <FilterToolbar 
+                <FilterToolbar
                     searchQuery={searchQuery}
                     onSearchChange={setSearchQuery}
-                    onAddClient={handleCreateClient}
+                    onAddClient={() => setIsCreateModalOpen(true)}
                     isFilterOpen={isFilterOpen}
                     onToggleFilter={() => setIsFilterOpen(!isFilterOpen)}
                     statusFilter={statusFilter}
@@ -887,8 +877,8 @@ export const ClientManager: React.FC = () => {
             <div className={`flex-1 flex flex-col h-full bg-gray-50 overflow-hidden absolute md:relative inset-0 z-40 md:z-0 transform transition-transform duration-300 shadow-2xl md:shadow-none ${selectedClient ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`}>
                 {selectedClient ? (
                     <Suspense fallback={<div className="flex h-full items-center justify-center bg-white"><Loader2 size={32} className="animate-spin text-brand-red"/></div>}>
-                        <ClientDetailView 
-                            client={selectedClient} 
+                        <ClientDetailView
+                            client={selectedClient}
                             dealStages={dealStages}
                             onUpdate={handleUpdateClient}
                             onDelete={handleDeleteClient}
@@ -905,6 +895,12 @@ export const ClientManager: React.FC = () => {
                     </div>
                 )}
             </div>
+            <CreateClientModal
+                isOpen={isCreateModalOpen}
+                onClose={() => setIsCreateModalOpen(false)}
+                onCreate={handleCreateClient}
+                defaultStatus={dealStages[0]?.name || 'Lead'}
+            />
         </div>
     );
 };

@@ -6,9 +6,8 @@ interface MarkdownRendererProps {
 }
 
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({ content, className = '' }) => {
-  if (!content) return null;
-
   const renderedContent = useMemo(() => {
+    if (!content) return null;
     const parseContent = (text: string) => {
         // Split text into paragraphs based on double newlines or just single lines to process lists correctly
         const lines = text.split('\n');
