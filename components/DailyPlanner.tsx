@@ -1,25 +1,28 @@
 import React, { useState, useEffect, memo, useCallback } from 'react';
 import { 
     Calendar as CalendarIcon, Clock, Plus, BrainCircuit, 
-    Sparkles, Loader2, ChevronRight, ChevronLeft, Link as LinkIcon, FileText, Trash2
+    Sparkles, Loader2, ChevronRight, ChevronLeft, Link as LinkIcon, FileText, Trash2, X, Square
 } from 'lucide-react';
 import { CalendarEvent, Client } from '../types';
 import { loadFromStorage, saveToStorage, StorageKeys } from '../services/storageService';
 import { generateDailySchedule, generateMeetingPrep } from '../services/geminiService';
 import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { EventModal } from './planner/EventModal';
 
 // --- SUB-COMPONENT: Time Slot Row (Memoized) ---
 const TimeSlotRow = memo(({ 
     hour, 
     events, 
     today, 
-    onEventClick 
+    onEventClick,
+    onAddEvent
 }: { 
     hour: number, 
     events: CalendarEvent[], 
     today: string, 
-    onEventClick: (e: CalendarEvent) => void 
+    onEventClick: (e: CalendarEvent) => void,
+    onAddEvent: (hour: number) => void
 }) => {
     const timeLabel = hour > 12 ? `${hour - 12} PM` : hour === 12 ? `12 PM` : `${hour} AM`;
     const hourEvents = events.filter(e => {
@@ -33,16 +36,24 @@ const TimeSlotRow = memo(({
                 {timeLabel}
             </div>
             <div className="flex-1 relative p-1">
-                {/* Hover 'Add' Button */}
-                <button className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-brand-dark transition-opacity" title="Add Event">
+                {/* Hover 'Add' Button - Accessible via Focus */}
+                <button 
+                    onClick={(e) => { e.stopPropagation(); onAddEvent(hour); }}
+                    className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 text-gray-300 hover:text-brand-dark transition-opacity z-10" 
+                    title={`Add Event at ${timeLabel}`}
+                    aria-label={`Add Event at ${timeLabel}`}
+                >
                     <Plus size={14}/>
                 </button>
                 
                 {hourEvents.map(event => (
                     <div 
                         key={event.id}
+                        role="button"
+                        tabIndex={0}
                         onClick={() => onEventClick(event)}
-                        className={`absolute inset-x-2 p-2 rounded-lg border text-xs cursor-pointer hover:brightness-95 transition-all shadow-sm flex items-center justify-between ${
+                        onKeyDown={(e) => e.key === 'Enter' && onEventClick(event)}
+                        className={`absolute inset-x-2 p-2 rounded-lg border text-xs cursor-pointer hover:brightness-95 transition-all shadow-sm flex items-center justify-between z-0 ${
                             event.type === 'MEETING' ? 'bg-blue-50 border-blue-200 text-blue-700' :
                             event.type === 'CALL' ? 'bg-green-50 border-green-200 text-green-700' :
                             event.type === 'BLOCK' ? 'bg-gray-100 border-gray-300 text-gray-600' :
@@ -91,6 +102,9 @@ export const DailyPlanner: React.FC = () => {
     const [isPrepping, setIsPrepping] = useState(false);
     const [isOptimizing, setIsOptimizing] = useState(false);
     const [naturalInput, setNaturalInput] = useState('');
+
+    // Add Event Modal
+    const [newEventModal, setNewEventModal] = useState<{isOpen: boolean, hour: number | null}>({isOpen: false, hour: null});
 
     useEffect(() => {
         saveToStorage(StorageKeys.CALENDAR_EVENTS, events);
@@ -199,6 +213,25 @@ export const DailyPlanner: React.FC = () => {
         if (selectedEvent?.id === id) setSelectedEvent(null);
     }, [selectedEvent]);
 
+    const onAddEventClick = useCallback((hour: number) => {
+        setNewEventModal({isOpen: true, hour});
+    }, []);
+
+    const handleSaveNewEvent = (eventData: Partial<CalendarEvent>) => {
+        const newEvent: CalendarEvent = {
+            id: `evt-${Date.now()}`,
+            title: eventData.title || 'New Event',
+            start: eventData.start || '',
+            end: eventData.end || '',
+            type: eventData.type || 'BLOCK',
+            notes: eventData.notes || '',
+            clientId: eventData.clientId
+        };
+        
+        setEvents(prev => [...prev, newEvent]);
+        showToast('Event added', 'success');
+    };
+
     const timeSlots = Array.from({ length: 11 }, (_, i) => i + 8); // 8 to 18
 
     return (
@@ -233,7 +266,8 @@ export const DailyPlanner: React.FC = () => {
                             hour={hour} 
                             events={events} 
                             today={dateStr} 
-                            onEventClick={handleEventClick} 
+                            onEventClick={handleEventClick}
+                            onAddEvent={onAddEventClick}
                         />
                     ))}
                 </div>
@@ -320,6 +354,16 @@ export const DailyPlanner: React.FC = () => {
                     )}
                 </div>
             </div>
+
+            {/* Quick Event Modal */}
+            <EventModal 
+                isOpen={newEventModal.isOpen} 
+                onClose={() => setNewEventModal({isOpen: false, hour: null})}
+                onSave={handleSaveNewEvent}
+                initialHour={newEventModal.hour}
+                dateStr={dateStr}
+                clients={clients}
+            />
         </div>
     );
 };

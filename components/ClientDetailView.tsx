@@ -756,13 +756,13 @@ export const ClientDetailView: React.FC<ClientDetailViewProps> = memo(({
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Email</label>
                                 <div className="relative"><Mail className="absolute left-3 top-2.5 text-gray-400" size={14} />
-                                    <BufferedInput value={client.email} onCommit={(val) => onUpdate({...client, email: val})} className="w-full pl-9 p-2 bg-gray-50 border border-gray-200 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="Email"/>
+                                    <BufferedInput type="email" value={client.email} onCommit={(val) => onUpdate({...client, email: val})} className="w-full pl-9 p-2 bg-gray-50 border border-gray-200 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="Email"/>
                                 </div>
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Phone</label>
                                 <div className="relative"><Phone className="absolute left-3 top-2.5 text-gray-400" size={14} />
-                                    <BufferedInput value={client.phone} onCommit={(val) => onUpdate({...client, phone: val})} className="w-full pl-9 p-2 bg-gray-50 border border-gray-200 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="Phone"/>
+                                    <BufferedInput type="tel" value={client.phone} onCommit={(val) => onUpdate({...client, phone: val})} className="w-full pl-9 p-2 bg-gray-50 border border-gray-200 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="Phone"/>
                                 </div>
                             </div>
                             {isEditing && (

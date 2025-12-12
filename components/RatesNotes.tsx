@@ -221,8 +221,9 @@ export const RatesNotes: React.FC = () => {
                             </button>
                             <button 
                                 onClick={handleGenerateBrief}
-                                disabled={isGeneratingBrief}
-                                className="px-3 py-2 bg-brand-red hover:bg-red-700 rounded-lg text-xs font-bold transition-colors flex items-center shadow-lg disabled:opacity-50"
+                                disabled={isGeneratingBrief || !notes.trim()}
+                                title={!notes.trim() ? "Add notes first" : "Generate email"}
+                                className="px-3 py-2 bg-brand-red hover:bg-red-700 rounded-lg text-xs font-bold transition-colors flex items-center shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {isGeneratingBrief ? <Loader2 size={14} className="animate-spin mr-1"/> : <Mail size={14} className="mr-1"/>}
                                 Draft Partner Update

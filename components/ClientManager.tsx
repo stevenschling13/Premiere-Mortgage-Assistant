@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, useDeferredValue, Suspense, useCallback, memo } from 'react';
 import { 
     Users, Search, Plus, Filter, Settings, Trash2, X, Sparkles, Loader2, 
-    CheckSquare, Square, Radar, XCircle, Briefcase, Headphones, Pause, Check, MoreHorizontal
+    CheckSquare, Square, Radar, XCircle, Briefcase, Headphones, Pause, Check, MoreHorizontal, DollarSign, Mail, Phone, User
 } from 'lucide-react';
 import { FixedSizeList as List, areEqual } from 'react-window';
 import { Client, DealStage, Opportunity } from '../types';
@@ -14,6 +14,7 @@ import { useToast } from './Toast';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { INITIAL_CLIENTS, DEFAULT_DEAL_STAGES, COLOR_PALETTE } from '../constants';
 import { Skeleton } from './Skeleton';
+import { CreateClientModal } from './clients/CreateClientModal';
 
 // Performance: Define import factory for prefetching
 const clientDetailViewPromise = () => import('./ClientDetailView');
@@ -601,6 +602,9 @@ export const ClientManager: React.FC = () => {
     // -- Bulk Actions State --
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+    // -- Add Client Modal State --
+    const [isAddClientModalOpen, setIsAddClientModalOpen] = useState(false);
+
     // -- Effects --
     useEffect(() => {
         saveToStorage(StorageKeys.CLIENTS, clients);
@@ -678,23 +682,15 @@ export const ClientManager: React.FC = () => {
         setSelectedClient(updatedClient);
     }, []);
 
-    const handleCreateClient = useCallback(() => {
-        const newClient: Client = {
-            id: Date.now().toString(),
-            name: 'New Client',
-            email: '',
-            phone: '',
-            loanAmount: 0,
-            propertyAddress: '',
-            status: dealStages[0]?.name || 'Lead',
-            nextActionDate: new Date().toISOString().split('T')[0],
-            notes: '',
-            checklist: [],
-            emailHistory: []
-        };
+    const handleOpenAddClient = useCallback(() => {
+        setIsAddClientModalOpen(true);
+    }, []);
+
+    const handleConfirmAddClient = useCallback((newClient: Client) => {
         setClients(prev => [newClient, ...prev]);
-        setSelectedClient(newClient); // Direct selection
-    }, [dealStages]);
+        setSelectedClient(newClient); 
+        showToast('New client added', 'success');
+    }, [showToast]);
 
     const handleDeleteClient = useCallback((id: string) => {
         if (confirm('Are you sure you want to delete this client?')) {
@@ -812,7 +808,7 @@ export const ClientManager: React.FC = () => {
                 <FilterToolbar 
                     searchQuery={searchQuery}
                     onSearchChange={setSearchQuery}
-                    onAddClient={handleCreateClient}
+                    onAddClient={handleOpenAddClient}
                     isFilterOpen={isFilterOpen}
                     onToggleFilter={() => setIsFilterOpen(!isFilterOpen)}
                     statusFilter={statusFilter}
@@ -905,6 +901,14 @@ export const ClientManager: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            {/* Add Client Modal */}
+            <CreateClientModal 
+                isOpen={isAddClientModalOpen}
+                onClose={() => setIsAddClientModalOpen(false)}
+                onSave={handleConfirmAddClient}
+                initialStatus={dealStages[0]?.name || 'Lead'}
+            />
         </div>
     );
 };
