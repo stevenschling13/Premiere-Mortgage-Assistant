@@ -11,20 +11,22 @@ import { MarkdownRenderer } from './MarkdownRenderer';
 
 // --- SUB-COMPONENT: Time Slot Row (Memoized) ---
 const TimeSlotRow = memo(({ 
-    hour, 
-    events, 
-    today, 
-    onEventClick 
-}: { 
-    hour: number, 
-    events: CalendarEvent[], 
-    today: string, 
-    onEventClick: (e: CalendarEvent) => void 
+    hour,
+    events,
+    currentDate,
+    onEventClick,
+    onAddEvent
+}: {
+    hour: number,
+    events: CalendarEvent[],
+    currentDate: string,
+    onEventClick: (e: CalendarEvent) => void,
+    onAddEvent: (hour: number) => void
 }) => {
     const timeLabel = hour > 12 ? `${hour - 12} PM` : hour === 12 ? `12 PM` : `${hour} AM`;
     const hourEvents = events.filter(e => {
         const eventDate = new Date(e.start);
-        return eventDate.getHours() === hour && e.start.startsWith(today);
+        return eventDate.getHours() === hour && e.start.startsWith(currentDate);
     });
 
     return (
@@ -34,7 +36,12 @@ const TimeSlotRow = memo(({
             </div>
             <div className="flex-1 relative p-1">
                 {/* Hover 'Add' Button */}
-                <button className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-brand-dark transition-opacity" title="Add Event">
+                <button
+                    className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-brand-dark transition-opacity"
+                    title="Add Event"
+                    aria-label={`Add event at ${timeLabel}`}
+                    onClick={() => onAddEvent(hour)}
+                >
                     <Plus size={14}/>
                 </button>
                 
@@ -67,7 +74,7 @@ const TimeSlotRow = memo(({
 
 export const DailyPlanner: React.FC = () => {
     const { showToast } = useToast();
-    const today = new Date().toISOString().split('T')[0];
+    const [currentDate, setCurrentDate] = useState(() => new Date().toISOString().split('T')[0]);
     
     // Data State
     const [events, setEvents] = useState<CalendarEvent[]>(() => 
@@ -81,6 +88,35 @@ export const DailyPlanner: React.FC = () => {
     const [isPrepping, setIsPrepping] = useState(false);
     const [isOptimizing, setIsOptimizing] = useState(false);
     const [naturalInput, setNaturalInput] = useState('');
+
+    const navigateDay = useCallback((direction: 1 | -1) => {
+        const nextDate = new Date(currentDate);
+        nextDate.setDate(nextDate.getDate() + direction);
+        setCurrentDate(nextDate.toISOString().split('T')[0]);
+    }, [currentDate]);
+
+    const handleAddEvent = useCallback((hour: number) => {
+        const title = window.prompt('Add event title');
+        if (!title) {
+            return;
+        }
+
+        const startDate = new Date(`${currentDate}T${String(hour).padStart(2, '0')}:00:00`);
+        const endDate = new Date(startDate);
+        endDate.setMinutes(endDate.getMinutes() + 30);
+
+        const newEvent: CalendarEvent = {
+            id: `evt-${Date.now()}`,
+            title: title.trim(),
+            start: startDate.toISOString(),
+            end: endDate.toISOString(),
+            type: 'MEETING',
+            isAiGenerated: false
+        };
+
+        setEvents(prev => [...prev, newEvent]);
+        showToast('Event added to your planner.', 'success');
+    }, [currentDate, showToast]);
 
     useEffect(() => {
         saveToStorage(StorageKeys.CALENDAR_EVENTS, events);
@@ -178,24 +214,39 @@ export const DailyPlanner: React.FC = () => {
                 <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 md:safe-top">
                     <div>
                         <h2 className="text-xl font-bold text-brand-dark flex items-center">
-                            <CalendarIcon className="mr-2 text-brand-gold" size={20}/> 
+                            <CalendarIcon className="mr-2 text-brand-gold" size={20}/>
                             Daily Planner
                         </h2>
-                        <p className="text-xs text-gray-500">{new Date().toLocaleDateString(undefined, {weekday: 'long', month: 'long', day: 'numeric'})}</p>
+                        <p className="text-xs text-gray-500">{new Date(`${currentDate}T00:00:00`).toLocaleDateString(undefined, {weekday: 'long', month: 'long', day: 'numeric'})}</p>
                     </div>
                     <div className="flex items-center space-x-2">
-                        <button onClick={() => {}} className="p-2 hover:bg-white rounded-full transition-colors text-gray-500"><ChevronLeft size={20}/></button>
-                        <button onClick={() => {}} className="p-2 hover:bg-white rounded-full transition-colors text-gray-500"><ChevronRight size={20}/></button>
+                        <button
+                            onClick={() => navigateDay(-1)}
+                            className="p-2 hover:bg-white rounded-full transition-colors text-gray-500"
+                            aria-label="Previous day"
+                            title="Previous day"
+                        >
+                            <ChevronLeft size={20}/>
+                        </button>
+                        <button
+                            onClick={() => navigateDay(1)}
+                            className="p-2 hover:bg-white rounded-full transition-colors text-gray-500"
+                            aria-label="Next day"
+                            title="Next day"
+                        >
+                            <ChevronRight size={20}/>
+                        </button>
                     </div>
                 </div>
                 <div className="flex-1 overflow-y-auto">
                     {timeSlots.map(hour => (
-                        <TimeSlotRow 
-                            key={hour} 
-                            hour={hour} 
-                            events={events} 
-                            today={today} 
-                            onEventClick={handleEventClick} 
+                        <TimeSlotRow
+                            key={hour}
+                            hour={hour}
+                            events={events}
+                            currentDate={currentDate}
+                            onEventClick={handleEventClick}
+                            onAddEvent={handleAddEvent}
                         />
                     ))}
                 </div>
