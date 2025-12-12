@@ -6,7 +6,7 @@ import {
 } from '../types';
 import { MORTGAGE_TERMS, INITIAL_SCRIPTS } from '../constants';
 
-const API_KEY = process.env.API_KEY || '';
+const API_KEY = import.meta.env.VITE_API_KEY || (typeof process !== 'undefined' ? process.env.API_KEY : '') || '';
 
 const getAiClient = () => {
   if (!API_KEY) {
@@ -279,9 +279,12 @@ export const verifyFactualClaims = async (text: string): Promise<VerificationRes
         }, 'gemini-2.5-flash');
 
         const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-        const sources = groundingChunks
-            .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null)
-            .filter((x: any) => x !== null);
+        const sources = groundingChunks.flatMap((c: any) => {
+            if (c.web && c.web.uri && c.web.title) {
+                return [{ uri: String(c.web.uri), title: String(c.web.title) }];
+            }
+            return [];
+        });
 
         let parsed: any = { status: 'UNVERIFIABLE', text: 'Could not parse verification result.' };
         try {
@@ -360,9 +363,12 @@ export const fetchDailyMarketPulse = async (): Promise<{ indices: MarketIndex[],
         }, 'gemini-2.5-flash');
 
         const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-        const sources = groundingChunks
-            .map((c: any) => c.web ? { uri: c.web.uri, title: c.web.title } : null)
-            .filter((x: any) => x !== null);
+        const sources = groundingChunks.flatMap((c: any) => {
+            if (c.web && c.web.uri && c.web.title) {
+                return [{ uri: String(c.web.uri), title: String(c.web.title) }];
+            }
+            return [];
+        });
 
         let data = { indices: [], news: [] };
         try {
